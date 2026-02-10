@@ -159,6 +159,9 @@ export default function VoiceTicketsPage() {
     setSheetOpen(true);
   };
 
+  const isAM = currentUser?.role === "am";
+  const canModify = !isAM;
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
