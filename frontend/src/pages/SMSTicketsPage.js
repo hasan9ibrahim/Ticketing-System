@@ -22,6 +22,9 @@ export default function SMSTicketsPage() {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
+  const [priorityFilter, setPriorityFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [customerFilter, setCustomerFilter] = useState("all");
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editingTicket, setEditingTicket] = useState(null);
   const [formData, setFormData] = useState({});
