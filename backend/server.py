@@ -467,6 +467,10 @@ async def get_sms_ticket(ticket_id: str, current_user: dict = Depends(get_curren
 
 @api_router.put("/tickets/sms/{ticket_id}", response_model=SMSTicket)
 async def update_sms_ticket(ticket_id: str, ticket_data: SMSTicketUpdate, current_user: dict = Depends(get_current_user)):
+    # AMs cannot update tickets
+    if current_user["role"] == "am":
+        raise HTTPException(status_code=403, detail="Account Managers cannot modify tickets")
+    
     update_dict = {k: v for k, v in ticket_data.model_dump().items() if v is not None}
     update_dict["updated_at"] = datetime.now(timezone.utc).isoformat()
     
