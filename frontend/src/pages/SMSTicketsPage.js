@@ -237,14 +237,16 @@ export default function SMSTicketsPage() {
           <h1 className="text-4xl font-bold text-white">SMS Tickets</h1>
           <p className="text-zinc-400 mt-1">Manage and track SMS trouble tickets</p>
         </div>
-        <Button
-          onClick={openCreateSheet}
-          data-testid="create-sms-ticket-button"
-          className="bg-emerald-500 text-black hover:bg-emerald-400 h-9"
-        >
-          <Plus className="h-4 w-4 mr-2" />
-          New Ticket
-        </Button>
+        {canModify && (
+          <Button
+            onClick={openCreateSheet}
+            data-testid="create-sms-ticket-button"
+            className="bg-emerald-500 text-black hover:bg-emerald-400 h-9"
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            New Ticket
+          </Button>
+        )}
       </div>
 
       {/* Search and Filters */}
