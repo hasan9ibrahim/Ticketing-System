@@ -190,9 +190,9 @@ class VoiceTicket(BaseModel):
 
 class VoiceTicketCreate(BaseModel):
     priority: str
-    volume: Optional[str] = None
+    volume: str
     customer_id: str
-    customer_trunk: Optional[str] = None
+    customer_trunk: str
     destination: Optional[str] = None
     issue: str
     opened_via: str
