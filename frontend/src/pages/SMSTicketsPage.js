@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import StatusBadge from "@/components/custom/StatusBadge";
 import PriorityIndicator from "@/components/custom/PriorityIndicator";
 import SearchableSelect from "@/components/custom/SearchableSelect";
+import DateRangePicker from "@/components/custom/DateRangePicker";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
