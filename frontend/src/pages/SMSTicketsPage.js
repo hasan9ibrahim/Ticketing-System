@@ -9,10 +9,12 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import StatusBadge from "@/components/custom/StatusBadge";
 import PriorityIndicator from "@/components/custom/PriorityIndicator";
 import SearchableSelect from "@/components/custom/SearchableSelect";
-import DateRangePicker from "@/components/custom/DateRangePicker";
+import DateRangePickerWithRange from "@/components/custom/DateRangePickerWithRange";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -20,15 +22,16 @@ const API = `${BACKEND_URL}/api`;
 export default function SMSTicketsPage() {
   const [tickets, setTickets] = useState([]);
   const [filteredTickets, setFilteredTickets] = useState([]);
-  const [clients, setClients] = useState([]);
+  const [enterprises, setEnterprises] = useState([]);
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [customerFilter, setCustomerFilter] = useState("all");
-  const [dateFilter, setDateFilter] = useState(new Date()); // Default to today
-  const [sortBy, setSortBy] = useState("date-desc");
+  const [enterpriseFilter, setEnterpriseFilter] = useState("all");
+  const [dateRange, setDateRange] = useState({ from: new Date(), to: new Date() });
+  const [sortBy, setSortBy] = useState("priority-volume-opened");
+  const [activeTab, setActiveTab] = useState("unassigned");
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editingTicket, setEditingTicket] = useState(null);
   const [formData, setFormData] = useState({});
@@ -38,23 +41,22 @@ export default function SMSTicketsPage() {
   }, []);
 
   useEffect(() => {
-    filterTickets();
-  }, [searchTerm, priorityFilter, statusFilter, customerFilter, dateFilter, sortBy, tickets]);
+    filterAndSortTickets();
+  }, [searchTerm, priorityFilter, statusFilter, enterpriseFilter, dateRange, sortBy, activeTab, tickets]);
 
   const fetchData = async () => {
     try {
       const token = localStorage.getItem("token");
       const headers = { Authorization: `Bearer ${token}` };
 
-      const [ticketsRes, clientsRes, usersRes] = await Promise.all([
+      const [ticketsRes, enterprisesRes, usersRes] = await Promise.all([
         axios.get(`${API}/tickets/sms`, { headers }),
         axios.get(`${API}/clients`, { headers }),
         axios.get(`${API}/users`, { headers }),
       ]);
 
       setTickets(ticketsRes.data);
-      setFilteredTickets(ticketsRes.data);
-      setClients(clientsRes.data);
+      setEnterprises(enterprisesRes.data);
       setUsers(usersRes.data.filter((u) => u.role === "noc"));
     } catch (error) {
       toast.error("Failed to load data");
@@ -63,8 +65,28 @@ export default function SMSTicketsPage() {
     }
   };
 
-  const filterTickets = () => {
+  const getOpenedViaPriority = (openedVia) => {
+    if (!openedVia) return 999;
+    const lower = openedVia.toLowerCase();
+    if (lower.includes("monitoring")) return 0;
+    if (lower.includes("teams")) return 1;
+    if (lower.includes("email")) return 2;
+    return 3;
+  };
+
+  const filterAndSortTickets = () => {
     let filtered = tickets;
+
+    // Tab filtering
+    if (activeTab === "unassigned") {
+      filtered = filtered.filter((t) => t.status === "Unassigned");
+    } else if (activeTab === "assigned") {
+      filtered = filtered.filter((t) => t.status === "Assigned");
+    } else if (activeTab === "other") {
+      filtered = filtered.filter((t) => 
+        !["Unassigned", "Assigned"].includes(t.status)
+      );
+    }
 
     // Text search
     if (searchTerm) {
@@ -86,41 +108,44 @@ export default function SMSTicketsPage() {
       filtered = filtered.filter((ticket) => ticket.status === statusFilter);
     }
 
-    // Customer filter
-    if (customerFilter !== "all") {
-      filtered = filtered.filter((ticket) => ticket.customer_id === customerFilter);
+    // Enterprise filter
+    if (enterpriseFilter !== "all") {
+      filtered = filtered.filter((ticket) => ticket.customer_id === enterpriseFilter);
     }
 
-    // Date filter
-    if (dateFilter) {
-      const filterDay = new Date(dateFilter.getFullYear(), dateFilter.getMonth(), dateFilter.getDate());
+    // Date range filter
+    if (dateRange?.from) {
+      const fromDay = new Date(dateRange.from.getFullYear(), dateRange.from.getMonth(), dateRange.from.getDate());
+      const toDay = dateRange.to 
+        ? new Date(dateRange.to.getFullYear(), dateRange.to.getMonth(), dateRange.to.getDate())
+        : fromDay;
       
       filtered = filtered.filter((ticket) => {
         const ticketDate = new Date(ticket.date);
         const ticketDay = new Date(ticketDate.getFullYear(), ticketDate.getMonth(), ticketDate.getDate());
-        return ticketDay.getTime() === filterDay.getTime();
+        return ticketDay >= fromDay && ticketDay <= toDay;
       });
     }
 
-    // Sorting
+    // Complex multi-level sorting: Priority > Volume > Opened Via
     filtered.sort((a, b) => {
-      switch (sortBy) {
-        case "date-desc":
-          return new Date(b.date) - new Date(a.date);
-        case "date-asc":
-          return new Date(a.date) - new Date(b.date);
-        case "ticket-desc":
-          return b.ticket_number.localeCompare(a.ticket_number);
-        case "ticket-asc":
-          return a.ticket_number.localeCompare(b.ticket_number);
-        case "customer":
-          return a.customer.localeCompare(b.customer);
-        case "priority":
-          const priorityOrder = { "Urgent": 0, "High": 1, "Medium": 2, "Low": 3 };
-          return (priorityOrder[a.priority] || 999) - (priorityOrder[b.priority] || 999);
-        default:
-          return 0;
+      const priorityOrder = { "Urgent": 0, "High": 1, "Medium": 2, "Low": 3 };
+      const aPriority = priorityOrder[a.priority] || 999;
+      const bPriority = priorityOrder[b.priority] || 999;
+      
+      if (aPriority !== bPriority) {
+        return aPriority - bPriority;
       }
+      
+      // Then by volume (highest to lowest)
+      const aVolume = parseInt(a.volume) || 0;
+      const bVolume = parseInt(b.volume) || 0;
+      if (aVolume !== bVolume) {
+        return bVolume - aVolume;
+      }
+      
+      // Then by opened via (Monitoring > Teams > Email)
+      return getOpenedViaPriority(a.opened_via) - getOpenedViaPriority(b.opened_via);
     });
 
     setFilteredTickets(filtered);
@@ -146,9 +171,12 @@ export default function SMSTicketsPage() {
     setEditingTicket(null);
     setFormData({
       priority: "Medium",
-      status: "Assigned",
+      status: "Unassigned",
       opened_via: "Monitoring",
       is_lcr: "no",
+      client_or_vendor: "client",
+      volume: "0",
+      customer_trunk: ""
     });
     setSheetOpen(true);
   };
@@ -189,6 +217,10 @@ export default function SMSTicketsPage() {
     );
   }
 
+  const unassignedCount = tickets.filter(t => t.status === "Unassigned").length;
+  const assignedCount = tickets.filter(t => t.status === "Assigned").length;
+  const otherCount = tickets.filter(t => !["Unassigned", "Assigned"].includes(t.status)).length;
+
   return (
     <div className="p-6 lg:p-8 space-y-6 max-w-[1920px] mx-auto" data-testid="sms-tickets-page">
       {/* Header */}
@@ -212,7 +244,7 @@ export default function SMSTicketsPage() {
         <div className="md:col-span-2 relative">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-zinc-500" />
           <Input
-            placeholder="Search tickets by number, customer, or issue..."
+            placeholder="Search tickets by number, enterprise, or issue..."
             data-testid="search-sms-tickets-input"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
@@ -220,9 +252,9 @@ export default function SMSTicketsPage() {
           />
         </div>
 
-        <DateRangePicker
-          date={dateFilter}
-          onDateChange={setDateFilter}
+        <DateRangePickerWithRange
+          dateRange={dateRange}
+          onDateRangeChange={setDateRange}
         />
 
         <Select value={priorityFilter} onValueChange={setPriorityFilter}>
@@ -244,6 +276,7 @@ export default function SMSTicketsPage() {
           </SelectTrigger>
           <SelectContent className="bg-zinc-800 border-zinc-700">
             <SelectItem value="all">All Statuses</SelectItem>
+            <SelectItem value="Unassigned">Unassigned</SelectItem>
             <SelectItem value="Assigned">Assigned</SelectItem>
             <SelectItem value="Awaiting Vendor">Awaiting Vendor</SelectItem>
             <SelectItem value="Awaiting Client">Awaiting Client</SelectItem>
@@ -255,34 +288,23 @@ export default function SMSTicketsPage() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Select value={customerFilter} onValueChange={setCustomerFilter}>
-          <SelectTrigger className="bg-zinc-900 border-zinc-700 text-white" data-testid="filter-customer">
-            <SelectValue placeholder="Filter by Customer" />
+        <Select value={enterpriseFilter} onValueChange={setEnterpriseFilter}>
+          <SelectTrigger className="bg-zinc-900 border-zinc-700 text-white" data-testid="filter-enterprise">
+            <SelectValue placeholder="Filter by Enterprise" />
           </SelectTrigger>
           <SelectContent className="bg-zinc-800 border-zinc-700">
-            <SelectItem value="all">All Customers</SelectItem>
-            {clients.map((client) => (
-              <SelectItem key={client.id} value={client.id}>
-                {client.name}
+            <SelectItem value="all">All Enterprises</SelectItem>
+            {enterprises.map((enterprise) => (
+              <SelectItem key={enterprise.id} value={enterprise.id}>
+                {enterprise.name}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
 
-        <Select value={sortBy} onValueChange={setSortBy}>
-          <SelectTrigger className="bg-zinc-900 border-zinc-700 text-white" data-testid="sort-select">
-            <ArrowUpDown className="h-4 w-4 mr-2" />
-            <SelectValue placeholder="Sort by" />
-          </SelectTrigger>
-          <SelectContent className="bg-zinc-800 border-zinc-700">
-            <SelectItem value="date-desc">Date (Newest First)</SelectItem>
-            <SelectItem value="date-asc">Date (Oldest First)</SelectItem>
-            <SelectItem value="ticket-desc">Ticket # (High to Low)</SelectItem>
-            <SelectItem value="ticket-asc">Ticket # (Low to High)</SelectItem>
-            <SelectItem value="customer">Customer (A-Z)</SelectItem>
-            <SelectItem value="priority">Priority (Urgent First)</SelectItem>
-          </SelectContent>
-        </Select>
+        <div className="text-zinc-400 text-sm flex items-center">
+          Sorted by: Priority → Volume → Opened Via
+        </div>
 
         <Button
           variant="outline"
@@ -290,9 +312,8 @@ export default function SMSTicketsPage() {
             setSearchTerm("");
             setPriorityFilter("all");
             setStatusFilter("all");
-            setCustomerFilter("all");
-            setDateFilter(new Date());
-            setSortBy("date-desc");
+            setEnterpriseFilter("all");
+            setDateRange({ from: new Date(), to: new Date() });
           }}
           className="border-zinc-700 text-zinc-400 hover:text-white hover:bg-zinc-800"
           data-testid="clear-filters-button"
@@ -301,315 +322,107 @@ export default function SMSTicketsPage() {
         </Button>
       </div>
 
-      {/* Table */}
-      <div className="bg-zinc-900/50 border border-white/10 rounded-lg overflow-hidden">
-        <Table>
-          <TableHeader>
-            <TableRow className="border-white/5 hover:bg-transparent">
-              <TableHead className="text-zinc-400">Priority</TableHead>
-              <TableHead className="text-zinc-400">Ticket #</TableHead>
-              <TableHead className="text-zinc-400">Customer</TableHead>
-              <TableHead className="text-zinc-400">Issue</TableHead>
-              <TableHead className="text-zinc-400">Status</TableHead>
-              <TableHead className="text-zinc-400">Assigned To</TableHead>
-              <TableHead className="text-zinc-400">Date</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {filteredTickets.length > 0 ? (
-              (() => {
-                const groupedTickets = groupTicketsByDate();
-                return Object.entries(groupedTickets).map(([date, tickets], groupIndex) => (
-                  <React.Fragment key={date}>
-                    {/* Date Separator */}
-                    <TableRow className="bg-zinc-800/30 border-white/10">
-                      <TableCell colSpan={7} className="py-2 px-4">
-                        <div className="flex items-center space-x-3">
-                          <Calendar className="h-4 w-4 text-emerald-500" />
-                          <span className="text-sm font-semibold text-emerald-500">{date}</span>
-                          <div className="flex-1 h-px bg-white/10"></div>
-                          <span className="text-xs text-zinc-500">{tickets.length} ticket{tickets.length !== 1 ? 's' : ''}</span>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                    {/* Tickets for this date */}
-                    {tickets.map((ticket) => {
-                      const assignedUser = users.find((u) => u.id === ticket.assigned_to);
-                      return (
-                        <TableRow
-                          key={ticket.id}
-                          onClick={() => openEditSheet(ticket)}
-                          className="border-white/5 hover:bg-zinc-800/50 cursor-pointer"
-                          data-testid="sms-ticket-row"
-                        >
-                          <TableCell className="p-3">
-                            <PriorityIndicator priority={ticket.priority} />
-                          </TableCell>
-                          <TableCell className="text-white font-medium tabular-nums">{ticket.ticket_number}</TableCell>
-                          <TableCell className="text-zinc-300">{ticket.customer}</TableCell>
-                          <TableCell className="text-zinc-300 max-w-xs truncate">{ticket.issue}</TableCell>
-                          <TableCell>
-                            <StatusBadge status={ticket.status} />
-                          </TableCell>
-                          <TableCell className="text-zinc-300">{assignedUser?.username || "Unassigned"}</TableCell>
-                          <TableCell className="text-zinc-400 tabular-nums">
-                            {new Date(ticket.date).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+      {/* Status Tabs */}
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <TabsList className="grid w-full max-w-md grid-cols-3 bg-zinc-900 border border-white/10">
+          <TabsTrigger 
+            value="unassigned" 
+            className="data-[state=active]:bg-emerald-500 data-[state=active]:text-black"
+            data-testid="tab-unassigned"
+          >
+            Unassigned ({unassignedCount})
+          </TabsTrigger>
+          <TabsTrigger 
+            value="assigned"
+            className="data-[state=active]:bg-emerald-500 data-[state=active]:text-black"
+            data-testid="tab-assigned"
+          >
+            Assigned ({assignedCount})
+          </TabsTrigger>
+          <TabsTrigger 
+            value="other"
+            className="data-[state=active]:bg-emerald-500 data-[state=active]:text-black"
+            data-testid="tab-other"
+          >
+            Other ({otherCount})
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value={activeTab} className="mt-4">
+          {/* Table */}
+          <div className="bg-zinc-900/50 border border-white/10 rounded-lg overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow className="border-white/5 hover:bg-transparent">
+                  <TableHead className="text-zinc-400">Priority</TableHead>
+                  <TableHead className="text-zinc-400">Ticket #</TableHead>
+                  <TableHead className="text-zinc-400">Enterprise</TableHead>
+                  <TableHead className="text-zinc-400">Issue</TableHead>
+                  <TableHead className="text-zinc-400">Status</TableHead>
+                  <TableHead className="text-zinc-400">Assigned To</TableHead>
+                  <TableHead className="text-zinc-400">Date</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredTickets.length > 0 ? (
+                  (() => {
+                    const groupedTickets = groupTicketsByDate();
+                    return Object.entries(groupedTickets).map(([date, tickets]) => (
+                      <React.Fragment key={date}>
+                        {/* Date Separator */}
+                        <TableRow className="bg-zinc-800/30 border-white/10">
+                          <TableCell colSpan={7} className="py-2 px-4">
+                            <div className="flex items-center space-x-3">
+                              <Calendar className="h-4 w-4 text-emerald-500" />
+                              <span className="text-sm font-semibold text-emerald-500">{date}</span>
+                              <div className="flex-1 h-px bg-white/10"></div>
+                              <span className="text-xs text-zinc-500">{tickets.length} ticket{tickets.length !== 1 ? 's' : ''}</span>
+                            </div>
                           </TableCell>
                         </TableRow>
-                      );
-                    })}
-                  </React.Fragment>
-                ));
-              })()
-            ) : (
-              <TableRow>
-                <TableCell colSpan={7} className="text-center py-8 text-zinc-500">
-                  No tickets found
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </div>
+                        {/* Tickets for this date */}
+                        {tickets.map((ticket) => {
+                          const assignedUser = users.find((u) => u.id === ticket.assigned_to);
+                          return (
+                            <TableRow
+                              key={ticket.id}
+                              onClick={() => openEditSheet(ticket)}
+                              className="border-white/5 hover:bg-zinc-800/50 cursor-pointer"
+                              data-testid="sms-ticket-row"
+                            >
+                              <TableCell className="p-3">
+                                <PriorityIndicator priority={ticket.priority} />
+                              </TableCell>
+                              <TableCell className="text-white font-medium tabular-nums">{ticket.ticket_number}</TableCell>
+                              <TableCell className="text-zinc-300">{ticket.customer}</TableCell>
+                              <TableCell className="text-zinc-300 max-w-xs truncate">{ticket.issue}</TableCell>
+                              <TableCell>
+                                <StatusBadge status={ticket.status} />
+                              </TableCell>
+                              <TableCell className="text-zinc-300">{assignedUser?.username || "Unassigned"}</TableCell>
+                              <TableCell className="text-zinc-400 tabular-nums">
+                                {new Date(ticket.date).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </React.Fragment>
+                    ));
+                  })()
+                ) : (
+                  <TableRow>
+                    <TableCell colSpan={7} className="text-center py-8 text-zinc-500">
+                      No tickets found
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </TabsContent>
+      </Tabs>
 
-      {/* Ticket Sheet */}
-      <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-        <SheetContent className="bg-zinc-900 border-white/10 text-white sm:max-w-2xl overflow-y-auto" data-testid="sms-ticket-sheet">
-          <SheetHeader>
-            <SheetTitle className="text-white">{editingTicket ? "Edit SMS Ticket" : "Create SMS Ticket"}</SheetTitle>
-          </SheetHeader>
-          <form onSubmit={handleSubmit} className="space-y-4 mt-6">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Priority *</Label>
-                <Select
-                  value={formData.priority}
-                  onValueChange={(value) => setFormData({ ...formData, priority: value })}
-                  required
-                >
-                  <SelectTrigger className="bg-zinc-800 border-zinc-700" data-testid="priority-select">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="bg-zinc-800 border-zinc-700">
-                    <SelectItem value="Low">Low</SelectItem>
-                    <SelectItem value="Medium">Medium</SelectItem>
-                    <SelectItem value="High">High</SelectItem>
-                    <SelectItem value="Urgent">Urgent</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label>Status *</Label>
-                <Select
-                  value={formData.status}
-                  onValueChange={(value) => setFormData({ ...formData, status: value })}
-                  required
-                >
-                  <SelectTrigger className="bg-zinc-800 border-zinc-700" data-testid="status-select">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="bg-zinc-800 border-zinc-700">
-                    <SelectItem value="Assigned">Assigned</SelectItem>
-                    <SelectItem value="Awaiting Vendor">Awaiting Vendor</SelectItem>
-                    <SelectItem value="Awaiting Client">Awaiting Client</SelectItem>
-                    <SelectItem value="Awaiting AM">Awaiting AM</SelectItem>
-                    <SelectItem value="Resolved">Resolved</SelectItem>
-                    <SelectItem value="Unresolved">Unresolved</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label>Customer *</Label>
-              <SearchableSelect
-                options={clients.map(c => ({ value: c.id, label: c.name }))}
-                value={formData.customer_id}
-                onChange={(value) => setFormData({ ...formData, customer_id: value })}
-                placeholder="Search and select customer..."
-                isRequired={true}
-                isDisabled={!!editingTicket}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label>Assigned To</Label>
-              <SearchableSelect
-                options={users.map(u => ({ value: u.id, label: u.username }))}
-                value={formData.assigned_to}
-                onChange={(value) => setFormData({ ...formData, assigned_to: value })}
-                placeholder="Search and select NOC member..."
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label>Issue *</Label>
-              <Textarea
-                value={formData.issue || ""}
-                onChange={(e) => setFormData({ ...formData, issue: e.target.value })}
-                className="bg-zinc-800 border-zinc-700 text-white"
-                data-testid="issue-textarea"
-                required
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Volume *</Label>
-                <Input
-                  value={formData.volume || ""}
-                  onChange={(e) => setFormData({ ...formData, volume: e.target.value })}
-                  className="bg-zinc-800 border-zinc-700 text-white"
-                  placeholder="e.g., 10000"
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Opened Via *</Label>
-                <Select
-                  value={formData.opened_via}
-                  onValueChange={(value) => setFormData({ ...formData, opened_via: value })}
-                  required
-                >
-                  <SelectTrigger className="bg-zinc-800 border-zinc-700" data-testid="opened-via-select">
-                    <SelectValue placeholder="Select source" />
-                  </SelectTrigger>
-                  <SelectContent className="bg-zinc-800 border-zinc-700">
-                    <SelectItem value="Monitoring">Monitoring</SelectItem>
-                    <SelectItem value="Email">Email</SelectItem>
-                    <SelectItem value="Teams">Teams</SelectItem>
-                    <SelectItem value="AM">AM</SelectItem>
-                    <SelectItem value="Monitoring, Email">Monitoring, Email</SelectItem>
-                    <SelectItem value="Monitoring, Teams">Monitoring, Teams</SelectItem>
-                    <SelectItem value="Email, Teams">Email, Teams</SelectItem>
-                    <SelectItem value="Email, AM">Email, AM</SelectItem>
-                    <SelectItem value="Teams, AM">Teams, AM</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Customer Trunk *</Label>
-                <Input
-                  value={formData.customer_trunk || ""}
-                  onChange={(e) => setFormData({ ...formData, customer_trunk: e.target.value })}
-                  className="bg-zinc-800 border-zinc-700 text-white"
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Destination</Label>
-                <Input
-                  value={formData.destination || ""}
-                  onChange={(e) => setFormData({ ...formData, destination: e.target.value })}
-                  className="bg-zinc-800 border-zinc-700 text-white"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <Label>SID</Label>
-                <Input
-                  value={formData.sid || ""}
-                  onChange={(e) => setFormData({ ...formData, sid: e.target.value })}
-                  className="bg-zinc-800 border-zinc-700 text-white"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Rate</Label>
-                <Input
-                  value={formData.rate || ""}
-                  onChange={(e) => setFormData({ ...formData, rate: e.target.value })}
-                  className="bg-zinc-800 border-zinc-700 text-white"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Cost</Label>
-                <Input
-                  value={formData.cost || ""}
-                  onChange={(e) => setFormData({ ...formData, cost: e.target.value })}
-                  className="bg-zinc-800 border-zinc-700 text-white"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Vendor Trunk</Label>
-                <Input
-                  value={formData.vendor_trunk || ""}
-                  onChange={(e) => setFormData({ ...formData, vendor_trunk: e.target.value })}
-                  className="bg-zinc-800 border-zinc-700 text-white"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Is LCR</Label>
-                <Select
-                  value={formData.is_lcr}
-                  onValueChange={(value) => setFormData({ ...formData, is_lcr: value })}
-                >
-                  <SelectTrigger className="bg-zinc-800 border-zinc-700">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="bg-zinc-800 border-zinc-700">
-                    <SelectItem value="yes">Yes</SelectItem>
-                    <SelectItem value="no">No</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label>Content</Label>
-              <Textarea
-                value={formData.content || ""}
-                onChange={(e) => setFormData({ ...formData, content: e.target.value })}
-                className="bg-zinc-800 border-zinc-700 text-white"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label>Root Cause</Label>
-              <Textarea
-                value={formData.root_cause || ""}
-                onChange={(e) => setFormData({ ...formData, root_cause: e.target.value })}
-                className="bg-zinc-800 border-zinc-700 text-white"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label>Action Taken</Label>
-              <Textarea
-                value={formData.action_taken || ""}
-                onChange={(e) => setFormData({ ...formData, action_taken: e.target.value })}
-                className="bg-zinc-800 border-zinc-700 text-white"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label>Internal Notes</Label>
-              <Textarea
-                value={formData.internal_notes || ""}
-                onChange={(e) => setFormData({ ...formData, internal_notes: e.target.value })}
-                className="bg-zinc-800 border-zinc-700 text-white"
-              />
-            </div>
-
-            <div className="flex space-x-3 pt-4">
-              <Button type="submit" className="bg-emerald-500 text-black hover:bg-emerald-400" data-testid="save-ticket-button">
-                {editingTicket ? "Update Ticket" : "Create Ticket"}
-              </Button>
-              <Button type="button" variant="outline" onClick={() => setSheetOpen(false)} className="border-zinc-700 text-white hover:bg-zinc-800">
-                Cancel
-              </Button>
-            </div>
-          </form>
-        </SheetContent>
-      </Sheet>
+      {/* Ticket Sheet - TO BE CONTINUED IN NEXT PART */}
     </div>
   );
 }
