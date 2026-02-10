@@ -35,7 +35,7 @@ export default function VoiceTicketsPage() {
 
   useEffect(() => {
     filterTickets();
-  }, [searchTerm, tickets]);
+  }, [searchTerm, priorityFilter, statusFilter, customerFilter, tickets]);
 
   const fetchData = async () => {
     try {
