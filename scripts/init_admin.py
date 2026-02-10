@@ -59,39 +59,42 @@ async def create_admin():
         print("Username: noc_user")
         print("Password: noc123")
     
-    # Create sample AM user for SMS
-    am_user_sms = {
-        "id": str(uuid.uuid4()),
-        "username": "am_sms",
-        "email": "am_sms@wiitelecom.com",
-        "phone": None,
-        "password_hash": pwd_context.hash("am123"),
-        "role": "am",
-        "am_type": "sms",
-        "created_at": datetime.now(timezone.utc).isoformat()
-    }
+    # Create sample AM users
+    existing_am_sms = await db.users.find_one({"username": "am_sms"})
+    if not existing_am_sms:
+        am_user_sms = {
+            "id": str(uuid.uuid4()),
+            "username": "am_sms",
+            "email": "am_sms@wiitelecom.com",
+            "phone": None,
+            "password_hash": pwd_context.hash("am123"),
+            "role": "am",
+            "am_type": "sms",
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+        
+        await db.users.insert_one(am_user_sms)
+        print("\nSMS AM user created successfully!")
+        print("Username: am_sms")
+        print("Password: am123")
     
-    await db.users.insert_one(am_user_sms)
-    print("\nSMS AM user created successfully!")
-    print("Username: am_sms")
-    print("Password: am123")
-    
-    # Create sample AM user for Voice
-    am_user_voice = {
-        "id": str(uuid.uuid4()),
-        "username": "am_voice",
-        "email": "am_voice@wiitelecom.com",
-        "phone": None,
-        "password_hash": pwd_context.hash("am123"),
-        "role": "am",
-        "am_type": "voice",
-        "created_at": datetime.now(timezone.utc).isoformat()
-    }
-    
-    await db.users.insert_one(am_user_voice)
-    print("\nVoice AM user created successfully!")
-    print("Username: am_voice")
-    print("Password: am123")
+    existing_am_voice = await db.users.find_one({"username": "am_voice"})
+    if not existing_am_voice:
+        am_user_voice = {
+            "id": str(uuid.uuid4()),
+            "username": "am_voice",
+            "email": "am_voice@wiitelecom.com",
+            "phone": None,
+            "password_hash": pwd_context.hash("am123"),
+            "role": "am",
+            "am_type": "voice",
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+        
+        await db.users.insert_one(am_user_voice)
+        print("\nVoice AM user created successfully!")
+        print("Username: am_voice")
+        print("Password: am123")
     
     client.close()
 
