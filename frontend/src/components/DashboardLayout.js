@@ -29,14 +29,23 @@ export default function DashboardLayout({ user, setUser }) {
 
   const navItems = [
     { path: "/", label: "Dashboard", icon: LayoutDashboard, roles: ["admin", "am", "noc"] },
-    { path: "/sms-tickets", label: "SMS Tickets", icon: MessageSquare, roles: ["admin", "am", "noc"] },
-    { path: "/voice-tickets", label: "Voice Tickets", icon: Phone, roles: ["admin", "am", "noc"] },
+    { path: "/sms-tickets", label: "SMS Tickets", icon: MessageSquare, roles: ["admin", "noc"], amTypes: ["sms"] },
+    { path: "/voice-tickets", label: "Voice Tickets", icon: Phone, roles: ["admin", "noc"], amTypes: ["voice"] },
     { path: "/enterprises", label: "Enterprises", icon: Building2, roles: ["admin"] },
     { path: "/my-enterprises", label: "My Enterprises", icon: Briefcase, roles: ["am"] },
     { path: "/users", label: "Users", icon: Users, roles: ["admin"] },
   ];
 
-  const filteredNavItems = navItems.filter((item) => item.roles.includes(user.role));
+  const filteredNavItems = navItems.filter((item) => {
+    if (!item.roles.includes(user.role)) return false;
+    
+    // For AMs, check if they have the right am_type
+    if (user.role === "am" && item.amTypes) {
+      return item.amTypes.includes(user.am_type);
+    }
+    
+    return true;
+  });
 
   return (
     <div className="flex h-screen bg-zinc-950" data-testid="dashboard-layout">
