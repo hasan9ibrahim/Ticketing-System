@@ -41,20 +41,23 @@ async def create_admin():
         print("Password: admin123")
     
     # Create sample NOC user
-    noc_user = {
-        "id": str(uuid.uuid4()),
-        "username": "noc_user",
-        "email": "noc@wiitelecom.com",
-        "phone": None,
-        "password_hash": pwd_context.hash("noc123"),
-        "role": "noc",
-        "created_at": datetime.now(timezone.utc).isoformat()
-    }
-    
-    await db.users.insert_one(noc_user)
-    print("\nNOC user created successfully!")
-    print("Username: noc_user")
-    print("Password: noc123")
+    existing_noc = await db.users.find_one({"username": "noc_user"})
+    if not existing_noc:
+        noc_user = {
+            "id": str(uuid.uuid4()),
+            "username": "noc_user",
+            "email": "noc@wiitelecom.com",
+            "phone": None,
+            "password_hash": pwd_context.hash("noc123"),
+            "role": "noc",
+            "am_type": None,
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+        
+        await db.users.insert_one(noc_user)
+        print("\nNOC user created successfully!")
+        print("Username: noc_user")
+        print("Password: noc123")
     
     # Create sample AM user for SMS
     am_user_sms = {
