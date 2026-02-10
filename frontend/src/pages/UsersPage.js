@@ -169,6 +169,14 @@ export default function UsersPage() {
                     </span>
                   </TableCell>
                   <TableCell>
+                    {user.role === "am" && user.am_type && (
+                      <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-blue-500/20 text-blue-500 border border-blue-500/30 uppercase">
+                        {user.am_type}
+                      </span>
+                    )}
+                    {user.role !== "am" && <span className="text-zinc-500">-</span>}
+                  </TableCell>
+                  <TableCell>
                     <Button
                       size="sm"
                       variant="ghost"
