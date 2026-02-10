@@ -192,6 +192,9 @@ export default function SMSTicketsPage() {
     setSheetOpen(true);
   };
 
+  const isAM = currentUser?.role === "am";
+  const canModify = !isAM;
+
   const handleSubmit = async (e) => {
     e.preventDefault();
 
