@@ -35,8 +35,13 @@ export default function SMSTicketsPage() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editingTicket, setEditingTicket] = useState(null);
   const [formData, setFormData] = useState({});
+  const [currentUser, setCurrentUser] = useState(null);
 
   useEffect(() => {
+    const userData = localStorage.getItem("user");
+    if (userData) {
+      setCurrentUser(JSON.parse(userData));
+    }
     fetchData();
   }, []);
 
