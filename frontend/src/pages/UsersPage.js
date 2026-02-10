@@ -152,6 +152,7 @@ export default function UsersPage() {
               <TableHead className="text-zinc-400">Email</TableHead>
               <TableHead className="text-zinc-400">Phone</TableHead>
               <TableHead className="text-zinc-400">Role</TableHead>
+              <TableHead className="text-zinc-400">Assignment</TableHead>
               <TableHead className="text-zinc-400">Actions</TableHead>
             </TableRow>
           </TableHeader>
