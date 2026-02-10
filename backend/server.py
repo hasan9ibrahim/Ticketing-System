@@ -403,6 +403,10 @@ def generate_ticket_number(date: datetime, ticket_id: str) -> str:
 
 @api_router.post("/tickets/sms", response_model=SMSTicket)
 async def create_sms_ticket(ticket_data: SMSTicketCreate, current_user: dict = Depends(get_current_user)):
+    # AMs cannot create tickets
+    if current_user["role"] == "am":
+        raise HTTPException(status_code=403, detail="Account Managers cannot create tickets")
+    
     # Get customer name
     client = await db.clients.find_one({"id": ticket_data.customer_id}, {"_id": 0})
     if not client:
