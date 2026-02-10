@@ -92,26 +92,13 @@ export default function SMSTicketsPage() {
     }
 
     // Date filter
-    if (dateFilter !== "all") {
-      const now = new Date();
-      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    if (dateFilter) {
+      const filterDay = new Date(dateFilter.getFullYear(), dateFilter.getMonth(), dateFilter.getDate());
       
       filtered = filtered.filter((ticket) => {
         const ticketDate = new Date(ticket.date);
         const ticketDay = new Date(ticketDate.getFullYear(), ticketDate.getMonth(), ticketDate.getDate());
-        
-        if (dateFilter === "today") {
-          return ticketDay.getTime() === today.getTime();
-        } else if (dateFilter === "week") {
-          const weekAgo = new Date(today);
-          weekAgo.setDate(weekAgo.getDate() - 7);
-          return ticketDay >= weekAgo;
-        } else if (dateFilter === "month") {
-          const monthAgo = new Date(today);
-          monthAgo.setMonth(monthAgo.getMonth() - 1);
-          return ticketDay >= monthAgo;
-        }
-        return true;
+        return ticketDay.getTime() === filterDay.getTime();
       });
     }
 
