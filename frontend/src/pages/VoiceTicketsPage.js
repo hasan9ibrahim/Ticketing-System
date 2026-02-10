@@ -60,17 +60,33 @@ export default function VoiceTicketsPage() {
   };
 
   const filterTickets = () => {
-    if (!searchTerm) {
-      setFilteredTickets(tickets);
-      return;
+    let filtered = tickets;
+
+    // Text search
+    if (searchTerm) {
+      filtered = filtered.filter(
+        (ticket) =>
+          ticket.ticket_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          ticket.customer.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          ticket.issue.toLowerCase().includes(searchTerm.toLowerCase())
+      );
     }
 
-    const filtered = tickets.filter(
-      (ticket) =>
-        ticket.ticket_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        ticket.customer.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        ticket.issue.toLowerCase().includes(searchTerm.toLowerCase())
-    );
+    // Priority filter
+    if (priorityFilter !== "all") {
+      filtered = filtered.filter((ticket) => ticket.priority === priorityFilter);
+    }
+
+    // Status filter
+    if (statusFilter !== "all") {
+      filtered = filtered.filter((ticket) => ticket.status === statusFilter);
+    }
+
+    // Customer filter
+    if (customerFilter !== "all") {
+      filtered = filtered.filter((ticket) => ticket.customer_id === customerFilter);
+    }
+
     setFilteredTickets(filtered);
   };
 
