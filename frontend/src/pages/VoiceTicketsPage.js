@@ -155,16 +155,76 @@ export default function VoiceTicketsPage() {
         </Button>
       </div>
 
-      {/* Search */}
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-zinc-500" />
-        <Input
-          placeholder="Search tickets by number, customer, or issue..."
-          data-testid="search-voice-tickets-input"
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="pl-10 bg-zinc-900 border-zinc-700 text-white placeholder:text-zinc-500"
-        />
+      {/* Search and Filters */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="md:col-span-2 relative">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-zinc-500" />
+          <Input
+            placeholder="Search tickets by number, customer, or issue..."
+            data-testid="search-voice-tickets-input"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="pl-10 bg-zinc-900 border-zinc-700 text-white placeholder:text-zinc-500"
+          />
+        </div>
+
+        <Select value={priorityFilter} onValueChange={setPriorityFilter}>
+          <SelectTrigger className="bg-zinc-900 border-zinc-700 text-white" data-testid="filter-priority">
+            <SelectValue placeholder="Filter by Priority" />
+          </SelectTrigger>
+          <SelectContent className="bg-zinc-800 border-zinc-700">
+            <SelectItem value="all">All Priorities</SelectItem>
+            <SelectItem value="Low">Low</SelectItem>
+            <SelectItem value="Medium">Medium</SelectItem>
+            <SelectItem value="High">High</SelectItem>
+            <SelectItem value="Urgent">Urgent</SelectItem>
+          </SelectContent>
+        </Select>
+
+        <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <SelectTrigger className="bg-zinc-900 border-zinc-700 text-white" data-testid="filter-status">
+            <SelectValue placeholder="Filter by Status" />
+          </SelectTrigger>
+          <SelectContent className="bg-zinc-800 border-zinc-700">
+            <SelectItem value="all">All Statuses</SelectItem>
+            <SelectItem value="Assigned">Assigned</SelectItem>
+            <SelectItem value="Awaiting Vendor">Awaiting Vendor</SelectItem>
+            <SelectItem value="Awaiting Client">Awaiting Client</SelectItem>
+            <SelectItem value="Awaiting AM">Awaiting AM</SelectItem>
+            <SelectItem value="Resolved">Resolved</SelectItem>
+            <SelectItem value="Unresolved">Unresolved</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Select value={customerFilter} onValueChange={setCustomerFilter}>
+          <SelectTrigger className="bg-zinc-900 border-zinc-700 text-white" data-testid="filter-customer">
+            <SelectValue placeholder="Filter by Customer" />
+          </SelectTrigger>
+          <SelectContent className="bg-zinc-800 border-zinc-700">
+            <SelectItem value="all">All Customers</SelectItem>
+            {clients.map((client) => (
+              <SelectItem key={client.id} value={client.id}>
+                {client.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Button
+          variant="outline"
+          onClick={() => {
+            setSearchTerm("");
+            setPriorityFilter("all");
+            setStatusFilter("all");
+            setCustomerFilter("all");
+          }}
+          className="border-zinc-700 text-zinc-400 hover:text-white hover:bg-zinc-800"
+          data-testid="clear-filters-button"
+        >
+          Clear Filters
+        </Button>
       </div>
 
       {/* Table */}
