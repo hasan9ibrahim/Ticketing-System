@@ -109,10 +109,11 @@ class SMSTicket(BaseModel):
     ticket_number: str
     date: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     priority: str
-    volume: Optional[str] = None
+    volume: str = "0"
     customer: str
     customer_id: str
-    customer_trunk: Optional[str] = None
+    client_or_vendor: str = "client"  # "client" or "vendor"
+    customer_trunk: str = ""
     destination: Optional[str] = None
     issue: str
     opened_via: str
@@ -134,12 +135,13 @@ class SMSTicketCreate(BaseModel):
     priority: str
     volume: str
     customer_id: str
+    client_or_vendor: str = "client"
     customer_trunk: str
     destination: Optional[str] = None
     issue: str
     opened_via: str
     assigned_to: Optional[str] = None
-    status: str = "Assigned"
+    status: str = "Unassigned"
     sid: Optional[str] = None
     content: Optional[str] = None
     rate: Optional[str] = None
