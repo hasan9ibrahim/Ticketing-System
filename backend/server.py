@@ -485,8 +485,14 @@ async def create_voice_ticket(ticket_data: VoiceTicketCreate, current_user: dict
     ticket_dict["created_by"] = current_user["id"]
     ticket_dict["customer"] = client["name"]
     
+    # Generate ID and ticket number before creating object
+    ticket_id = str(uuid.uuid4())
+    ticket_date = datetime.now(timezone.utc)
+    ticket_dict["id"] = ticket_id
+    ticket_dict["date"] = ticket_date
+    ticket_dict["ticket_number"] = generate_ticket_number(ticket_date, ticket_id)
+    
     ticket_obj = VoiceTicket(**ticket_dict)
-    ticket_obj.ticket_number = generate_ticket_number(ticket_obj.date, ticket_obj.id)
     
     doc = ticket_obj.model_dump()
     doc['date'] = doc['date'].isoformat()
