@@ -31,8 +31,8 @@ export default function DashboardLayout({ user, setUser }) {
     { path: "/", label: "Dashboard", icon: LayoutDashboard, roles: ["admin", "am", "noc"] },
     { path: "/sms-tickets", label: "SMS Tickets", icon: MessageSquare, roles: ["admin", "am", "noc"] },
     { path: "/voice-tickets", label: "Voice Tickets", icon: Phone, roles: ["admin", "am", "noc"] },
-    { path: "/clients", label: "Clients", icon: Building2, roles: ["admin"] },
-    { path: "/my-clients", label: "My Clients", icon: Briefcase, roles: ["am"] },
+    { path: "/enterprises", label: "Enterprises", icon: Building2, roles: ["admin"] },
+    { path: "/my-enterprises", label: "My Enterprises", icon: Briefcase, roles: ["am"] },
     { path: "/users", label: "Users", icon: Users, roles: ["admin"] },
   ];
 
