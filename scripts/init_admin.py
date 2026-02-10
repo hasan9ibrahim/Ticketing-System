@@ -22,24 +22,23 @@ async def create_admin():
     existing_admin = await db.users.find_one({"username": "admin"})
     if existing_admin:
         print("Admin user already exists")
-        client.close()
-        return
-    
-    # Create admin user
-    admin_user = {
-        "id": str(uuid.uuid4()),
-        "username": "admin",
-        "email": "admin@wiitelecom.com",
-        "phone": None,
-        "password_hash": pwd_context.hash("admin123"),
-        "role": "admin",
-        "created_at": datetime.now(timezone.utc).isoformat()
-    }
-    
-    await db.users.insert_one(admin_user)
-    print("Admin user created successfully!")
-    print("Username: admin")
-    print("Password: admin123")
+    else:
+        # Create admin user
+        admin_user = {
+            "id": str(uuid.uuid4()),
+            "username": "admin",
+            "email": "admin@wiitelecom.com",
+            "phone": None,
+            "password_hash": pwd_context.hash("admin123"),
+            "role": "admin",
+            "am_type": None,
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+        
+        await db.users.insert_one(admin_user)
+        print("Admin user created successfully!")
+        print("Username: admin")
+        print("Password: admin123")
     
     # Create sample NOC user
     noc_user = {
