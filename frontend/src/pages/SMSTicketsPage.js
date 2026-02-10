@@ -90,6 +90,51 @@ export default function SMSTicketsPage() {
       filtered = filtered.filter((ticket) => ticket.customer_id === customerFilter);
     }
 
+    // Date filter
+    if (dateFilter !== "all") {
+      const now = new Date();
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      
+      filtered = filtered.filter((ticket) => {
+        const ticketDate = new Date(ticket.date);
+        const ticketDay = new Date(ticketDate.getFullYear(), ticketDate.getMonth(), ticketDate.getDate());
+        
+        if (dateFilter === "today") {
+          return ticketDay.getTime() === today.getTime();
+        } else if (dateFilter === "week") {
+          const weekAgo = new Date(today);
+          weekAgo.setDate(weekAgo.getDate() - 7);
+          return ticketDay >= weekAgo;
+        } else if (dateFilter === "month") {
+          const monthAgo = new Date(today);
+          monthAgo.setMonth(monthAgo.getMonth() - 1);
+          return ticketDay >= monthAgo;
+        }
+        return true;
+      });
+    }
+
+    // Sorting
+    filtered.sort((a, b) => {
+      switch (sortBy) {
+        case "date-desc":
+          return new Date(b.date) - new Date(a.date);
+        case "date-asc":
+          return new Date(a.date) - new Date(b.date);
+        case "ticket-desc":
+          return b.ticket_number.localeCompare(a.ticket_number);
+        case "ticket-asc":
+          return a.ticket_number.localeCompare(b.ticket_number);
+        case "customer":
+          return a.customer.localeCompare(b.customer);
+        case "priority":
+          const priorityOrder = { "Urgent": 0, "High": 1, "Medium": 2, "Low": 3 };
+          return (priorityOrder[a.priority] || 999) - (priorityOrder[b.priority] || 999);
+        default:
+          return 0;
+      }
+    });
+
     setFilteredTickets(filtered);
   };
 
