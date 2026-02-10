@@ -29,8 +29,8 @@ export default function DashboardLayout({ user, setUser }) {
 
   const navItems = [
     { path: "/", label: "Dashboard", icon: LayoutDashboard, roles: ["admin", "am", "noc"] },
-    { path: "/sms-tickets", label: "SMS Tickets", icon: MessageSquare, roles: ["admin", "noc"], amTypes: ["sms"] },
-    { path: "/voice-tickets", label: "Voice Tickets", icon: Phone, roles: ["admin", "noc"], amTypes: ["voice"] },
+    { path: "/sms-tickets", label: "SMS Tickets", icon: MessageSquare, roles: ["admin", "am", "noc"], amTypes: ["sms"] },
+    { path: "/voice-tickets", label: "Voice Tickets", icon: Phone, roles: ["admin", "am", "noc"], amTypes: ["voice"] },
     { path: "/enterprises", label: "Enterprises", icon: Building2, roles: ["admin"] },
     { path: "/my-enterprises", label: "My Enterprises", icon: Briefcase, roles: ["am"] },
     { path: "/users", label: "Users", icon: Users, roles: ["admin"] },
@@ -39,11 +39,12 @@ export default function DashboardLayout({ user, setUser }) {
   const filteredNavItems = navItems.filter((item) => {
     if (!item.roles.includes(user.role)) return false;
     
-    // For AMs, check if they have the right am_type
+    // For AMs with amTypes restriction, check if they match
     if (user.role === "am" && item.amTypes) {
       return item.amTypes.includes(user.am_type);
     }
     
+    // For NOC and Admin, show all items in their roles
     return true;
   });
 
