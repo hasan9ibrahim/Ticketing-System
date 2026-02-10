@@ -261,6 +261,25 @@ export default function UsersPage() {
               </Select>
             </div>
 
+            {formData.role === "am" && (
+              <div className="space-y-2">
+                <Label>AM Assignment *</Label>
+                <Select
+                  value={formData.am_type}
+                  onValueChange={(value) => setFormData({ ...formData, am_type: value })}
+                  required
+                >
+                  <SelectTrigger className="bg-zinc-800 border-zinc-700" data-testid="am-type-select">
+                    <SelectValue placeholder="Select SMS or Voice" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-zinc-800 border-zinc-700">
+                    <SelectItem value="sms">SMS Tickets</SelectItem>
+                    <SelectItem value="voice">Voice Tickets</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
             <div className="flex space-x-3 pt-4">
               <Button type="submit" className="bg-emerald-500 text-black hover:bg-emerald-400" data-testid="save-user-button">
                 Create User
