@@ -1,5 +1,6 @@
 export const StatusBadge = ({ status }) => {
   const statusColors = {
+    Unassigned: "bg-zinc-500/20 text-zinc-400 border-zinc-500/30",
     Resolved: "bg-emerald-500/20 text-emerald-500 border-emerald-500/30",
     Assigned: "bg-blue-500/20 text-blue-500 border-blue-500/30",
     "Awaiting Vendor": "bg-amber-500/20 text-amber-500 border-amber-500/30",
