@@ -78,6 +78,8 @@ class Client(BaseModel):
     contact_email: Optional[str] = None
     contact_phone: Optional[str] = None
     assigned_am_id: Optional[str] = None
+    tier: Optional[str] = None  # Enterprise tier/priority
+    noc_emails: Optional[str] = None  # NOC email addresses
     notes: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -87,6 +89,8 @@ class ClientCreate(BaseModel):
     contact_email: Optional[str] = None
     contact_phone: Optional[str] = None
     assigned_am_id: Optional[str] = None
+    tier: Optional[str] = None
+    noc_emails: Optional[str] = None
     notes: Optional[str] = None
 
 class ClientUpdate(BaseModel):
@@ -95,6 +99,8 @@ class ClientUpdate(BaseModel):
     contact_email: Optional[str] = None
     contact_phone: Optional[str] = None
     assigned_am_id: Optional[str] = None
+    tier: Optional[str] = None
+    noc_emails: Optional[str] = None
     notes: Optional[str] = None
 
 class SMSTicket(BaseModel):
