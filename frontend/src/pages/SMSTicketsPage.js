@@ -337,31 +337,50 @@ export default function SMSTicketsPage() {
           </TableHeader>
           <TableBody>
             {filteredTickets.length > 0 ? (
-              filteredTickets.map((ticket) => {
-                const assignedUser = users.find((u) => u.id === ticket.assigned_to);
-                return (
-                  <TableRow
-                    key={ticket.id}
-                    onClick={() => openEditSheet(ticket)}
-                    className="border-white/5 hover:bg-zinc-800/50 cursor-pointer"
-                    data-testid="sms-ticket-row"
-                  >
-                    <TableCell className="p-3">
-                      <PriorityIndicator priority={ticket.priority} />
-                    </TableCell>
-                    <TableCell className="text-white font-medium tabular-nums">{ticket.ticket_number}</TableCell>
-                    <TableCell className="text-zinc-300">{ticket.customer}</TableCell>
-                    <TableCell className="text-zinc-300 max-w-xs truncate">{ticket.issue}</TableCell>
-                    <TableCell>
-                      <StatusBadge status={ticket.status} />
-                    </TableCell>
-                    <TableCell className="text-zinc-300">{assignedUser?.username || "Unassigned"}</TableCell>
-                    <TableCell className="text-zinc-400 tabular-nums">
-                      {new Date(ticket.date).toLocaleDateString()}
-                    </TableCell>
-                  </TableRow>
-                );
-              })
+              (() => {
+                const groupedTickets = groupTicketsByDate();
+                return Object.entries(groupedTickets).map(([date, tickets], groupIndex) => (
+                  <React.Fragment key={date}>
+                    {/* Date Separator */}
+                    <TableRow className="bg-zinc-800/30 border-white/10">
+                      <TableCell colSpan={7} className="py-2 px-4">
+                        <div className="flex items-center space-x-3">
+                          <Calendar className="h-4 w-4 text-emerald-500" />
+                          <span className="text-sm font-semibold text-emerald-500">{date}</span>
+                          <div className="flex-1 h-px bg-white/10"></div>
+                          <span className="text-xs text-zinc-500">{tickets.length} ticket{tickets.length !== 1 ? 's' : ''}</span>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                    {/* Tickets for this date */}
+                    {tickets.map((ticket) => {
+                      const assignedUser = users.find((u) => u.id === ticket.assigned_to);
+                      return (
+                        <TableRow
+                          key={ticket.id}
+                          onClick={() => openEditSheet(ticket)}
+                          className="border-white/5 hover:bg-zinc-800/50 cursor-pointer"
+                          data-testid="sms-ticket-row"
+                        >
+                          <TableCell className="p-3">
+                            <PriorityIndicator priority={ticket.priority} />
+                          </TableCell>
+                          <TableCell className="text-white font-medium tabular-nums">{ticket.ticket_number}</TableCell>
+                          <TableCell className="text-zinc-300">{ticket.customer}</TableCell>
+                          <TableCell className="text-zinc-300 max-w-xs truncate">{ticket.issue}</TableCell>
+                          <TableCell>
+                            <StatusBadge status={ticket.status} />
+                          </TableCell>
+                          <TableCell className="text-zinc-300">{assignedUser?.username || "Unassigned"}</TableCell>
+                          <TableCell className="text-zinc-400 tabular-nums">
+                            {new Date(ticket.date).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </React.Fragment>
+                ));
+              })()
             ) : (
               <TableRow>
                 <TableCell colSpan={7} className="text-center py-8 text-zinc-500">
