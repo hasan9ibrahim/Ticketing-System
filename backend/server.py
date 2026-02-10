@@ -501,6 +501,10 @@ async def delete_sms_ticket(ticket_id: str, current_admin: dict = Depends(get_cu
 
 @api_router.post("/tickets/voice", response_model=VoiceTicket)
 async def create_voice_ticket(ticket_data: VoiceTicketCreate, current_user: dict = Depends(get_current_user)):
+    # AMs cannot create tickets
+    if current_user["role"] == "am":
+        raise HTTPException(status_code=403, detail="Account Managers cannot create tickets")
+    
     # Get customer name
     client = await db.clients.find_one({"id": ticket_data.customer_id}, {"_id": 0})
     if not client:
