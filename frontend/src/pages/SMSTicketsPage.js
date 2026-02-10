@@ -220,18 +220,10 @@ export default function SMSTicketsPage() {
           />
         </div>
 
-        <Select value={dateFilter} onValueChange={setDateFilter}>
-          <SelectTrigger className="bg-zinc-900 border-zinc-700 text-white" data-testid="filter-date">
-            <Calendar className="h-4 w-4 mr-2" />
-            <SelectValue placeholder="Filter by Date" />
-          </SelectTrigger>
-          <SelectContent className="bg-zinc-800 border-zinc-700">
-            <SelectItem value="all">All Dates</SelectItem>
-            <SelectItem value="today">Today</SelectItem>
-            <SelectItem value="week">Last 7 Days</SelectItem>
-            <SelectItem value="month">Last 30 Days</SelectItem>
-          </SelectContent>
-        </Select>
+        <DateRangePicker
+          date={dateFilter}
+          onDateChange={setDateFilter}
+        />
 
         <Select value={priorityFilter} onValueChange={setPriorityFilter}>
           <SelectTrigger className="bg-zinc-900 border-zinc-700 text-white" data-testid="filter-priority">
@@ -299,13 +291,13 @@ export default function SMSTicketsPage() {
             setPriorityFilter("all");
             setStatusFilter("all");
             setCustomerFilter("all");
-            setDateFilter("all");
+            setDateFilter(new Date());
             setSortBy("date-desc");
           }}
           className="border-zinc-700 text-zinc-400 hover:text-white hover:bg-zinc-800"
           data-testid="clear-filters-button"
         >
-          Clear All Filters
+          Reset to Today
         </Button>
       </div>
 
