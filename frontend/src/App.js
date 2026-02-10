@@ -37,9 +37,9 @@ function App() {
             <Route index element={<DashboardPage />} />
             <Route path="sms-tickets" element={<SMSTicketsPage />} />
             <Route path="voice-tickets" element={<VoiceTicketsPage />} />
-            <Route path="clients" element={user.role === "admin" ? <ClientsPage /> : <Navigate to="/my-clients" />} />
-            <Route path="my-clients" element={user.role === "am" ? <MyClientsPage /> : <Navigate to="/" />} />
-            <Route path="users" element={user.role === "admin" ? <UsersPage /> : <Navigate to="/" />} />
+            <Route path="clients" element={user?.role === "admin" ? <ClientsPage /> : <Navigate to="/my-clients" />} />
+            <Route path="my-clients" element={user?.role === "am" ? <MyClientsPage /> : <Navigate to="/" />} />
+            <Route path="users" element={user?.role === "admin" ? <UsersPage /> : <Navigate to="/" />} />
           </Route>
         </Routes>
       </BrowserRouter>
