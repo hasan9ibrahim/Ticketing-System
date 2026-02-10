@@ -220,7 +220,7 @@ export default function SMSTicketsPage() {
       </div>
 
       {/* Search and Filters */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
         <div className="md:col-span-2 relative">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-zinc-500" />
           <Input
@@ -231,6 +231,19 @@ export default function SMSTicketsPage() {
             className="pl-10 bg-zinc-900 border-zinc-700 text-white placeholder:text-zinc-500"
           />
         </div>
+
+        <Select value={dateFilter} onValueChange={setDateFilter}>
+          <SelectTrigger className="bg-zinc-900 border-zinc-700 text-white" data-testid="filter-date">
+            <Calendar className="h-4 w-4 mr-2" />
+            <SelectValue placeholder="Filter by Date" />
+          </SelectTrigger>
+          <SelectContent className="bg-zinc-800 border-zinc-700">
+            <SelectItem value="all">All Dates</SelectItem>
+            <SelectItem value="today">Today</SelectItem>
+            <SelectItem value="week">Last 7 Days</SelectItem>
+            <SelectItem value="month">Last 30 Days</SelectItem>
+          </SelectContent>
+        </Select>
 
         <Select value={priorityFilter} onValueChange={setPriorityFilter}>
           <SelectTrigger className="bg-zinc-900 border-zinc-700 text-white" data-testid="filter-priority">
@@ -261,7 +274,7 @@ export default function SMSTicketsPage() {
         </Select>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Select value={customerFilter} onValueChange={setCustomerFilter}>
           <SelectTrigger className="bg-zinc-900 border-zinc-700 text-white" data-testid="filter-customer">
             <SelectValue placeholder="Filter by Customer" />
@@ -276,6 +289,21 @@ export default function SMSTicketsPage() {
           </SelectContent>
         </Select>
 
+        <Select value={sortBy} onValueChange={setSortBy}>
+          <SelectTrigger className="bg-zinc-900 border-zinc-700 text-white" data-testid="sort-select">
+            <ArrowUpDown className="h-4 w-4 mr-2" />
+            <SelectValue placeholder="Sort by" />
+          </SelectTrigger>
+          <SelectContent className="bg-zinc-800 border-zinc-700">
+            <SelectItem value="date-desc">Date (Newest First)</SelectItem>
+            <SelectItem value="date-asc">Date (Oldest First)</SelectItem>
+            <SelectItem value="ticket-desc">Ticket # (High to Low)</SelectItem>
+            <SelectItem value="ticket-asc">Ticket # (Low to High)</SelectItem>
+            <SelectItem value="customer">Customer (A-Z)</SelectItem>
+            <SelectItem value="priority">Priority (Urgent First)</SelectItem>
+          </SelectContent>
+        </Select>
+
         <Button
           variant="outline"
           onClick={() => {
@@ -283,11 +311,13 @@ export default function SMSTicketsPage() {
             setPriorityFilter("all");
             setStatusFilter("all");
             setCustomerFilter("all");
+            setDateFilter("all");
+            setSortBy("date-desc");
           }}
           className="border-zinc-700 text-zinc-400 hover:text-white hover:bg-zinc-800"
           data-testid="clear-filters-button"
         >
-          Clear Filters
+          Clear All Filters
         </Button>
       </div>
 
