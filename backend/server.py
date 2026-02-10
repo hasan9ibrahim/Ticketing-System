@@ -565,6 +565,10 @@ async def get_voice_ticket(ticket_id: str, current_user: dict = Depends(get_curr
 
 @api_router.put("/tickets/voice/{ticket_id}", response_model=VoiceTicket)
 async def update_voice_ticket(ticket_id: str, ticket_data: VoiceTicketUpdate, current_user: dict = Depends(get_current_user)):
+    # AMs cannot update tickets
+    if current_user["role"] == "am":
+        raise HTTPException(status_code=403, detail="Account Managers cannot modify tickets")
+    
     update_dict = {k: v for k, v in ticket_data.model_dump().items() if v is not None}
     update_dict["updated_at"] = datetime.now(timezone.utc).isoformat()
     
