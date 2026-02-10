@@ -43,6 +43,7 @@ class User(BaseModel):
     phone: Optional[str] = None
     password_hash: str
     role: str  # admin, am, noc
+    am_type: Optional[str] = None  # "sms" or "voice" for AMs
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class UserCreate(BaseModel):
@@ -51,6 +52,7 @@ class UserCreate(BaseModel):
     phone: Optional[str] = None
     password: str
     role: str
+    am_type: Optional[str] = None
 
 class UserLogin(BaseModel):
     identifier: str  # username, email, or phone
