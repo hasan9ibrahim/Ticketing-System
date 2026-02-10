@@ -194,9 +194,11 @@ export default function VoiceTicketsPage() {
           <h1 className="text-4xl font-bold text-white">Voice Tickets</h1>
           <p className="text-zinc-400 mt-1">Manage and track Voice trouble tickets</p>
         </div>
-        <Button onClick={openCreateSheet} data-testid="create-voice-ticket-button" className="bg-emerald-500 text-black hover:bg-emerald-400 h-9">
-          <Plus className="h-4 w-4 mr-2" />New Ticket
-        </Button>
+        {canModify && (
+          <Button onClick={openCreateSheet} data-testid="create-voice-ticket-button" className="bg-emerald-500 text-black hover:bg-emerald-400 h-9">
+            <Plus className="h-4 w-4 mr-2" />New Ticket
+          </Button>
+        )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
