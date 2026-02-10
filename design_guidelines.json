@@ -1,0 +1,155 @@
+{
+  "identity": {
+    "name": "Wii Telecom NOC",
+    "description": "High-performance operational dashboard for SMS & Voice aggregation.",
+    "aesthetic": "Tactical Enterprise",
+    "mode": "dark",
+    "emotion": "Reliable, Efficient, Technical"
+  },
+  "typography": {
+    "headings": {
+      "family": "Chivo, sans-serif",
+      "url": "https://fonts.googleapis.com/css2?family=Chivo:wght@300;400;700;900&display=swap",
+      "weights": ["300", "400", "700", "900"],
+      "usage": "Use for all page titles, card headers, and large stats."
+    },
+    "body": {
+      "family": "Inter, sans-serif",
+      "url": "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap",
+      "weights": ["400", "500", "600"],
+      "usage": "Use for data tables, form inputs, and general text."
+    }
+  },
+  "colors": {
+    "primary": {
+      "name": "Emerald Signal",
+      "hex": "#10b981",
+      "tailwind": "emerald-500",
+      "usage": "Primary buttons, active states, key data highlights."
+    },
+    "background": {
+      "dark": "#09090b",
+      "light": "#ffffff",
+      "usage": "Main application background. Defaults to Dark Mode."
+    },
+    "surface": {
+      "dark": "#18181b",
+      "light": "#f4f4f5",
+      "usage": "Cards, Sidebars, Modals."
+    },
+    "semantic": {
+      "priorities": {
+        "low": "#3b82f6",
+        "medium": "#eab308",
+        "high": "#f97316",
+        "urgent": "#ef4444"
+      },
+      "status": {
+        "resolved": "#10b981",
+        "assigned": "#3b82f6",
+        "awaiting": "#f59e0b",
+        "unresolved": "#71717a"
+      }
+    }
+  },
+  "visual_enhancers": {
+    "borders": {
+      "style": "grid-borders",
+      "css": "border-r border-b border-white/5",
+      "usage": "Use on dashboard grid items to create a 'technical' look."
+    },
+    "glass": {
+      "style": "technical-glass",
+      "css": "backdrop-blur-md bg-black/40 border border-white/10",
+      "usage": "Sticky headers and floating overlays."
+    },
+    "shadows": {
+      "style": "sharp",
+      "css": "shadow-[0_1px_0_0_rgba(255,255,255,0.1)]",
+      "usage": "Subtle separation for cards in dark mode."
+    }
+  },
+  "layout_strategy": {
+    "dashboard": "high-density-grid",
+    "structure": "Sidebar (Left) + Top Rail (Filters/Actions) + Main Content (Grid/Table)",
+    "spacing": "Use 'compact' spacing for tables (p-2, p-3) but 'generous' spacing for page margins (p-6, p-8).",
+    "container": "max-w-[1920px] mx-auto"
+  },
+  "components": {
+    "shadcn_overrides": [
+      {
+        "component": "Table",
+        "instruction": "Reduce cell padding to 'p-3' for high density. Use 'tabular-nums' for data columns."
+      },
+      {
+        "component": "Card",
+        "instruction": "Remove default shadow. Use 1px border 'border-white/10' and 'bg-zinc-900/50'."
+      },
+      {
+        "component": "Button",
+        "instruction": "Use 'h-9' (sm) by default for dashboard actions. Primary buttons should be Emerald-500 with black text for contrast."
+      }
+    ],
+    "custom_components": [
+      {
+        "name": "StatusBadge",
+        "description": "A pill-shaped badge with a dot indicator.",
+        "path": "/app/frontend/src/components/custom/StatusBadge.js"
+      },
+      {
+        "name": "PriorityIndicator",
+        "description": "A colored bar or icon indicating ticket urgency.",
+        "path": "/app/frontend/src/components/custom/PriorityIndicator.js"
+      }
+    ]
+  },
+  "media": {
+    "login_background": {
+      "url": "https://images.unsplash.com/photo-1616765683164-5b7f13bafa31?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NDh8MHwxfHNlYXJjaHw0fHxhYnN0cmFjdCUyMGRpZ2l0YWwlMjBuZXR3b3JrJTIwY29ubmVjdGlvbiUyMGdyZWVuJTIwZGF0YSUyMGxpbmVzJTIwZGFyayUyMGJhY2tncm91bmR8ZW58MHx8fHwxNzcwNzMxNzQ0fDA&ixlib=rb-4.1.0&q=85",
+      "alt": "Abstract Green Network Lines"
+    },
+    "avatars": [
+      {
+        "url": "https://images.unsplash.com/photo-1762522926984-e721bff0d6c6?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDN8MHwxfHNlYXJjaHw0fHxwcm9mZXNzaW9uYWwlMjBjb3Jwb3JhdGUlMjBoZWFkc2hvdCUyMHBvcnRyYWl0fGVufDB8fHx8MTc3MDczMTc0NXww&ixlib=rb-4.1.0&q=85",
+        "alt": "Female Profile"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1762522927402-f390672558d8?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDN8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjBjb3Jwb3JhdGUlMjBoZWFkc2hvdCUyMHBvcnRyYWl0fGVufDB8fHx8MTc3MDczMTc0NXww&ixlib=rb-4.1.0&q=85",
+        "alt": "Male Profile"
+      }
+    ],
+    "logo_placeholder": "Use <Hexagon className='w-8 h-8 text-emerald-500' /> from lucide-react."
+  },
+  "instructions_to_main_agent": [
+    "Implement a 'Ticket Slide-over' using the Sheet component. Do not force users to leave the list view to edit a ticket.",
+    "Use Recharts for the analytics dashboard (Ticket Volume Line Chart, Status Pie Chart).",
+    "Ensure the 'Priority' field uses the semantic colors defined above.",
+    "The sidebar must be collapsible to maximize screen real estate for the data tables.",
+    "Use 'sonner' for all toast notifications (success/error).",
+    "For the 'My Clients' page, use a Card Grid layout instead of a table for better visual separation.",
+    "Login Page: Split layout. Left side: Login form. Right side: The 'login_background' image with a glass overlay.",
+    "DO NOT use 'purple' or 'teal' as primary colors. Stick to the Grey/Green/Emerald theme.",
+    "Ensure text contrast is accessible on dark backgrounds. Use 'text-zinc-400' for secondary text, not darker."
+  ],
+  "UNIVERSAL_GUIDELINES_FOR_MAIN_AGENT": [
+    "You tend to converge toward generic, 'on distribution' outputs. In frontend design, this creates what users call the 'AI slop' aesthetic. Avoid this: make creative, distinctive frontends that surprise and delight.",
+    "Dark colors look good when used independently without gradients. DO NOT use dark colors as gradients",
+    "Don't make generic centered layouts, simplistic gradients, and uniform styling.",
+    "Create depth through layered design elements with z-index hierarchy",
+    "Use glass-morphism effects with backdrop filters (12-24px blur)",
+    "You MUST NOT apply universal transition. Eg: 'transition: all'. This results in breaking transforms. Always add transitions for specific interactive elements like button, input excluding transforms",
+    "You MUST NOT center align the app container, ie do not add '.App { text-align: center; }' in the css file. This disrupts the human natural reading flow of text",
+    "Always use modern button styles like pill-shaped, or sharp button with interaction animations & color relevant to the app style",
+    "NEVER: use AI assistant Emoji characters like 🤖 etc for icons.",
+    "Every interaction needs micro-animations - hover states, transitions, parallax effects, and entrance animations. Static = dead.",
+    "Use 2-3x more spacing than feels comfortable. Cramped designs look cheap.",
+    "Subtle grain textures, noise overlays, custom cursors, selection states, and loading animations: separates good from extraordinary.",
+    "Main agent relies on these image URLs. Missing categories (especially sponsor logos) = main agent will use placeholder text which is FORBIDDEN",
+    "Prioritize using pre-existing components from src/components/ui when applicable",
+    "Create new components that match the style and conventions of existing components when needed",
+    "Examine existing components to understand the project's component patterns before creating new ones",
+    "Components MUST use named exports (export const ComponentName = ...)",
+    "Pages MUST use default exports (export default function PageName() {...})",
+    "Use 'sonner' for toasts"
+  ]
+}
