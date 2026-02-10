@@ -194,7 +194,7 @@ export default function UsersPage() {
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={5} className="text-center py-8 text-zinc-500">
+                <TableCell colSpan={6} className="text-center py-8 text-zinc-500">
                   No users found
                 </TableCell>
               </TableRow>
