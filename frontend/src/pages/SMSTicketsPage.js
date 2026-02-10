@@ -456,12 +456,13 @@ export default function SMSTicketsPage() {
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Volume</Label>
+                <Label>Volume *</Label>
                 <Input
                   value={formData.volume || ""}
                   onChange={(e) => setFormData({ ...formData, volume: e.target.value })}
                   className="bg-zinc-800 border-zinc-700 text-white"
                   placeholder="e.g., 10000"
+                  required
                 />
               </div>
               <div className="space-y-2">
@@ -491,11 +492,12 @@ export default function SMSTicketsPage() {
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Customer Trunk</Label>
+                <Label>Customer Trunk *</Label>
                 <Input
                   value={formData.customer_trunk || ""}
                   onChange={(e) => setFormData({ ...formData, customer_trunk: e.target.value })}
                   className="bg-zinc-800 border-zinc-700 text-white"
+                  required
                 />
               </div>
               <div className="space-y-2">
