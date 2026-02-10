@@ -138,6 +138,22 @@ export default function SMSTicketsPage() {
     setFilteredTickets(filtered);
   };
 
+  const groupTicketsByDate = () => {
+    const grouped = {};
+    filteredTickets.forEach((ticket) => {
+      const date = new Date(ticket.date).toLocaleDateString('en-US', { 
+        year: 'numeric', 
+        month: 'long', 
+        day: 'numeric' 
+      });
+      if (!grouped[date]) {
+        grouped[date] = [];
+      }
+      grouped[date].push(ticket);
+    });
+    return grouped;
+  };
+
   const openCreateSheet = () => {
     setEditingTicket(null);
     setFormData({
