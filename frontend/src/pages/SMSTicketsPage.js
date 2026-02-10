@@ -38,7 +38,7 @@ export default function SMSTicketsPage() {
 
   useEffect(() => {
     filterTickets();
-  }, [searchTerm, priorityFilter, statusFilter, customerFilter, tickets]);
+  }, [searchTerm, priorityFilter, statusFilter, customerFilter, dateFilter, sortBy, tickets]);
 
   const fetchData = async () => {
     try {
