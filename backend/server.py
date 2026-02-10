@@ -65,6 +65,7 @@ class UserResponse(BaseModel):
     email: Optional[str] = None
     phone: Optional[str] = None
     role: str
+    am_type: Optional[str] = None
     created_at: datetime
 
 class Token(BaseModel):
