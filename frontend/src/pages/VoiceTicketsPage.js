@@ -307,16 +307,31 @@ export default function VoiceTicketsPage() {
                   value={formData.volume || ""}
                   onChange={(e) => setFormData({ ...formData, volume: e.target.value })}
                   className="bg-zinc-800 border-zinc-700 text-white"
+                  placeholder="e.g., 10000"
                 />
               </div>
               <div className="space-y-2">
-                <Label>Opened Via</Label>
-                <Input
-                  value={formData.opened_via || ""}
-                  onChange={(e) => setFormData({ ...formData, opened_via: e.target.value })}
-                  className="bg-zinc-800 border-zinc-700 text-white"
-                  placeholder="e.g., Monitoring, Email"
-                />
+                <Label>Opened Via *</Label>
+                <Select
+                  value={formData.opened_via}
+                  onValueChange={(value) => setFormData({ ...formData, opened_via: value })}
+                  required
+                >
+                  <SelectTrigger className="bg-zinc-800 border-zinc-700" data-testid="opened-via-select">
+                    <SelectValue placeholder="Select source" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-zinc-800 border-zinc-700">
+                    <SelectItem value="Monitoring">Monitoring</SelectItem>
+                    <SelectItem value="Email">Email</SelectItem>
+                    <SelectItem value="Teams">Teams</SelectItem>
+                    <SelectItem value="AM">AM</SelectItem>
+                    <SelectItem value="Monitoring, Email">Monitoring, Email</SelectItem>
+                    <SelectItem value="Monitoring, Teams">Monitoring, Teams</SelectItem>
+                    <SelectItem value="Email, Teams">Email, Teams</SelectItem>
+                    <SelectItem value="Email, AM">Email, AM</SelectItem>
+                    <SelectItem value="Teams, AM">Teams, AM</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
 
