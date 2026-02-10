@@ -523,6 +523,10 @@ async def get_voice_tickets(current_user: dict = Depends(get_current_user)):
     query = {}
     
     if current_user["role"] == "am":
+        # Check if AM is assigned to Voice
+        if current_user.get("am_type") != "voice":
+            raise HTTPException(status_code=403, detail="You are not assigned to Voice tickets")
+        
         clients = await db.clients.find({"assigned_am_id": current_user["id"]}, {"_id": 0}).to_list(1000)
         client_ids = [c["id"] for c in clients]
         query["customer_id"] = {"$in": client_ids}
