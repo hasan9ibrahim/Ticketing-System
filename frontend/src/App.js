@@ -6,9 +6,9 @@ import DashboardLayout from "./components/DashboardLayout";
 import DashboardPage from "./pages/DashboardPage";
 import SMSTicketsPage from "./pages/SMSTicketsPage";
 import VoiceTicketsPage from "./pages/VoiceTicketsPage";
-import ClientsPage from "./pages/ClientsPage";
+import EnterprisesPage from "./pages/EnterprisesPage";
 import UsersPage from "./pages/UsersPage";
-import MyClientsPage from "./pages/MyClientsPage";
+import MyEnterprisesPage from "./pages/MyEnterprisesPage";
 import { Toaster } from "@/components/ui/sonner";
 
 function App() {
