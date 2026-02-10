@@ -443,42 +443,24 @@ export default function SMSTicketsPage() {
 
             <div className="space-y-2">
               <Label>Customer *</Label>
-              <Select
+              <SearchableSelect
+                options={clients.map(c => ({ value: c.id, label: c.name }))}
                 value={formData.customer_id}
-                onValueChange={(value) => setFormData({ ...formData, customer_id: value })}
-                required
-                disabled={!!editingTicket}
-              >
-                <SelectTrigger className="bg-zinc-800 border-zinc-700" data-testid="customer-select">
-                  <SelectValue placeholder="Select customer" />
-                </SelectTrigger>
-                <SelectContent className="bg-zinc-800 border-zinc-700">
-                  {clients.map((client) => (
-                    <SelectItem key={client.id} value={client.id}>
-                      {client.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                onChange={(value) => setFormData({ ...formData, customer_id: value })}
+                placeholder="Search and select customer..."
+                isRequired={true}
+                isDisabled={!!editingTicket}
+              />
             </div>
 
             <div className="space-y-2">
               <Label>Assigned To</Label>
-              <Select
+              <SearchableSelect
+                options={users.map(u => ({ value: u.id, label: u.username }))}
                 value={formData.assigned_to}
-                onValueChange={(value) => setFormData({ ...formData, assigned_to: value })}
-              >
-                <SelectTrigger className="bg-zinc-800 border-zinc-700" data-testid="assigned-to-select">
-                  <SelectValue placeholder="Select NOC member" />
-                </SelectTrigger>
-                <SelectContent className="bg-zinc-800 border-zinc-700">
-                  {users.map((user) => (
-                    <SelectItem key={user.id} value={user.id}>
-                      {user.username}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                onChange={(value) => setFormData({ ...formData, assigned_to: value })}
+                placeholder="Search and select NOC member..."
+              />
             </div>
 
             <div className="space-y-2">
