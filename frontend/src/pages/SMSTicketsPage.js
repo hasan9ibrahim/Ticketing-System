@@ -436,7 +436,7 @@ export default function SMSTicketsPage() {
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
         <SheetContent className="bg-zinc-900 border-white/10 text-white sm:max-w-2xl overflow-y-auto" data-testid="sms-ticket-sheet">
           <SheetHeader>
-            <SheetTitle className="text-white">{editingTicket ? "Edit SMS Ticket" : "Create SMS Ticket"}</SheetTitle>
+            <SheetTitle className="text-white">{isAM ? "View SMS Ticket" : editingTicket ? "Edit SMS Ticket" : "Create SMS Ticket"}</SheetTitle>
           </SheetHeader>
           <form onSubmit={handleSubmit} className="space-y-4 mt-6">
             <div className="grid grid-cols-2 gap-4">
