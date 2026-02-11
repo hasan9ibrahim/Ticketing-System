@@ -58,7 +58,8 @@ Issue types are:
 | Client/Vendor Role | Yes | Enterprise's role in this ticket |
 | Customer Trunk | Yes | Enterprise trunk identifier |
 | Destination | No | Target destination |
-| Issue | Yes | Problem description |
+| Issue Types | No | Multi-select checklist of predefined issues |
+| Issue Other | No | Custom issue text for "Other" option |
 | Opened Via | Yes | Monitoring, Email, Teams, AM, or combinations |
 | Assigned To | No | NOC member assignment |
 | Status | Yes | Unassigned, Assigned, Awaiting Vendor, Awaiting Client, Awaiting AM, Resolved, Unresolved |
