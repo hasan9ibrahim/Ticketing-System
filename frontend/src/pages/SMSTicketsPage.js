@@ -15,7 +15,7 @@ import StatusBadge from "@/components/custom/StatusBadge";
 import PriorityIndicator from "@/components/custom/PriorityIndicator";
 import SearchableSelect from "@/components/custom/SearchableSelect";
 import DateRangePickerWithRange from "@/components/custom/DateRangePickerWithRange";
-import IssueTypeSelect, { ISSUE_TYPES } from "@/components/custom/IssueTypeSelect";
+import IssueTypeSelect, { SMS_ISSUE_TYPES } from "@/components/custom/IssueTypeSelect";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
