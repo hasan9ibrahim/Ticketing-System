@@ -162,39 +162,51 @@ export default function IssueTypeSelect({
 
             {/* Issue type checkboxes */}
             <div className="max-h-52 overflow-y-auto p-2 space-y-1">
-              {filteredIssues.map((type) => (
-                <div key={type}>
-                  <div
-                    className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-zinc-700 cursor-pointer"
-                    data-testid={`issue-type-${type.toLowerCase().replace(/[^a-z0-9]/g, '-')}`}
-                  >
-                    <Checkbox
-                      checked={selectedTypes.includes(type)}
-                      onCheckedChange={() => handleTypeToggle(type)}
-                      className="border-zinc-500 data-[state=checked]:bg-emerald-500 data-[state=checked]:border-emerald-500"
-                    />
-                    <span 
-                      className="text-sm text-zinc-200 flex-1"
+              {filteredIssues.map((type) => {
+                const isChecked = selectedTypes.includes(type);
+                return (
+                  <div key={type}>
+                    <div
+                      className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-zinc-700 cursor-pointer"
                       onClick={() => handleTypeToggle(type)}
+                      data-testid={`issue-type-${type.toLowerCase().replace(/[^a-z0-9]/g, '-')}`}
                     >
-                      {type}
-                    </span>
-                  </div>
-                  {/* FAS type input - only for Voice tickets when FAS is selected */}
-                  {type === "FAS" && selectedTypes.includes("FAS") && ticketType === "voice" && onFasTypeChange && (
-                    <div className="ml-6 mt-1 mb-2">
-                      <Input
-                        placeholder="Specify FAS type..."
-                        value={fasType}
-                        onChange={(e) => onFasTypeChange(e.target.value)}
-                        onClick={(e) => e.stopPropagation()}
-                        className="h-7 bg-zinc-900 border-zinc-600 text-white text-xs"
-                        data-testid="fas-type-input"
-                      />
+                      <div 
+                        className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${
+                          isChecked 
+                            ? 'bg-emerald-500 border-emerald-500' 
+                            : 'border-zinc-500 bg-transparent'
+                        }`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleTypeToggle(type);
+                        }}
+                      >
+                        {isChecked && (
+                          <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                          </svg>
+                        )}
+                      </div>
+                      <span className="text-sm text-zinc-200 flex-1">
+                        {type}
+                      </span>
                     </div>
-                  )}
-                </div>
-              ))}
+                    {/* FAS type input - only for Voice tickets when FAS is selected */}
+                    {type === "FAS" && isChecked && ticketType === "voice" && onFasTypeChange && (
+                      <div className="ml-6 mt-1 mb-2" onClick={(e) => e.stopPropagation()}>
+                        <Input
+                          placeholder="Specify FAS type..."
+                          value={fasType}
+                          onChange={(e) => onFasTypeChange(e.target.value)}
+                          className="h-7 bg-zinc-900 border-zinc-600 text-white text-xs"
+                          data-testid="fas-type-input"
+                        />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
               {filteredIssues.length === 0 && (
                 <div className="text-sm text-zinc-500 text-center py-2">No matching issues</div>
               )}
