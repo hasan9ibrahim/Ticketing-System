@@ -353,7 +353,7 @@ export default function SMSTicketsPage() {
           </SelectTrigger>
           <SelectContent className="bg-zinc-800 border-zinc-700">
             <SelectItem value="all">All Issue Types</SelectItem>
-            {ISSUE_TYPES.map((type) => (
+            {SMS_ISSUE_TYPES.map((type) => (
               <SelectItem key={type} value={type}>{type}</SelectItem>
             ))}
           </SelectContent>
