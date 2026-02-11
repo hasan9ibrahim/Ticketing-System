@@ -175,7 +175,7 @@ export default function VoiceTicketsPage() {
 
   const openCreateSheet = () => {
     setEditingTicket(null);
-    setFormData({ priority: "Medium", status: "Unassigned", opened_via: "Monitoring", is_lcr: "no", client_or_vendor: "client", volume: "0", customer_trunk: "", issue_types: [], issue_other: "" });
+    setFormData({ priority: "Medium", status: "Unassigned", opened_via: "Monitoring", is_lcr: "no", client_or_vendor: "client", volume: "0", customer_trunk: "", issue_types: [], issue_other: "", fas_type: "" });
     setSheetOpen(true);
   };
 
@@ -184,7 +184,8 @@ export default function VoiceTicketsPage() {
     setFormData({
       ...ticket,
       issue_types: ticket.issue_types || [],
-      issue_other: ticket.issue_other || ""
+      issue_other: ticket.issue_other || "",
+      fas_type: ticket.fas_type || ""
     });
     setSheetOpen(true);
   };
