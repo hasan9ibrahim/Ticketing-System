@@ -15,6 +15,7 @@ import StatusBadge from "@/components/custom/StatusBadge";
 import PriorityIndicator from "@/components/custom/PriorityIndicator";
 import SearchableSelect from "@/components/custom/SearchableSelect";
 import DateRangePickerWithRange from "@/components/custom/DateRangePickerWithRange";
+import IssueTypeSelect, { ISSUE_TYPES } from "@/components/custom/IssueTypeSelect";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -29,6 +30,7 @@ export default function VoiceTicketsPage() {
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [enterpriseFilter, setEnterpriseFilter] = useState("all");
+  const [issueTypeFilter, setIssueTypeFilter] = useState("all");
   const [dateRange, setDateRange] = useState({ from: new Date(), to: new Date() });
   const [activeTab, setActiveTab] = useState("unassigned");
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -46,7 +48,21 @@ export default function VoiceTicketsPage() {
 
   useEffect(() => {
     filterAndSortTickets();
-  }, [searchTerm, priorityFilter, statusFilter, enterpriseFilter, dateRange, activeTab, tickets]);
+  }, [searchTerm, priorityFilter, statusFilter, enterpriseFilter, issueTypeFilter, dateRange, activeTab, tickets]);
+
+  // Helper to get display text for issues
+  const getIssueDisplayText = (ticket) => {
+    const issues = ticket.issue_types || [];
+    const other = ticket.issue_other || "";
+    const legacy = ticket.issue || "";
+    
+    if (issues.length > 0 || other) {
+      const parts = [...issues];
+      if (other) parts.push(`Other: ${other}`);
+      return parts.join(", ");
+    }
+    return legacy;
+  };
 
   const fetchData = async () => {
     try {
