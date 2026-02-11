@@ -23,6 +23,28 @@ Build a ticketing system for Wii Telecom with user authentication, role-based ac
 | AM (Voice) | No | No | Voice only (own enterprises) | No | View own only |
 | NOC | Yes | Yes | All | No | No |
 
+### Issue Types (Multi-select Checklist)
+Tickets can have one or more of the following issue types:
+- Low DLR
+- Low ASR
+- 0 ASR
+- 0 DLR
+- Unsubmitted SMS
+- Pending/Expired SMS
+- Undelivered/Rejected SMS
+- Content Modification
+- SID Modification
+- Fake DLR
+- Bad Traffic
+- Low/0 CR
+- High Delay
+- **Other** (custom text input for issues not in the list)
+
+Issue types are:
+- **Not mandatory** - tickets can be created without selecting any issues
+- **Searchable** - can search tickets by issue type text
+- **Filterable** - dropdown filter to show tickets with a specific issue type
+
 ### Ticket Fields
 
 #### SMS Tickets
