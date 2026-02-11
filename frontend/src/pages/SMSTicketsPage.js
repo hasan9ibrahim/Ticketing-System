@@ -49,7 +49,23 @@ export default function SMSTicketsPage() {
 
   useEffect(() => {
     filterAndSortTickets();
-  }, [searchTerm, priorityFilter, statusFilter, enterpriseFilter, dateRange, sortBy, activeTab, tickets]);
+  }, [searchTerm, priorityFilter, statusFilter, enterpriseFilter, issueTypeFilter, dateRange, sortBy, activeTab, tickets]);
+
+  // Helper to get display text for issues
+  const getIssueDisplayText = (ticket) => {
+    const issues = ticket.issue_types || [];
+    const other = ticket.issue_other || "";
+    const legacy = ticket.issue || "";
+    
+    // If new format exists, use it
+    if (issues.length > 0 || other) {
+      const parts = [...issues];
+      if (other) parts.push(`Other: ${other}`);
+      return parts.join(", ");
+    }
+    // Fall back to legacy issue field
+    return legacy;
+  };
 
   const fetchData = async () => {
     try {
@@ -95,14 +111,17 @@ export default function SMSTicketsPage() {
       );
     }
 
-    // Text search
+    // Text search - searches across issues
     if (searchTerm) {
-      filtered = filtered.filter(
-        (ticket) =>
-          ticket.ticket_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          ticket.customer.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          ticket.issue.toLowerCase().includes(searchTerm.toLowerCase())
-      );
+      const term = searchTerm.toLowerCase();
+      filtered = filtered.filter((ticket) => {
+        const issueText = getIssueDisplayText(ticket).toLowerCase();
+        return (
+          ticket.ticket_number.toLowerCase().includes(term) ||
+          ticket.customer.toLowerCase().includes(term) ||
+          issueText.includes(term)
+        );
+      });
     }
 
     // Priority filter
@@ -118,6 +137,14 @@ export default function SMSTicketsPage() {
     // Enterprise filter
     if (enterpriseFilter !== "all") {
       filtered = filtered.filter((ticket) => ticket.customer_id === enterpriseFilter);
+    }
+
+    // Issue type filter
+    if (issueTypeFilter !== "all") {
+      filtered = filtered.filter((ticket) => {
+        const types = ticket.issue_types || [];
+        return types.includes(issueTypeFilter);
+      });
     }
 
     // Date range filter
