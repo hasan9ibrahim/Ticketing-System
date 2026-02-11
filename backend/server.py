@@ -25,7 +25,9 @@ db = client[os.environ['DB_NAME']]
 # Security
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer()
-SECRET_KEY = os.environ.get("SECRET_KEY", "wii-telecom-secret-key-change-in-production")
+SECRET_KEY = os.environ.get("SECRET_KEY")
+if not SECRET_KEY:
+    raise RuntimeError("SECRET_KEY environment variable must be set")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_DAYS = 30
 
@@ -349,9 +351,10 @@ async def get_me(current_user: dict = Depends(get_current_user)):
 
 @api_router.get("/users", response_model=List[UserResponse])
 async def get_users(current_user: dict = Depends(get_current_user)):
-    users = await db.users.find({}, {"_id": 0}).to_list(1000)
+    # Exclude password_hash at query level for efficiency
+    users = await db.users.find({}, {"_id": 0, "password_hash": 0}).to_list(1000)
     for user in users:
-        if isinstance(user['created_at'], str):
+        if isinstance(user.get('created_at'), str):
             user['created_at'] = datetime.fromisoformat(user['created_at'])
     return [UserResponse(**user) for user in users]
 
@@ -460,11 +463,12 @@ async def get_sms_tickets(current_user: dict = Depends(get_current_user)):
         client_ids = [c["id"] for c in clients]
         query["customer_id"] = {"$in": client_ids}
     
-    tickets = await db.sms_tickets.find(query, {"_id": 0}).sort("date", -1).to_list(1000)
+    # Limit to 500 most recent tickets for performance
+    tickets = await db.sms_tickets.find(query, {"_id": 0}).sort("date", -1).limit(500).to_list(500)
     for ticket in tickets:
-        if isinstance(ticket['date'], str):
+        if isinstance(ticket.get('date'), str):
             ticket['date'] = datetime.fromisoformat(ticket['date'])
-        if isinstance(ticket['updated_at'], str):
+        if isinstance(ticket.get('updated_at'), str):
             ticket['updated_at'] = datetime.fromisoformat(ticket['updated_at'])
     return [SMSTicket(**ticket) for ticket in tickets]
 
@@ -558,11 +562,12 @@ async def get_voice_tickets(current_user: dict = Depends(get_current_user)):
         client_ids = [c["id"] for c in clients]
         query["customer_id"] = {"$in": client_ids}
     
-    tickets = await db.voice_tickets.find(query, {"_id": 0}).sort("date", -1).to_list(1000)
+    # Limit to 500 most recent tickets for performance
+    tickets = await db.voice_tickets.find(query, {"_id": 0}).sort("date", -1).limit(500).to_list(500)
     for ticket in tickets:
-        if isinstance(ticket['date'], str):
+        if isinstance(ticket.get('date'), str):
             ticket['date'] = datetime.fromisoformat(ticket['date'])
-        if isinstance(ticket['updated_at'], str):
+        if isinstance(ticket.get('updated_at'), str):
             ticket['updated_at'] = datetime.fromisoformat(ticket['updated_at'])
     return [VoiceTicket(**ticket) for ticket in tickets]
 
