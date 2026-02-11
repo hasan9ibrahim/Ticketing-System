@@ -222,6 +222,7 @@ export default function IssueTypeSelect({
             </div>
           </div>
         )}
+      </div>
 
       {/* Selected issues summary for table display */}
       {(selectedTypes.length > 0 || otherText) && (
