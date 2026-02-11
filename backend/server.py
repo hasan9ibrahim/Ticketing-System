@@ -192,7 +192,9 @@ class VoiceTicket(BaseModel):
     client_or_vendor: str = "client"
     customer_trunk: str = ""
     destination: Optional[str] = None
-    issue: str
+    issue_types: Optional[List[str]] = []  # Predefined issue types checklist
+    issue_other: Optional[str] = None  # Custom "Other" issue text
+    issue: Optional[str] = None  # Legacy field
     opened_via: str
     assigned_to: Optional[str] = None
     status: str
@@ -213,7 +215,9 @@ class VoiceTicketCreate(BaseModel):
     client_or_vendor: str = "client"
     customer_trunk: str
     destination: Optional[str] = None
-    issue: str
+    issue_types: Optional[List[str]] = []
+    issue_other: Optional[str] = None
+    issue: Optional[str] = None
     opened_via: str
     assigned_to: Optional[str] = None
     status: str = "Unassigned"
@@ -230,6 +234,8 @@ class VoiceTicketUpdate(BaseModel):
     volume: Optional[str] = None
     customer_trunk: Optional[str] = None
     destination: Optional[str] = None
+    issue_types: Optional[List[str]] = None
+    issue_other: Optional[str] = None
     issue: Optional[str] = None
     opened_via: Optional[str] = None
     assigned_to: Optional[str] = None
