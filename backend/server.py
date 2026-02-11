@@ -194,6 +194,7 @@ class VoiceTicket(BaseModel):
     destination: Optional[str] = None
     issue_types: Optional[List[str]] = []  # Predefined issue types checklist
     issue_other: Optional[str] = None  # Custom "Other" issue text
+    fas_type: Optional[str] = None  # FAS type specification for Voice tickets
     issue: Optional[str] = None  # Legacy field
     opened_via: str
     assigned_to: Optional[str] = None
@@ -217,6 +218,7 @@ class VoiceTicketCreate(BaseModel):
     destination: Optional[str] = None
     issue_types: Optional[List[str]] = []
     issue_other: Optional[str] = None
+    fas_type: Optional[str] = None
     issue: Optional[str] = None
     opened_via: str
     assigned_to: Optional[str] = None
@@ -236,6 +238,7 @@ class VoiceTicketUpdate(BaseModel):
     destination: Optional[str] = None
     issue_types: Optional[List[str]] = None
     issue_other: Optional[str] = None
+    fas_type: Optional[str] = None
     issue: Optional[str] = None
     opened_via: Optional[str] = None
     assigned_to: Optional[str] = None
