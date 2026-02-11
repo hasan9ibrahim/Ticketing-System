@@ -214,13 +214,22 @@ export default function IssueTypeSelect({
             {/* Other option */}
             <div className="border-t border-zinc-700 p-2">
               <div className="flex items-center gap-2 mb-2">
-                <Checkbox
-                  checked={!!otherText}
-                  onCheckedChange={(checked) => {
-                    if (!checked) onOtherChange("");
+                <div 
+                  className={`w-4 h-4 rounded border flex items-center justify-center cursor-pointer transition-colors ${
+                    otherText 
+                      ? 'bg-amber-500 border-amber-500' 
+                      : 'border-zinc-500 bg-transparent'
+                  }`}
+                  onClick={() => {
+                    if (otherText) onOtherChange("");
                   }}
-                  className="border-zinc-500 data-[state=checked]:bg-amber-500 data-[state=checked]:border-amber-500"
-                />
+                >
+                  {otherText && (
+                    <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                  )}
+                </div>
                 <span className="text-sm text-zinc-200">Other (custom)</span>
               </div>
               <Input
