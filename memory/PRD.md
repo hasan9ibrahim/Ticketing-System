@@ -24,7 +24,9 @@ Build a ticketing system for Wii Telecom with user authentication, role-based ac
 | NOC | Yes | Yes | All | No | No |
 
 ### Issue Types (Multi-select Checklist)
-Tickets can have one or more of the following issue types:
+Tickets can have one or more predefined issue types. The lists are different for SMS and Voice:
+
+**SMS Issue Types:**
 - Low DLR
 - Low ASR
 - 0 ASR
@@ -38,11 +40,23 @@ Tickets can have one or more of the following issue types:
 - Bad Traffic
 - Low/0 CR
 - High Delay
-- **Other** (custom text input for issues not in the list)
+- **Other** (custom text input)
+
+**Voice Issue Types:**
+- Low ASR
+- Low ACD
+- High ASR
+- Rejections
+- High PDD
+- Bad Traffic
+- **FAS** (with customizable FAS type field)
+- Modified CLI
+- Low/0 Callback
+- **Other** (custom text input)
 
 Issue types are:
 - **Not mandatory** - tickets can be created without selecting any issues
-- **Searchable** - can search tickets by issue type text
+- **Searchable** - can search tickets by issue type text in the search bar
 - **Filterable** - dropdown filter to show tickets with a specific issue type
 
 ### Ticket Fields
