@@ -64,15 +64,23 @@ export default function IssueTypeSelect({
 
   const handleTypeToggle = (type) => {
     if (disabled) return;
-    const newTypes = selectedTypes.includes(type)
-      ? selectedTypes.filter((t) => t !== type)
-      : [...selectedTypes, type];
-    onTypesChange(newTypes);
     
-    // Clear FAS type if FAS is unchecked
-    if (type === "FAS" && selectedTypes.includes("FAS") && onFasTypeChange) {
-      onFasTypeChange("");
+    const isCurrentlySelected = selectedTypes.includes(type);
+    let newTypes;
+    
+    if (isCurrentlySelected) {
+      // Remove the type
+      newTypes = selectedTypes.filter((t) => t !== type);
+      // Clear FAS type if unchecking FAS
+      if (type === "FAS" && onFasTypeChange) {
+        onFasTypeChange("");
+      }
+    } else {
+      // Add the type
+      newTypes = [...selectedTypes, type];
     }
+    
+    onTypesChange(newTypes);
   };
 
   const handleRemoveType = (type, e) => {
