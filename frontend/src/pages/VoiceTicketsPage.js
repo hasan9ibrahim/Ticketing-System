@@ -106,12 +106,15 @@ export default function VoiceTicketsPage() {
     }
 
     if (searchTerm) {
-      filtered = filtered.filter(
-        (ticket) =>
-          ticket.ticket_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          ticket.customer.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          ticket.issue.toLowerCase().includes(searchTerm.toLowerCase())
-      );
+      const term = searchTerm.toLowerCase();
+      filtered = filtered.filter((ticket) => {
+        const issueText = getIssueDisplayText(ticket).toLowerCase();
+        return (
+          ticket.ticket_number.toLowerCase().includes(term) ||
+          ticket.customer.toLowerCase().includes(term) ||
+          issueText.includes(term)
+        );
+      });
     }
 
     if (priorityFilter !== "all") {
@@ -124,6 +127,13 @@ export default function VoiceTicketsPage() {
 
     if (enterpriseFilter !== "all") {
       filtered = filtered.filter((ticket) => ticket.customer_id === enterpriseFilter);
+    }
+
+    if (issueTypeFilter !== "all") {
+      filtered = filtered.filter((ticket) => {
+        const types = ticket.issue_types || [];
+        return types.includes(issueTypeFilter);
+      });
     }
 
     if (dateRange?.from) {
@@ -165,7 +175,7 @@ export default function VoiceTicketsPage() {
 
   const openCreateSheet = () => {
     setEditingTicket(null);
-    setFormData({ priority: "Medium", status: "Unassigned", opened_via: "Monitoring", is_lcr: "no", client_or_vendor: "client", volume: "0", customer_trunk: "" });
+    setFormData({ priority: "Medium", status: "Unassigned", opened_via: "Monitoring", is_lcr: "no", client_or_vendor: "client", volume: "0", customer_trunk: "", issue_types: [], issue_other: "" });
     setSheetOpen(true);
   };
 
