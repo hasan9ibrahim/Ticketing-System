@@ -165,15 +165,20 @@ export default function IssueTypeSelect({
               {filteredIssues.map((type) => (
                 <div key={type}>
                   <div
-                    onClick={() => handleTypeToggle(type)}
                     className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-zinc-700 cursor-pointer"
                     data-testid={`issue-type-${type.toLowerCase().replace(/[^a-z0-9]/g, '-')}`}
                   >
                     <Checkbox
                       checked={selectedTypes.includes(type)}
+                      onCheckedChange={() => handleTypeToggle(type)}
                       className="border-zinc-500 data-[state=checked]:bg-emerald-500 data-[state=checked]:border-emerald-500"
                     />
-                    <span className="text-sm text-zinc-200">{type}</span>
+                    <span 
+                      className="text-sm text-zinc-200 flex-1"
+                      onClick={() => handleTypeToggle(type)}
+                    >
+                      {type}
+                    </span>
                   </div>
                   {/* FAS type input - only for Voice tickets when FAS is selected */}
                   {type === "FAS" && selectedTypes.includes("FAS") && ticketType === "voice" && onFasTypeChange && (
