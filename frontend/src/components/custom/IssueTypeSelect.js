@@ -1,8 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
-import { Check, ChevronDown, X, Search } from "lucide-react";
+import { ChevronDown, X, Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Checkbox } from "@/components/ui/checkbox";
 
 const SMS_ISSUE_TYPES = [
   "Low DLR",
