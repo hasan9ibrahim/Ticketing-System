@@ -305,7 +305,7 @@ export default function VoiceTicketsPage() {
                           <TableCell className="p-3"><PriorityIndicator priority={ticket.priority} /></TableCell>
                           <TableCell className="text-white font-medium tabular-nums">{ticket.ticket_number}</TableCell>
                           <TableCell className="text-zinc-300">{ticket.customer}</TableCell>
-                          <TableCell className="text-zinc-300 max-w-xs truncate">{ticket.issue}</TableCell>
+                          <TableCell className="text-zinc-300 max-w-xs truncate">{getIssueDisplayText(ticket)}</TableCell>
                           <TableCell><StatusBadge status={ticket.status} /></TableCell>
                           <TableCell className="text-zinc-300">{assignedUser?.username || "Unassigned"}</TableCell>
                           <TableCell className="text-zinc-400 tabular-nums">{new Date(ticket.date).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</TableCell>
@@ -331,7 +331,16 @@ export default function VoiceTicketsPage() {
             <div className="space-y-2"><Label>Enterprise *</Label><SearchableSelect options={enterprises.map(e => ({ value: e.id, label: e.name }))} value={formData.customer_id} onChange={(value) => setFormData({ ...formData, customer_id: value })} placeholder="Search enterprise..." isRequired={true} isDisabled={!!editingTicket || isAM} /></div>
             <div className="space-y-2"><Label>Enterprise Role *</Label><RadioGroup value={formData.client_or_vendor} onValueChange={(value) => setFormData({ ...formData, client_or_vendor: value })} className="flex space-x-4" disabled={isAM}><div className="flex items-center space-x-2"><RadioGroupItem value="client" id="client-v" disabled={isAM} /><Label htmlFor="client-v" className="font-normal cursor-pointer">Client</Label></div><div className="flex items-center space-x-2"><RadioGroupItem value="vendor" id="vendor-v" disabled={isAM} /><Label htmlFor="vendor-v" className="font-normal cursor-pointer">Vendor</Label></div></RadioGroup></div>
             <div className="space-y-2"><Label>Assigned To</Label><SearchableSelect options={users.map(u => ({ value: u.id, label: u.username }))} value={formData.assigned_to} onChange={(value) => setFormData({ ...formData, assigned_to: value })} placeholder="Search NOC member..." isDisabled={isAM} /></div>
-            <div className="space-y-2"><Label>Issue *</Label><Textarea value={formData.issue || ""} onChange={(e) => setFormData({ ...formData, issue: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" required disabled={isAM} /></div>
+            
+            {/* Issue Types - Multi-select checklist */}
+            <IssueTypeSelect
+              selectedTypes={formData.issue_types || []}
+              otherText={formData.issue_other || ""}
+              onTypesChange={(types) => setFormData({ ...formData, issue_types: types })}
+              onOtherChange={(text) => setFormData({ ...formData, issue_other: text })}
+              disabled={isAM}
+            />
+
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2"><Label>Volume *</Label><Input value={formData.volume || ""} onChange={(e) => setFormData({ ...formData, volume: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" required disabled={isAM} /></div>
               <div className="space-y-2"><Label>Opened Via *</Label><Select value={formData.opened_via} onValueChange={(value) => setFormData({ ...formData, opened_via: value })} required disabled={isAM}><SelectTrigger className="bg-zinc-800 border-zinc-700"><SelectValue /></SelectTrigger><SelectContent className="bg-zinc-800 border-zinc-700"><SelectItem value="Monitoring">Monitoring</SelectItem><SelectItem value="Email">Email</SelectItem><SelectItem value="Teams">Teams</SelectItem><SelectItem value="AM">AM</SelectItem><SelectItem value="Monitoring, Email">Monitoring, Email</SelectItem><SelectItem value="Monitoring, Teams">Monitoring, Teams</SelectItem></SelectContent></Select></div>
