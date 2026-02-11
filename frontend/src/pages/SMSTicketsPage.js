@@ -15,6 +15,7 @@ import StatusBadge from "@/components/custom/StatusBadge";
 import PriorityIndicator from "@/components/custom/PriorityIndicator";
 import SearchableSelect from "@/components/custom/SearchableSelect";
 import DateRangePickerWithRange from "@/components/custom/DateRangePickerWithRange";
+import IssueTypeSelect, { ISSUE_TYPES } from "@/components/custom/IssueTypeSelect";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -29,6 +30,7 @@ export default function SMSTicketsPage() {
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [enterpriseFilter, setEnterpriseFilter] = useState("all");
+  const [issueTypeFilter, setIssueTypeFilter] = useState("all");
   const [dateRange, setDateRange] = useState({ from: new Date(), to: new Date() });
   const [sortBy, setSortBy] = useState("priority-volume-opened");
   const [activeTab, setActiveTab] = useState("unassigned");
