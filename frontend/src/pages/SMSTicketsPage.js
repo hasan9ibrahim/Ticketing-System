@@ -526,10 +526,16 @@ export default function SMSTicketsPage() {
               <Label>Assigned To</Label>
               <SearchableSelect options={users.map(u => ({ value: u.id, label: u.username }))} value={formData.assigned_to} onChange={(value) => setFormData({ ...formData, assigned_to: value })} placeholder="Search NOC member..." />
             </div>
-            <div className="space-y-2">
-              <Label>Issue *</Label>
-              <Textarea value={formData.issue || ""} onChange={(e) => setFormData({ ...formData, issue: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" required disabled={isAM} />
-            </div>
+            
+            {/* Issue Types - Multi-select checklist */}
+            <IssueTypeSelect
+              selectedTypes={formData.issue_types || []}
+              otherText={formData.issue_other || ""}
+              onTypesChange={(types) => setFormData({ ...formData, issue_types: types })}
+              onOtherChange={(text) => setFormData({ ...formData, issue_other: text })}
+              disabled={isAM}
+            />
+
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2"><Label>Volume *</Label><Input value={formData.volume || ""} onChange={(e) => setFormData({ ...formData, volume: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" required disabled={isAM} /></div>
               <div className="space-y-2">
