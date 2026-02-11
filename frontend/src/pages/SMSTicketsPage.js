@@ -453,7 +453,7 @@ export default function SMSTicketsPage() {
                               </TableCell>
                               <TableCell className="text-white font-medium tabular-nums">{ticket.ticket_number}</TableCell>
                               <TableCell className="text-zinc-300">{ticket.customer}</TableCell>
-                              <TableCell className="text-zinc-300 max-w-xs truncate">{ticket.issue}</TableCell>
+                              <TableCell className="text-zinc-300 max-w-xs truncate">{getIssueDisplayText(ticket)}</TableCell>
                               <TableCell>
                                 <StatusBadge status={ticket.status} />
                               </TableCell>
