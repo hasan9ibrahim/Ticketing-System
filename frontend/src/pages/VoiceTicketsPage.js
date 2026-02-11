@@ -181,7 +181,11 @@ export default function VoiceTicketsPage() {
 
   const openEditSheet = (ticket) => {
     setEditingTicket(ticket);
-    setFormData(ticket);
+    setFormData({
+      ...ticket,
+      issue_types: ticket.issue_types || [],
+      issue_other: ticket.issue_other || ""
+    });
     setSheetOpen(true);
   };
 
@@ -247,7 +251,7 @@ export default function VoiceTicketsPage() {
         </Select>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Select value={enterpriseFilter} onValueChange={setEnterpriseFilter}>
           <SelectTrigger className="bg-zinc-900 border-zinc-700 text-white"><SelectValue placeholder="Enterprise" /></SelectTrigger>
           <SelectContent className="bg-zinc-800 border-zinc-700">
@@ -255,8 +259,15 @@ export default function VoiceTicketsPage() {
             {enterprises.map((e) => <SelectItem key={e.id} value={e.id}>{e.name}</SelectItem>)}
           </SelectContent>
         </Select>
+        <Select value={issueTypeFilter} onValueChange={setIssueTypeFilter}>
+          <SelectTrigger className="bg-zinc-900 border-zinc-700 text-white"><SelectValue placeholder="Issue Type" /></SelectTrigger>
+          <SelectContent className="bg-zinc-800 border-zinc-700">
+            <SelectItem value="all">All Issue Types</SelectItem>
+            {ISSUE_TYPES.map((type) => <SelectItem key={type} value={type}>{type}</SelectItem>)}
+          </SelectContent>
+        </Select>
         <div className="text-zinc-400 text-sm flex items-center">Sorted by: Priority → Volume → Opened Via</div>
-        <Button variant="outline" onClick={() => { setSearchTerm(""); setPriorityFilter("all"); setStatusFilter("all"); setEnterpriseFilter("all"); setDateRange({ from: new Date(), to: new Date() }); }} className="border-zinc-700 text-zinc-400 hover:text-white hover:bg-zinc-800">Reset to Today</Button>
+        <Button variant="outline" onClick={() => { setSearchTerm(""); setPriorityFilter("all"); setStatusFilter("all"); setEnterpriseFilter("all"); setIssueTypeFilter("all"); setDateRange({ from: new Date(), to: new Date() }); }} className="border-zinc-700 text-zinc-400 hover:text-white hover:bg-zinc-800">Reset to Today</Button>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
