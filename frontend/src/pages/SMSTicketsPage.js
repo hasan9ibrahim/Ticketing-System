@@ -534,6 +534,7 @@ export default function SMSTicketsPage() {
               onTypesChange={(types) => setFormData({ ...formData, issue_types: types })}
               onOtherChange={(text) => setFormData({ ...formData, issue_other: text })}
               disabled={isAM}
+              ticketType="sms"
             />
 
             <div className="grid grid-cols-2 gap-4">
