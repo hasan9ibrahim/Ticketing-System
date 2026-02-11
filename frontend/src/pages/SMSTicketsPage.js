@@ -210,14 +210,20 @@ export default function SMSTicketsPage() {
       is_lcr: "no",
       client_or_vendor: "client",
       volume: "0",
-      customer_trunk: ""
+      customer_trunk: "",
+      issue_types: [],
+      issue_other: ""
     });
     setSheetOpen(true);
   };
 
   const openEditSheet = (ticket) => {
     setEditingTicket(ticket);
-    setFormData(ticket);
+    setFormData({
+      ...ticket,
+      issue_types: ticket.issue_types || [],
+      issue_other: ticket.issue_other || ""
+    });
     setSheetOpen(true);
   };
 
