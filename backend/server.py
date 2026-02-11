@@ -118,7 +118,9 @@ class SMSTicket(BaseModel):
     client_or_vendor: str = "client"  # "client" or "vendor"
     customer_trunk: str = ""
     destination: Optional[str] = None
-    issue: str
+    issue_types: Optional[List[str]] = []  # Predefined issue types checklist
+    issue_other: Optional[str] = None  # Custom "Other" issue text
+    issue: Optional[str] = None  # Legacy field - computed from issue_types + issue_other
     opened_via: str
     assigned_to: Optional[str] = None
     status: str
@@ -141,7 +143,9 @@ class SMSTicketCreate(BaseModel):
     client_or_vendor: str = "client"
     customer_trunk: str
     destination: Optional[str] = None
-    issue: str
+    issue_types: Optional[List[str]] = []
+    issue_other: Optional[str] = None
+    issue: Optional[str] = None  # Legacy/computed
     opened_via: str
     assigned_to: Optional[str] = None
     status: str = "Unassigned"
@@ -160,6 +164,8 @@ class SMSTicketUpdate(BaseModel):
     volume: Optional[str] = None
     customer_trunk: Optional[str] = None
     destination: Optional[str] = None
+    issue_types: Optional[List[str]] = None
+    issue_other: Optional[str] = None
     issue: Optional[str] = None
     opened_via: Optional[str] = None
     assigned_to: Optional[str] = None
