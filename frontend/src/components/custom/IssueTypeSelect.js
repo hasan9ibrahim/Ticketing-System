@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 
-const ISSUE_TYPES = [
+const SMS_ISSUE_TYPES = [
   "Low DLR",
   "Low ASR",
   "0 ASR",
@@ -20,16 +20,33 @@ const ISSUE_TYPES = [
   "High Delay",
 ];
 
+const VOICE_ISSUE_TYPES = [
+  "Low ASR",
+  "Low ACD",
+  "High ASR",
+  "Rejections",
+  "High PDD",
+  "Bad Traffic",
+  "FAS",
+  "Modified CLI",
+  "Low/0 Callback",
+];
+
 export default function IssueTypeSelect({ 
   selectedTypes = [], 
-  otherText = "", 
+  otherText = "",
+  fasType = "",
   onTypesChange, 
   onOtherChange,
-  disabled = false 
+  onFasTypeChange,
+  disabled = false,
+  ticketType = "sms" // "sms" or "voice"
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const dropdownRef = useRef(null);
+
+  const ISSUE_TYPES = ticketType === "voice" ? VOICE_ISSUE_TYPES : SMS_ISSUE_TYPES;
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -52,22 +69,38 @@ export default function IssueTypeSelect({
       ? selectedTypes.filter((t) => t !== type)
       : [...selectedTypes, type];
     onTypesChange(newTypes);
+    
+    // Clear FAS type if FAS is unchecked
+    if (type === "FAS" && selectedTypes.includes("FAS") && onFasTypeChange) {
+      onFasTypeChange("");
+    }
   };
 
   const handleRemoveType = (type, e) => {
     e.stopPropagation();
     if (disabled) return;
     onTypesChange(selectedTypes.filter((t) => t !== type));
+    if (type === "FAS" && onFasTypeChange) {
+      onFasTypeChange("");
+    }
   };
 
   const displayValue = () => {
     const allSelected = [...selectedTypes];
+    if (fasType && selectedTypes.includes("FAS")) {
+      const fasIndex = allSelected.indexOf("FAS");
+      if (fasIndex > -1) {
+        allSelected[fasIndex] = `FAS: ${fasType}`;
+      }
+    }
     if (otherText) allSelected.push(`Other: ${otherText}`);
     
     if (allSelected.length === 0) return "Select issue types...";
     if (allSelected.length <= 2) return allSelected.join(", ");
     return `${allSelected.length} issues selected`;
   };
+
+  const isFasSelected = selectedTypes.includes("FAS");
 
   return (
     <div className="space-y-3">
@@ -90,7 +123,7 @@ export default function IssueTypeSelect({
                     key={type}
                     className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-500/20 text-emerald-400 text-xs rounded-full"
                   >
-                    {type}
+                    {type === "FAS" && fasType ? `FAS: ${fasType}` : type}
                     {!disabled && (
                       <X
                         className="h-3 w-3 cursor-pointer hover:text-emerald-300"
@@ -112,7 +145,7 @@ export default function IssueTypeSelect({
 
         {/* Dropdown menu */}
         {isOpen && !disabled && (
-          <div className="absolute z-50 w-full mt-1 bg-zinc-800 border border-zinc-700 rounded-md shadow-lg max-h-80 overflow-hidden">
+          <div className="absolute z-50 w-full mt-1 bg-zinc-800 border border-zinc-700 rounded-md shadow-lg max-h-96 overflow-hidden">
             {/* Search input */}
             <div className="p-2 border-b border-zinc-700">
               <div className="relative">
@@ -128,19 +161,33 @@ export default function IssueTypeSelect({
             </div>
 
             {/* Issue type checkboxes */}
-            <div className="max-h-48 overflow-y-auto p-2 space-y-1">
+            <div className="max-h-52 overflow-y-auto p-2 space-y-1">
               {filteredIssues.map((type) => (
-                <div
-                  key={type}
-                  onClick={() => handleTypeToggle(type)}
-                  className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-zinc-700 cursor-pointer"
-                  data-testid={`issue-type-${type.toLowerCase().replace(/[^a-z0-9]/g, '-')}`}
-                >
-                  <Checkbox
-                    checked={selectedTypes.includes(type)}
-                    className="border-zinc-500 data-[state=checked]:bg-emerald-500 data-[state=checked]:border-emerald-500"
-                  />
-                  <span className="text-sm text-zinc-200">{type}</span>
+                <div key={type}>
+                  <div
+                    onClick={() => handleTypeToggle(type)}
+                    className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-zinc-700 cursor-pointer"
+                    data-testid={`issue-type-${type.toLowerCase().replace(/[^a-z0-9]/g, '-')}`}
+                  >
+                    <Checkbox
+                      checked={selectedTypes.includes(type)}
+                      className="border-zinc-500 data-[state=checked]:bg-emerald-500 data-[state=checked]:border-emerald-500"
+                    />
+                    <span className="text-sm text-zinc-200">{type}</span>
+                  </div>
+                  {/* FAS type input - only for Voice tickets when FAS is selected */}
+                  {type === "FAS" && selectedTypes.includes("FAS") && ticketType === "voice" && onFasTypeChange && (
+                    <div className="ml-6 mt-1 mb-2">
+                      <Input
+                        placeholder="Specify FAS type..."
+                        value={fasType}
+                        onChange={(e) => onFasTypeChange(e.target.value)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="h-7 bg-zinc-900 border-zinc-600 text-white text-xs"
+                        data-testid="fas-type-input"
+                      />
+                    </div>
+                  )}
                 </div>
               ))}
               {filteredIssues.length === 0 && (
@@ -184,5 +231,5 @@ export default function IssueTypeSelect({
   );
 }
 
-// Export the issue types list for use in filters
-export { ISSUE_TYPES };
+// Export the issue types lists for use in filters
+export { SMS_ISSUE_TYPES, VOICE_ISSUE_TYPES };
