@@ -337,9 +337,12 @@ export default function VoiceTicketsPage() {
             <IssueTypeSelect
               selectedTypes={formData.issue_types || []}
               otherText={formData.issue_other || ""}
+              fasType={formData.fas_type || ""}
               onTypesChange={(types) => setFormData({ ...formData, issue_types: types })}
               onOtherChange={(text) => setFormData({ ...formData, issue_other: text })}
+              onFasTypeChange={(text) => setFormData({ ...formData, fas_type: text })}
               disabled={isAM}
+              ticketType="voice"
             />
 
             <div className="grid grid-cols-2 gap-4">
