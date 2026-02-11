@@ -54,10 +54,17 @@ export default function VoiceTicketsPage() {
   const getIssueDisplayText = (ticket) => {
     const issues = ticket.issue_types || [];
     const other = ticket.issue_other || "";
+    const fasType = ticket.fas_type || "";
     const legacy = ticket.issue || "";
     
     if (issues.length > 0 || other) {
-      const parts = [...issues];
+      const parts = issues.map(issue => {
+        // If it's FAS and there's a fas_type, show "FAS: <type>"
+        if (issue === "FAS" && fasType) {
+          return `FAS: ${fasType}`;
+        }
+        return issue;
+      });
       if (other) parts.push(`Other: ${other}`);
       return parts.join(", ");
     }
