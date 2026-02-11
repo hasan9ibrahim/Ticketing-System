@@ -622,13 +622,17 @@ async def get_dashboard_stats(current_user: dict = Depends(get_current_user)):
     query = {}
     
     if current_user["role"] == "am":
-        clients = await db.clients.find({"assigned_am_id": current_user["id"]}, {"_id": 0}).to_list(1000)
+        clients = await db.clients.find({"assigned_am_id": current_user["id"]}, {"_id": 0, "id": 1}).to_list(1000)
         client_ids = [c["id"] for c in clients]
         query["customer_id"] = {"$in": client_ids}
     
-    # Get SMS tickets
-    sms_tickets = await db.sms_tickets.find(query, {"_id": 0}).to_list(10000)
-    voice_tickets = await db.voice_tickets.find(query, {"_id": 0}).to_list(10000)
+    # Use field projections for efficiency - only fetch fields needed for stats
+    stats_projection = {"_id": 0, "status": 1, "priority": 1}
+    recent_projection = {"_id": 0, "id": 1, "ticket_number": 1, "customer": 1, "priority": 1, "status": 1, "date": 1}
+    
+    # Get SMS tickets for stats (only status and priority fields)
+    sms_tickets = await db.sms_tickets.find(query, stats_projection).to_list(10000)
+    voice_tickets = await db.voice_tickets.find(query, stats_projection).to_list(10000)
     
     # Count by status
     sms_by_status = {}
@@ -647,9 +651,12 @@ async def get_dashboard_stats(current_user: dict = Depends(get_current_user)):
         voice_by_status[status] = voice_by_status.get(status, 0) + 1
         voice_by_priority[priority] = voice_by_priority.get(priority, 0) + 1
     
-    # Recent tickets (combined, last 10)
+    # Recent tickets - fetch only 10 most recent from each, sorted by date
+    recent_sms = await db.sms_tickets.find(query, recent_projection).sort("date", -1).limit(10).to_list(10)
+    recent_voice = await db.voice_tickets.find(query, recent_projection).sort("date", -1).limit(10).to_list(10)
+    
     all_tickets = []
-    for ticket in sms_tickets[-10:]:
+    for ticket in recent_sms:
         all_tickets.append({
             "id": ticket["id"],
             "type": "SMS",
@@ -659,7 +666,7 @@ async def get_dashboard_stats(current_user: dict = Depends(get_current_user)):
             "status": ticket["status"],
             "date": ticket["date"]
         })
-    for ticket in voice_tickets[-10:]:
+    for ticket in recent_voice:
         all_tickets.append({
             "id": ticket["id"],
             "type": "Voice",
