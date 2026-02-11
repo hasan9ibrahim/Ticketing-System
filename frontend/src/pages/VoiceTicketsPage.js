@@ -297,12 +297,54 @@ export default function VoiceTicketsPage() {
             <div className="space-y-2"><Label>Issue *</Label><Textarea value={formData.issue || ""} onChange={(e) => setFormData({ ...formData, issue: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" required disabled={isAM} /></div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2"><Label>Volume *</Label><Input value={formData.volume || ""} onChange={(e) => setFormData({ ...formData, volume: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" required disabled={isAM} /></div>
-              <div className="space-y-2"><Label>Opened Via *</Label><Select value={formData.opened_via} onValueChange={(value) => setFormData({ ...formData, opened_via: value })} required disabled={isAM}><SelectTrigger className="bg-zinc-800 border-zinc-700"><SelectValue /></SelectTrigger><SelectContent className="bg-zinc-800 border-zinc-700"><SelectItem value="Monitoring">Monitoring</SelectItem><SelectItem value="Email">Email</SelectItem><SelectItem value="Teams">Teams</SelectItem><SelectItem value="AM">AM</SelectItem></SelectContent></Select></div>
+              <div className="space-y-2"><Label>Opened Via *</Label><Select value={formData.opened_via} onValueChange={(value) => setFormData({ ...formData, opened_via: value })} required disabled={isAM}><SelectTrigger className="bg-zinc-800 border-zinc-700"><SelectValue /></SelectTrigger><SelectContent className="bg-zinc-800 border-zinc-700"><SelectItem value="Monitoring">Monitoring</SelectItem><SelectItem value="Email">Email</SelectItem><SelectItem value="Teams">Teams</SelectItem><SelectItem value="AM">AM</SelectItem><SelectItem value="Monitoring, Email">Monitoring, Email</SelectItem><SelectItem value="Monitoring, Teams">Monitoring, Teams</SelectItem></SelectContent></Select></div>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2"><Label>Enterprise Trunk *</Label><Input value={formData.customer_trunk || ""} onChange={(e) => setFormData({ ...formData, customer_trunk: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" required disabled={isAM} /></div>
               <div className="space-y-2"><Label>Destination</Label><Input value={formData.destination || ""} onChange={(e) => setFormData({ ...formData, destination: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" disabled={isAM} /></div>
             </div>
+
+            {/* Vendor & Cost Details */}
+            <div className="border-t border-zinc-700 pt-4 mt-4">
+              <h3 className="text-sm font-medium text-zinc-400 mb-4">Vendor & Cost</h3>
+              <div className="grid grid-cols-3 gap-4">
+                <div className="space-y-2"><Label>Rate</Label><Input value={formData.rate || ""} onChange={(e) => setFormData({ ...formData, rate: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" placeholder="Rate per minute" disabled={isAM} /></div>
+                <div className="space-y-2"><Label>Vendor Trunk</Label><Input value={formData.vendor_trunk || ""} onChange={(e) => setFormData({ ...formData, vendor_trunk: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" disabled={isAM} /></div>
+                <div className="space-y-2"><Label>Cost</Label><Input value={formData.cost || ""} onChange={(e) => setFormData({ ...formData, cost: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" placeholder="e.g., 0.005" disabled={isAM} /></div>
+              </div>
+              <div className="grid grid-cols-1 gap-4 mt-4">
+                <div className="space-y-2">
+                  <Label>Is LCR</Label>
+                  <Select value={formData.is_lcr || "no"} onValueChange={(value) => setFormData({ ...formData, is_lcr: value })} disabled={isAM}>
+                    <SelectTrigger className="bg-zinc-800 border-zinc-700 w-32"><SelectValue /></SelectTrigger>
+                    <SelectContent className="bg-zinc-800 border-zinc-700">
+                      <SelectItem value="yes">Yes</SelectItem>
+                      <SelectItem value="no">No</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </div>
+
+            {/* Resolution Details */}
+            <div className="border-t border-zinc-700 pt-4 mt-4">
+              <h3 className="text-sm font-medium text-zinc-400 mb-4">Resolution</h3>
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label>Root Cause</Label>
+                  <Textarea value={formData.root_cause || ""} onChange={(e) => setFormData({ ...formData, root_cause: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" placeholder="Identified root cause" rows={2} disabled={isAM} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Action Taken</Label>
+                  <Textarea value={formData.action_taken || ""} onChange={(e) => setFormData({ ...formData, action_taken: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" placeholder="Actions taken to resolve" rows={2} disabled={isAM} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Internal Notes</Label>
+                  <Textarea value={formData.internal_notes || ""} onChange={(e) => setFormData({ ...formData, internal_notes: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" placeholder="Internal notes (not visible to client)" rows={2} disabled={isAM} />
+                </div>
+              </div>
+            </div>
+
             <div className="flex space-x-3 pt-4">
               {canModify && <Button type="submit" className="bg-emerald-500 text-black hover:bg-emerald-400">{editingTicket ? "Update" : "Create"} Ticket</Button>}
               <Button type="button" variant="outline" onClick={() => setSheetOpen(false)} className="border-zinc-700 text-white hover:bg-zinc-800">{isAM ? "Close" : "Cancel"}</Button>
