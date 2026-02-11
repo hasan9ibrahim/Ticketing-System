@@ -264,7 +264,7 @@ export default function VoiceTicketsPage() {
           <SelectTrigger className="bg-zinc-900 border-zinc-700 text-white"><SelectValue placeholder="Issue Type" /></SelectTrigger>
           <SelectContent className="bg-zinc-800 border-zinc-700">
             <SelectItem value="all">All Issue Types</SelectItem>
-            {ISSUE_TYPES.map((type) => <SelectItem key={type} value={type}>{type}</SelectItem>)}
+            {VOICE_ISSUE_TYPES.map((type) => <SelectItem key={type} value={type}>{type}</SelectItem>)}
           </SelectContent>
         </Select>
         <div className="text-zinc-400 text-sm flex items-center">Sorted by: Priority → Volume → Opened Via</div>
