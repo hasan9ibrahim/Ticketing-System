@@ -17,7 +17,7 @@ import SearchableSelect from "@/components/custom/SearchableSelect";
 import DateRangePickerWithRange from "@/components/custom/DateRangePickerWithRange";
 import IssueTypeSelect, { VOICE_ISSUE_TYPES } from "@/components/custom/IssueTypeSelect";
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+const BACKEND_URL = process.env.REACT_APP_API_URL;
 const API = `${BACKEND_URL}/api`;
 
 export default function VoiceTicketsPage() {
