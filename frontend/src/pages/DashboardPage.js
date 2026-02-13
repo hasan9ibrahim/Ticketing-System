@@ -6,6 +6,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from "recha
 import { toast } from "sonner";
 import StatusBadge from "@/components/custom/StatusBadge";
 import PriorityIndicator from "@/components/custom/PriorityIndicator";
+import DateRangePickerWithRange from "@/components/custom/DateRangePickerWithRange";
 
 const BACKEND_URL = process.env.REACT_APP_API_URL;
 const API = `${BACKEND_URL}/api`;
@@ -16,12 +17,27 @@ export default function DashboardPage() {
 
   useEffect(() => {
     fetchStats();
-  }, []);
+  }, [dateRange]);
 
   const fetchStats = async () => {
     try {
       const token = localStorage.getItem("token");
-      const response = await axios.get(`${API}/dashboard/stats`, {
+            
+      let url = `${API}/dashboard/stats`;
+      const params = new URLSearchParams();
+      
+      if (dateRange?.from) {
+        params.append('date_from', dateRange.from.toISOString().split('T')[0]);
+      }
+      if (dateRange?.to) {
+        params.append('date_to', dateRange.to.toISOString().split('T')[0]);
+      }
+      
+      if (params.toString()) {
+        url += `?${params.toString()}`;
+      }
+      
+      const response = await axios.get(url, {
         headers: { Authorization: `Bearer ${token}` },
       });
       setStats(response.data);
@@ -63,10 +79,26 @@ export default function DashboardPage() {
 
   return (
     <div className="p-6 lg:p-8 space-y-6 max-w-[1920px] mx-auto" data-testid="dashboard-page">
-      {/* Header */}
-      <div className="space-y-2">
-        <h1 className="text-4xl font-bold text-white">Dashboard</h1>
-        <p className="text-zinc-400">Overview of ticket status and metrics</p>
+           {/* Header with Date Filter */}
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div className="space-y-2">
+          <h1 className="text-4xl font-bold text-white">Dashboard</h1>
+          <p className="text-zinc-400">Overview of ticket status and metrics</p>
+        </div>
+        <div className="flex items-center gap-4">
+          <DateRangePickerWithRange
+            dateRange={dateRange}
+            onDateRangeChange={setDateRange}
+          />
+          {dateRange && (
+            <button
+              onClick={() => setDateRange(null)}
+              className="text-sm text-zinc-400 hover:text-white underline"
+            >
+              Clear filter
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Stats Grid */}
