@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import axios from "axios";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,23 +29,25 @@ export default function EnterprisesPage() {
   useEffect(() => { fetchData(); }, []);
   useEffect(() => { filterEnterprises(); }, [searchTerm, enterprises]);
 
-  const fetchData = async () => {
-    try {
-      const token = localStorage.getItem("token");
-      const headers = { Authorization: `Bearer ${token}` };
-      const [enterprisesRes, usersRes] = await Promise.all([
-        axios.get(`${API}/clients`, { headers }),
-        axios.get(`${API}/users`, { headers }),
-      ]);
-      setEnterprises(enterprisesRes.data);
-      setFilteredEnterprises(enterprisesRes.data);
-      setUsers(usersRes.data.filter((u) => u.role === "am"));
-    } catch (error) {
-      toast.error("Failed to load data");
-    } finally {
-      setLoading(false);
-    }
-  };
+const fetchData = useCallback(async () => {
+  try {
+    const token = localStorage.getItem("token");
+    const headers = { Authorization: `Bearer ${token}` };
+
+    const [enterprisesRes, usersRes] = await Promise.all([
+      axios.get(`${API}/clients`, { headers }),
+      axios.get(`${API}/users`, { headers }),
+    ]);
+
+    setEnterprises(enterprisesRes.data);
+    setFilteredEnterprises(enterprisesRes.data);
+    setUsers(usersRes.data.filter((u) => u.role === "am"));
+  } catch (error) {
+    toast.error("Failed to load data");
+  } finally {
+    setLoading(false);
+  }
+}, []);
 
   const filterEnterprises = () => {
     if (!searchTerm) {
