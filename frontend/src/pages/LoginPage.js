@@ -4,7 +4,6 @@ import axios from "axios";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Hexagon } from "lucide-react";
 import { toast } from "sonner";
 
 const BACKEND_URL =
@@ -48,7 +47,7 @@ export default function LoginPage({ setUser }) {
       <div className="w-full lg:w-1/2 flex items-center justify-center p-8">
         <div className="w-full max-w-md space-y-8 animate-fade-in">
           <div className="flex flex-col items-center space-y-4">
-            <Hexagon className="w-12 h-12 text-emerald-500" />
+            <img src="/logo.png" alt="Logo" className="w-12 h-12" />
             <h1 className="text-4xl font-bold text-white">Wii Telecom</h1>
             <p className="text-zinc-400 text-center">NOC Ticketing System</p>
           </div>
