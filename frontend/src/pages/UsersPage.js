@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import axios from "axios";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,47 +32,43 @@ export default function UsersPage() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [userToDelete, setUserToDelete] = useState(null);
 
-useEffect(() => {
-  fetchUsers();
-}, [fetchUsers]);
+  useEffect(() => {
+    fetchUsers();
+  }, []);
 
   useEffect(() => {
-  filterUsers();
-}, [filterUsers]);
+    filterUsers();
+  }, [searchTerm, users]);
 
-  const fetchUsers = useCallback(async () => {
-  try {
-    const token = localStorage.getItem("token");
+  const fetchUsers = async () => {
+    try {
+      const token = localStorage.getItem("token");
+      const response = await axios.get(`${API}/users`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setUsers(response.data);
+      setFilteredUsers(response.data);
+    } catch (error) {
+      toast.error("Failed to load users");
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    const response = await axios.get(`${API}/users`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+  const filterUsers = () => {
+    if (!searchTerm) {
+      setFilteredUsers(users);
+      return;
+    }
 
-    setUsers(response.data);
-    setFilteredUsers(response.data);
-  } catch (error) {
-    toast.error("Failed to load users");
-  } finally {
-    setLoading(false);
-  }
-}, []);
-
-  const filterUsers = useCallback(() => {
-  if (!searchTerm) {
-    setFilteredUsers(users);
-    return;
-  }
-
-  const term = searchTerm.toLowerCase();
-  const filtered = users.filter(
-    (user) =>
-      user.username.toLowerCase().includes(term) ||
-      user.email?.toLowerCase().includes(term) ||
-      user.role.toLowerCase().includes(term)
-  );
-
-  setFilteredUsers(filtered);
-}, [searchTerm, users]);
+    const filtered = users.filter(
+      (user) =>
+        user.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        user.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        user.role.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+    setFilteredUsers(filtered);
+  };
 
   const openCreateSheet = () => {
     setFormData({ role: "noc" });
