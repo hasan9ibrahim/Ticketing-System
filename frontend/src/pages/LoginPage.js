@@ -116,6 +116,11 @@ export default function LoginPage({ setUser }) {
           </div>
         </div>
       </div>
+          <div className="fixed bottom-4 right-4 z-50">
+  <div className="rounded-full bg-black/90 px-4 py-2 text-xs font-semibold text-white shadow-lg">
+    Made by Wii Telecom
+  </div>
+</div>
     </div>
   );
 }
