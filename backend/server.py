@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, status
+rom fastapi import FastAPI, APIRouter, HTTPException, Depends, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -41,8 +41,9 @@ class User(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     username: str
-    email: Optional[str] = None
-    phone: Optional[str] = None
+    name: str  # Full name - required
+    email: str  # Email - required
+    phone: str  # Phone - required
     password_hash: str
     role: str  # admin, am, noc
     am_type: Optional[str] = None  # "sms" or "voice" for AMs
@@ -50,8 +51,9 @@ class User(BaseModel):
 
 class UserCreate(BaseModel):
     username: str
-    email: Optional[str] = None
-    phone: Optional[str] = None
+    name: str  # Full name - required
+    email: str  # Email - required
+    phone: str  # Phone - required
     password: str
     role: str
     am_type: Optional[str] = None
@@ -64,6 +66,7 @@ class UserResponse(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str
     username: str
+    name: Optional[str] = None  # Optional for backward compatibility with existing users
     email: Optional[str] = None
     phone: Optional[str] = None
     role: str
@@ -78,25 +81,25 @@ class Token(BaseModel):
 class Client(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    name: str
-    contact_person: Optional[str] = None
-    contact_email: Optional[str] = None
-    contact_phone: Optional[str] = None
+    name: str  # Required
+    contact_person: Optional[str] = None  # Optional
+    contact_email: Optional[str] = None  # Required for new, optional for backward compat
+    contact_phone: Optional[str] = None  # Optional
     assigned_am_id: Optional[str] = None
-    tier: Optional[str] = None  # Enterprise tier/priority
-    noc_emails: Optional[str] = None  # NOC email addresses
-    notes: Optional[str] = None
+    tier: Optional[str] = None  # Required for new, optional for backward compat
+    noc_emails: Optional[str] = None  # Required for new, optional for backward compat
+    notes: Optional[str] = None  # Optional
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class ClientCreate(BaseModel):
-    name: str
-    contact_person: Optional[str] = None
-    contact_email: Optional[str] = None
-    contact_phone: Optional[str] = None
+    name: str  # Required
+    contact_person: Optional[str] = None  # Optional
+    contact_email: str  # Required
+    contact_phone: Optional[str] = None  # Optional
     assigned_am_id: Optional[str] = None
-    tier: Optional[str] = None
-    noc_emails: Optional[str] = None
-    notes: Optional[str] = None
+    tier: str  # Required
+    noc_emails: str  # Required
+    notes: Optional[str] = None  # Optional
 
 class ClientUpdate(BaseModel):
     name: Optional[str] = None
@@ -123,7 +126,7 @@ class SMSTicket(BaseModel):
     issue_types: Optional[List[str]] = []  # Predefined issue types checklist
     issue_other: Optional[str] = None  # Custom "Other" issue text
     issue: Optional[str] = None  # Legacy field - computed from issue_types + issue_other
-    opened_via: str
+    opened_via: List[str] = []  # Multi-select: Monitoring, Teams, Email, AM
     assigned_to: Optional[str] = None
     status: str
     sid: Optional[str] = None
@@ -148,7 +151,7 @@ class SMSTicketCreate(BaseModel):
     issue_types: Optional[List[str]] = []
     issue_other: Optional[str] = None
     issue: Optional[str] = None  # Legacy/computed
-    opened_via: str
+    opened_via: List[str] = []  # Multi-select checklist
     assigned_to: Optional[str] = None
     status: str = "Unassigned"
     sid: Optional[str] = None
@@ -169,7 +172,7 @@ class SMSTicketUpdate(BaseModel):
     issue_types: Optional[List[str]] = None
     issue_other: Optional[str] = None
     issue: Optional[str] = None
-    opened_via: Optional[str] = None
+    opened_via: Optional[List[str]] = None  # Multi-select checklist
     assigned_to: Optional[str] = None
     status: Optional[str] = None
     sid: Optional[str] = None
@@ -198,7 +201,7 @@ class VoiceTicket(BaseModel):
     issue_other: Optional[str] = None  # Custom "Other" issue text
     fas_type: Optional[str] = None  # FAS type specification for Voice tickets
     issue: Optional[str] = None  # Legacy field
-    opened_via: str
+    opened_via: List[str] = []  # Multi-select: Monitoring, Teams, Email, AM
     assigned_to: Optional[str] = None
     status: str
     rate: Optional[str] = None
@@ -222,7 +225,7 @@ class VoiceTicketCreate(BaseModel):
     issue_other: Optional[str] = None
     fas_type: Optional[str] = None
     issue: Optional[str] = None
-    opened_via: str
+    opened_via: List[str] = []  # Multi-select checklist
     assigned_to: Optional[str] = None
     status: str = "Unassigned"
     rate: Optional[str] = None
@@ -242,7 +245,7 @@ class VoiceTicketUpdate(BaseModel):
     issue_other: Optional[str] = None
     fas_type: Optional[str] = None
     issue: Optional[str] = None
-    opened_via: Optional[str] = None
+    opened_via: Optional[List[str]] = None  # Multi-select checklist
     assigned_to: Optional[str] = None
     status: Optional[str] = None
     rate: Optional[str] = None
@@ -296,6 +299,29 @@ async def get_current_admin(current_user: dict = Depends(get_current_user)):
     if current_user["role"] != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
     return current_user
+
+async def get_current_admin_or_noc(current_user: dict = Depends(get_current_user)):
+    """Allow both admin and NOC users to perform ticket operations."""
+    if current_user["role"] not in ["admin", "noc"]:
+        raise HTTPException(status_code=403, detail="Admin or NOC access required")
+    return current_user
+
+def validate_ticket_status(status: str, assigned_to: Optional[str]):
+    """Validate that 'Assigned' status requires a NOC member to be assigned."""
+    if status == "Assigned" and not assigned_to:
+        raise HTTPException(
+            status_code=400, 
+            detail="Status cannot be 'Assigned' unless a NOC member is assigned"
+        )
+
+def normalize_opened_via(opened_via):
+    """Convert opened_via to list format for backward compatibility."""
+    if opened_via is None:
+        return []
+    if isinstance(opened_via, str):
+        # Convert old string format to list
+        return [v.strip() for v in opened_via.split(",") if v.strip()]
+    return opened_via
 
 # ==================== AUTH ROUTES ====================
 
@@ -425,6 +451,9 @@ async def create_sms_ticket(ticket_data: SMSTicketCreate, current_user: dict = D
     if current_user["role"] == "am":
         raise HTTPException(status_code=403, detail="Account Managers cannot create tickets")
     
+    # Validate status requirements
+    validate_ticket_status(ticket_data.status, ticket_data.assigned_to)
+    
     # Get customer name
     client = await db.clients.find_one({"id": ticket_data.customer_id}, {"_id": 0})
     if not client:
@@ -470,6 +499,8 @@ async def get_sms_tickets(current_user: dict = Depends(get_current_user)):
             ticket['date'] = datetime.fromisoformat(ticket['date'])
         if isinstance(ticket.get('updated_at'), str):
             ticket['updated_at'] = datetime.fromisoformat(ticket['updated_at'])
+        # Normalize opened_via for backward compatibility
+        ticket['opened_via'] = normalize_opened_via(ticket.get('opened_via'))
     return [SMSTicket(**ticket) for ticket in tickets]
 
 @api_router.get("/tickets/sms/{ticket_id}", response_model=SMSTicket)
@@ -482,6 +513,8 @@ async def get_sms_ticket(ticket_id: str, current_user: dict = Depends(get_curren
         ticket['date'] = datetime.fromisoformat(ticket['date'])
     if isinstance(ticket['updated_at'], str):
         ticket['updated_at'] = datetime.fromisoformat(ticket['updated_at'])
+    # Normalize opened_via for backward compatibility
+    ticket['opened_via'] = normalize_opened_via(ticket.get('opened_via'))
     return SMSTicket(**ticket)
 
 @api_router.put("/tickets/sms/{ticket_id}", response_model=SMSTicket)
@@ -490,7 +523,18 @@ async def update_sms_ticket(ticket_id: str, ticket_data: SMSTicketUpdate, curren
     if current_user["role"] == "am":
         raise HTTPException(status_code=403, detail="Account Managers cannot modify tickets")
     
+    # Get the existing ticket to check status validation
+    existing_ticket = await db.sms_tickets.find_one({"id": ticket_id}, {"_id": 0})
+    if not existing_ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    
     update_dict = {k: v for k, v in ticket_data.model_dump().items() if v is not None}
+    
+    # Validate status requirements
+    new_status = update_dict.get("status", existing_ticket.get("status"))
+    new_assigned_to = update_dict.get("assigned_to", existing_ticket.get("assigned_to"))
+    validate_ticket_status(new_status, new_assigned_to)
+    
     update_dict["updated_at"] = datetime.now(timezone.utc).isoformat()
     
     result = await db.sms_tickets.find_one_and_update(
@@ -507,10 +551,12 @@ async def update_sms_ticket(ticket_id: str, ticket_data: SMSTicketUpdate, curren
         result['date'] = datetime.fromisoformat(result['date'])
     if isinstance(result['updated_at'], str):
         result['updated_at'] = datetime.fromisoformat(result['updated_at'])
+    # Normalize opened_via for backward compatibility
+    result['opened_via'] = normalize_opened_via(result.get('opened_via'))
     return SMSTicket(**result)
 
 @api_router.delete("/tickets/sms/{ticket_id}")
-async def delete_sms_ticket(ticket_id: str, current_admin: dict = Depends(get_current_admin)):
+async def delete_sms_ticket(ticket_id: str, current_user: dict = Depends(get_current_admin_or_noc)):
     result = await db.sms_tickets.delete_one({"id": ticket_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Ticket not found")
@@ -523,6 +569,9 @@ async def create_voice_ticket(ticket_data: VoiceTicketCreate, current_user: dict
     # AMs cannot create tickets
     if current_user["role"] == "am":
         raise HTTPException(status_code=403, detail="Account Managers cannot create tickets")
+    
+    # Validate status requirements
+    validate_ticket_status(ticket_data.status, ticket_data.assigned_to)
     
     # Get customer name
     client = await db.clients.find_one({"id": ticket_data.customer_id}, {"_id": 0})
@@ -569,6 +618,8 @@ async def get_voice_tickets(current_user: dict = Depends(get_current_user)):
             ticket['date'] = datetime.fromisoformat(ticket['date'])
         if isinstance(ticket.get('updated_at'), str):
             ticket['updated_at'] = datetime.fromisoformat(ticket['updated_at'])
+        # Normalize opened_via for backward compatibility
+        ticket['opened_via'] = normalize_opened_via(ticket.get('opened_via'))
     return [VoiceTicket(**ticket) for ticket in tickets]
 
 @api_router.get("/tickets/voice/{ticket_id}", response_model=VoiceTicket)
@@ -581,6 +632,8 @@ async def get_voice_ticket(ticket_id: str, current_user: dict = Depends(get_curr
         ticket['date'] = datetime.fromisoformat(ticket['date'])
     if isinstance(ticket['updated_at'], str):
         ticket['updated_at'] = datetime.fromisoformat(ticket['updated_at'])
+    # Normalize opened_via for backward compatibility
+    ticket['opened_via'] = normalize_opened_via(ticket.get('opened_via'))
     return VoiceTicket(**ticket)
 
 @api_router.put("/tickets/voice/{ticket_id}", response_model=VoiceTicket)
@@ -589,7 +642,18 @@ async def update_voice_ticket(ticket_id: str, ticket_data: VoiceTicketUpdate, cu
     if current_user["role"] == "am":
         raise HTTPException(status_code=403, detail="Account Managers cannot modify tickets")
     
+    # Get the existing ticket to check status validation
+    existing_ticket = await db.voice_tickets.find_one({"id": ticket_id}, {"_id": 0})
+    if not existing_ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    
     update_dict = {k: v for k, v in ticket_data.model_dump().items() if v is not None}
+    
+    # Validate status requirements
+    new_status = update_dict.get("status", existing_ticket.get("status"))
+    new_assigned_to = update_dict.get("assigned_to", existing_ticket.get("assigned_to"))
+    validate_ticket_status(new_status, new_assigned_to)
+    
     update_dict["updated_at"] = datetime.now(timezone.utc).isoformat()
     
     result = await db.voice_tickets.find_one_and_update(
@@ -606,10 +670,12 @@ async def update_voice_ticket(ticket_id: str, ticket_data: VoiceTicketUpdate, cu
         result['date'] = datetime.fromisoformat(result['date'])
     if isinstance(result['updated_at'], str):
         result['updated_at'] = datetime.fromisoformat(result['updated_at'])
+    # Normalize opened_via for backward compatibility
+    result['opened_via'] = normalize_opened_via(result.get('opened_via'))
     return VoiceTicket(**result)
 
 @api_router.delete("/tickets/voice/{ticket_id}")
-async def delete_voice_ticket(ticket_id: str, current_admin: dict = Depends(get_current_admin)):
+async def delete_voice_ticket(ticket_id: str, current_user: dict = Depends(get_current_admin_or_noc)):
     result = await db.voice_tickets.delete_one({"id": ticket_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Ticket not found")
@@ -618,13 +684,27 @@ async def delete_voice_ticket(ticket_id: str, current_admin: dict = Depends(get_
 # ==================== DASHBOARD ROUTES ====================
 
 @api_router.get("/dashboard/stats", response_model=DashboardStats)
-async def get_dashboard_stats(current_user: dict = Depends(get_current_user)):
+async def get_dashboard_stats(
+    current_user: dict = Depends(get_current_user),
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None
+):
     query = {}
     
     if current_user["role"] == "am":
         clients = await db.clients.find({"assigned_am_id": current_user["id"]}, {"_id": 0, "id": 1}).to_list(1000)
         client_ids = [c["id"] for c in clients]
         query["customer_id"] = {"$in": client_ids}
+    
+    # Add date range filter if provided
+    if date_from or date_to:
+        date_query = {}
+        if date_from:
+            date_query["$gte"] = date_from
+        if date_to:
+            # Add a day to include the entire end date
+            date_query["$lte"] = date_to + "T23:59:59.999999"
+        query["date"] = date_query
     
     # Use field projections for efficiency - only fetch fields needed for stats
     stats_projection = {"_id": 0, "status": 1, "priority": 1}
