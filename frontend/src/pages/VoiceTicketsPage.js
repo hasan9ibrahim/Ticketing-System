@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState } from "react";
 import axios from "axios";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,8 +37,41 @@ export default function VoiceTicketsPage() {
   const [editingTicket, setEditingTicket] = useState(null);
   const [formData, setFormData] = useState({});
   const [currentUser, setCurrentUser] = useState(null);
-  
-const fetchData = useCallback(async () => {
+
+  useEffect(() => {
+    const userData = localStorage.getItem("user");
+    if (userData) {
+      setCurrentUser(JSON.parse(userData));
+    }
+    fetchData();
+  }, []);
+
+  useEffect(() => {
+    filterAndSortTickets();
+  }, [searchTerm, priorityFilter, statusFilter, enterpriseFilter, issueTypeFilter, dateRange, activeTab, tickets]);
+
+  // Helper to get display text for issues
+  const getIssueDisplayText = (ticket) => {
+    const issues = ticket.issue_types || [];
+    const other = ticket.issue_other || "";
+    const fasType = ticket.fas_type || "";
+    const legacy = ticket.issue || "";
+    
+    if (issues.length > 0 || other) {
+      const parts = issues.map(issue => {
+        // If it's FAS and there's a fas_type, show "FAS: <type>"
+        if (issue === "FAS" && fasType) {
+          return `FAS: ${fasType}`;
+        }
+        return issue;
+      });
+      if (other) parts.push(`Other: ${other}`);
+      return parts.join(", ");
+    }
+    return legacy;
+  };
+
+  const fetchData = async () => {
     try {
       const token = localStorage.getItem("token");
       const headers = { Authorization: `Bearer ${token}` };
@@ -55,17 +88,20 @@ const fetchData = useCallback(async () => {
     } catch (error) {
       toast.error("Failed to load data");
     } finally {
-    setLoading(false);
-  }
-}, []);
-  
-useEffect(() => {
-  const userData = localStorage.getItem("user");
-  if (userData) setCurrentUser(JSON.parse(userData));
-  fetchData();
-}, [fetchData]);
+      setLoading(false);
+    }
+  };
 
-const filterAndSortTickets = useCallback(() => {
+  const getOpenedViaPriority = (openedVia) => {
+    if (!openedVia) return 999;
+    const lower = openedVia.toLowerCase();
+    if (lower.includes("monitoring")) return 0;
+    if (lower.includes("teams")) return 1;
+    if (lower.includes("email")) return 2;
+    return 3;
+  };
+
+  const filterAndSortTickets = () => {
     let filtered = tickets;
 
     if (activeTab === "unassigned") {
@@ -132,47 +168,6 @@ const filterAndSortTickets = useCallback(() => {
     });
 
     setFilteredTickets(filtered);
-}, [
-  tickets,
-  activeTab,
-  searchTerm,
-  priorityFilter,
-  statusFilter,
-  enterpriseFilter,
-  issueTypeFilter,
-  dateRange,
-  getIssueDisplayText
-]);
-
-  useEffect(() => {
-  filterAndSortTickets();
-}, [filterAndSortTickets]);
-
-  // Helper to get display text for issues
-const getIssueDisplayText = useCallback((ticket) => {
-  const issues = ticket.issue_types || [];
-  const other = ticket.issue_other || "";
-  const fasType = ticket.fas_type || "";
-  const legacy = ticket.issue || "";
-
-  if (issues.length > 0 || other) {
-    const parts = issues.map((issue) => {
-      if (issue === "FAS" && fasType) return `FAS: ${fasType}`;
-      return issue;
-    });
-    if (other) parts.push(`Other: ${other}`);
-    return parts.join(", ");
-  }
-  return legacy;
-}, []);
-
-  const getOpenedViaPriority = (openedVia) => {
-    if (!openedVia) return 999;
-    const lower = openedVia.toLowerCase();
-    if (lower.includes("monitoring")) return 0;
-    if (lower.includes("teams")) return 1;
-    if (lower.includes("email")) return 2;
-    return 3;
   };
 
   const groupTicketsByDate = () => {
