@@ -65,7 +65,7 @@ export default function LoginPage({ setUser }) {
                 value={identifier}
                 onChange={(e) => setIdentifier(e.target.value)}
                 className="bg-zinc-900 border-zinc-700 text-white placeholder:text-zinc-500 focus:border-emerald-500 focus:ring-emerald-500"
-                placeholder="Enter your username, email, or phone"
+                placeholder="Enter your username"
                 required
               />
             </div>
