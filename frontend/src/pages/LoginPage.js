@@ -118,7 +118,7 @@ export default function LoginPage({ setUser }) {
       </div>
       <div className="fixed bottom-4 right-4 z-50">
   <div className="rounded-full bg-gradient-to-r from-emerald-600 to-emerald-500 px-4 py-2 text-xs font-bold text-white shadow-xl">
-    Made by Wii Telecom
+    Made by Hasan Ibrahim and his NOC Team
   </div>
 </div>
     </div>
