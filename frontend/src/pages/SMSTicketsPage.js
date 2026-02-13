@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import axios from "axios";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,54 +39,51 @@ export default function SMSTicketsPage() {
   const [formData, setFormData] = useState({});
   const [currentUser, setCurrentUser] = useState(null);
 
-  useEffect(() => {
-    const userData = localStorage.getItem("user");
-    if (userData) {
-      setCurrentUser(JSON.parse(userData));
-    }
-    fetchData();
-  }, []);
 
-  useEffect(() => {
-    filterAndSortTickets();
-  }, [searchTerm, priorityFilter, statusFilter, enterpriseFilter, issueTypeFilter, dateRange, sortBy, activeTab, tickets]);
+  const fetchData = useCallback(async () => {
+  try {
+    const token = localStorage.getItem("token");
+    const headers = { Authorization: `Bearer ${token}` };
 
+    const [ticketsRes, enterprisesRes, usersRes] = await Promise.all([
+      axios.get(`${API}/tickets/sms`, { headers }),
+      axios.get(`${API}/clients`, { headers }),
+      axios.get(`${API}/users`, { headers }),
+    ]);
+
+    setTickets(ticketsRes.data);
+    setEnterprises(enterprisesRes.data);
+    setUsers(usersRes.data.filter((u) => u.role === "noc"));
+  } catch (error) {
+    toast.error("Failed to load data");
+  } finally {
+    setLoading(false);
+  }
+}, []);
+  
+  useEffect(() => {
+  const userData = localStorage.getItem("user");
+  if (userData) setCurrentUser(JSON.parse(userData));
+  fetchData();
+}, [fetchData]);
+  
   // Helper to get display text for issues
-  const getIssueDisplayText = (ticket) => {
-    const issues = ticket.issue_types || [];
-    const other = ticket.issue_other || "";
-    const legacy = ticket.issue || "";
-    
-    // If new format exists, use it
-    if (issues.length > 0 || other) {
-      const parts = [...issues];
-      if (other) parts.push(`Other: ${other}`);
-      return parts.join(", ");
-    }
-    // Fall back to legacy issue field
-    return legacy;
-  };
+  const getIssueDisplayText = useCallback((ticket) => {
+  const issues = ticket.issue_types || [];
+  const other = ticket.issue_other || "";
+  const legacy = ticket.issue || "";
 
-  const fetchData = async () => {
-    try {
-      const token = localStorage.getItem("token");
-      const headers = { Authorization: `Bearer ${token}` };
-
-      const [ticketsRes, enterprisesRes, usersRes] = await Promise.all([
-        axios.get(`${API}/tickets/sms`, { headers }),
-        axios.get(`${API}/clients`, { headers }),
-        axios.get(`${API}/users`, { headers }),
-      ]);
-
-      setTickets(ticketsRes.data);
-      setEnterprises(enterprisesRes.data);
-      setUsers(usersRes.data.filter((u) => u.role === "noc"));
-    } catch (error) {
-      toast.error("Failed to load data");
-    } finally {
-      setLoading(false);
-    }
-  };
+  if (issues.length > 0 || other) {
+    const parts = [...issues];
+    if (other) parts.push(`Other: ${other}`);
+    return parts.join(", ");
+  }
+  return legacy;
+}, []);
+  
+ useEffect(() => {
+  filterAndSortTickets();
+}, [filterAndSortTickets]);
 
   const getOpenedViaPriority = (openedVia) => {
     if (!openedVia) return 999;
@@ -97,93 +94,76 @@ export default function SMSTicketsPage() {
     return 3;
   };
 
-  const filterAndSortTickets = () => {
-    let filtered = tickets;
+const filterAndSortTickets = useCallback(() => {
+  let filtered = tickets;
 
-    // Tab filtering
-    if (activeTab === "unassigned") {
-      filtered = filtered.filter((t) => t.status === "Unassigned");
-    } else if (activeTab === "assigned") {
-      filtered = filtered.filter((t) => t.status === "Assigned");
-    } else if (activeTab === "other") {
-      filtered = filtered.filter((t) => 
-        !["Unassigned", "Assigned"].includes(t.status)
+  if (activeTab === "unassigned") {
+    filtered = filtered.filter((t) => t.status === "Unassigned");
+  } else if (activeTab === "assigned") {
+    filtered = filtered.filter((t) => t.status === "Assigned");
+  } else if (activeTab === "other") {
+    filtered = filtered.filter((t) => !["Unassigned", "Assigned"].includes(t.status));
+  }
+
+  if (searchTerm) {
+    const term = searchTerm.toLowerCase();
+    filtered = filtered.filter((ticket) => {
+      const issueText = getIssueDisplayText(ticket).toLowerCase();
+      return (
+        ticket.ticket_number?.toLowerCase().includes(term) ||
+        ticket.customer?.toLowerCase().includes(term) ||
+        issueText.includes(term)
       );
-    }
-
-    // Text search - searches across issues
-    if (searchTerm) {
-      const term = searchTerm.toLowerCase();
-      filtered = filtered.filter((ticket) => {
-        const issueText = getIssueDisplayText(ticket).toLowerCase();
-        return (
-          ticket.ticket_number.toLowerCase().includes(term) ||
-          ticket.customer.toLowerCase().includes(term) ||
-          issueText.includes(term)
-        );
-      });
-    }
-
-    // Priority filter
-    if (priorityFilter !== "all") {
-      filtered = filtered.filter((ticket) => ticket.priority === priorityFilter);
-    }
-
-    // Status filter
-    if (statusFilter !== "all") {
-      filtered = filtered.filter((ticket) => ticket.status === statusFilter);
-    }
-
-    // Enterprise filter
-    if (enterpriseFilter !== "all") {
-      filtered = filtered.filter((ticket) => ticket.customer_id === enterpriseFilter);
-    }
-
-    // Issue type filter
-    if (issueTypeFilter !== "all") {
-      filtered = filtered.filter((ticket) => {
-        const types = ticket.issue_types || [];
-        return types.includes(issueTypeFilter);
-      });
-    }
-
-    // Date range filter
-    if (dateRange?.from) {
-      const fromDay = new Date(dateRange.from.getFullYear(), dateRange.from.getMonth(), dateRange.from.getDate());
-      const toDay = dateRange.to 
-        ? new Date(dateRange.to.getFullYear(), dateRange.to.getMonth(), dateRange.to.getDate())
-        : fromDay;
-      
-      filtered = filtered.filter((ticket) => {
-        const ticketDate = new Date(ticket.date);
-        const ticketDay = new Date(ticketDate.getFullYear(), ticketDate.getMonth(), ticketDate.getDate());
-        return ticketDay >= fromDay && ticketDay <= toDay;
-      });
-    }
-
-    // Complex multi-level sorting: Priority > Volume > Opened Via
-    filtered.sort((a, b) => {
-      const priorityOrder = { "Urgent": 0, "High": 1, "Medium": 2, "Low": 3 };
-      const aPriority = priorityOrder[a.priority] || 999;
-      const bPriority = priorityOrder[b.priority] || 999;
-      
-      if (aPriority !== bPriority) {
-        return aPriority - bPriority;
-      }
-      
-      // Then by volume (highest to lowest)
-      const aVolume = parseInt(a.volume) || 0;
-      const bVolume = parseInt(b.volume) || 0;
-      if (aVolume !== bVolume) {
-        return bVolume - aVolume;
-      }
-      
-      // Then by opened via (Monitoring > Teams > Email)
-      return getOpenedViaPriority(a.opened_via) - getOpenedViaPriority(b.opened_via);
     });
+  }
 
-    setFilteredTickets(filtered);
-  };
+  if (priorityFilter !== "all") filtered = filtered.filter((t) => t.priority === priorityFilter);
+  if (statusFilter !== "all") filtered = filtered.filter((t) => t.status === statusFilter);
+  if (enterpriseFilter !== "all") filtered = filtered.filter((t) => t.customer_id === enterpriseFilter);
+
+  if (issueTypeFilter !== "all") {
+    filtered = filtered.filter((t) => (t.issue_types || []).includes(issueTypeFilter));
+  }
+
+  if (dateRange?.from) {
+    const fromDay = new Date(dateRange.from.getFullYear(), dateRange.from.getMonth(), dateRange.from.getDate());
+    const toDay = dateRange.to
+      ? new Date(dateRange.to.getFullYear(), dateRange.to.getMonth(), dateRange.to.getDate())
+      : fromDay;
+
+    filtered = filtered.filter((ticket) => {
+      const d = new Date(ticket.date);
+      const day = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      return day >= fromDay && day <= toDay;
+    });
+  }
+
+  filtered.sort((a, b) => {
+    const priorityOrder = { Urgent: 0, High: 1, Medium: 2, Low: 3 };
+    const aPriority = priorityOrder[a.priority] ?? 999;
+    const bPriority = priorityOrder[b.priority] ?? 999;
+    if (aPriority !== bPriority) return aPriority - bPriority;
+
+    const aVolume = parseInt(a.volume) || 0;
+    const bVolume = parseInt(b.volume) || 0;
+    if (aVolume !== bVolume) return bVolume - aVolume;
+
+    return getOpenedViaPriority(a.opened_via) - getOpenedViaPriority(b.opened_via);
+  });
+
+  setFilteredTickets(filtered);
+}, [
+  tickets,
+  activeTab,
+  searchTerm,
+  priorityFilter,
+  statusFilter,
+  enterpriseFilter,
+  issueTypeFilter,
+  dateRange,
+  sortBy,
+  getIssueDisplayText
+]);
 
   const groupTicketsByDate = () => {
     const grouped = {};
