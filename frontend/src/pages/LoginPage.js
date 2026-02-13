@@ -106,7 +106,7 @@ export default function LoginPage({ setUser }) {
         <div
           className="absolute inset-0 bg-cover bg-center"
           style={{
-            backgroundImage: `url('https://images.unsplash.com/photo-1616765683164-5b7f13bafa31?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NDh8MHwxfHNlYXJjaHw0fHxhYnN0cmFjdCUyMGRpZ2l0YWwlMjBuZXR3b3JrJTIwY29ubmVjdGlvbiUyMGdyZWVuJTIwZGF0YSUyMGxpbmVzJTIwZGFyayUyMGJhY2tncm91bmR8ZW58MHx8fHwxNzcwNzMxNzQ0fDA&ixlib=rb-4.1.0&q=85')`,
+            backgroundImage: `url('/background.jpg')`,
           }}
         />
         <div className="absolute inset-0 technical-glass" />
