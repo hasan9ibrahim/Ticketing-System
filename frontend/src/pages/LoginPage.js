@@ -56,7 +56,7 @@ export default function LoginPage({ setUser }) {
           <form onSubmit={handleLogin} className="space-y-6" data-testid="login-form">
             <div className="space-y-2">
               <Label htmlFor="identifier" className="text-zinc-300">
-                Username / Email / Phone
+                Username
               </Label>
               <Input
                 id="identifier"
