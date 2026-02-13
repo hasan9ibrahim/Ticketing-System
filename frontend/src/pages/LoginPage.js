@@ -106,7 +106,7 @@ export default function LoginPage({ setUser }) {
         <div
           className="absolute inset-0 bg-cover bg-center"
           style={{
-            backgroundImage: `url('/background.jpg')`,
+            backgroundImage: `url('/background.png')`,
           }}
         />
         <div className="absolute inset-0 flex items-center justify-center">
