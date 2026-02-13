@@ -47,8 +47,7 @@ export default function LoginPage({ setUser }) {
       <div className="w-full lg:w-1/2 flex items-center justify-center p-8">
         <div className="w-full max-w-md space-y-8 animate-fade-in">
           <div className="flex flex-col items-center space-y-4">
-            <img src="/Logo.png" alt="Logo" className="w-12 h-12" />
-            <h1 className="text-4xl font-bold text-white">Wii Telecom</h1>
+            <img src="/Logo.png" alt="Logo" className="w-32 h-auto mb-6" />
             <p className="text-zinc-400 text-center">NOC Ticketing System</p>
           </div>
 
@@ -109,7 +108,6 @@ export default function LoginPage({ setUser }) {
             backgroundImage: `url('/background.jpg')`,
           }}
         />
-        <div className="absolute inset-0 technical-glass" />
         <div className="absolute inset-0 flex items-center justify-center">
           <div className="text-center space-y-4 p-8">
             <h2 className="text-5xl font-bold text-white">Welcome Back</h2>
