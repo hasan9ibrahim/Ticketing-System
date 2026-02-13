@@ -46,11 +46,12 @@ export default function LoginPage({ setUser }) {
       {/* Left Side - Login Form */}
       <div className="w-full lg:w-1/2 flex items-center justify-center p-8">
         <div className="w-full max-w-md space-y-8 animate-fade-in">
-          <div className="flex flex-col items-center space-y-4">
-            <img src="/Logo.png" alt="Logo" className="w-32 h-auto mb-6" />
-            <p className="text-zinc-400 text-center">NOC Ticketing System</p>
-          </div>
-
+          <div className="flex flex-col items-center mb-6">
+  <img src="/Logo.png" alt="Logo" className="w-48 h-auto mb-2" />
+  <p className="text-zinc-400 text-sm tracking-wide">
+    NOC Ticketing System
+  </p>
+</div>
           <form onSubmit={handleLogin} className="space-y-6" data-testid="login-form">
             <div className="space-y-2">
               <Label htmlFor="identifier" className="text-zinc-300">
