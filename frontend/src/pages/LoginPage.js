@@ -47,7 +47,7 @@ export default function LoginPage({ setUser }) {
       <div className="w-full lg:w-1/2 flex items-center justify-center p-8">
         <div className="w-full max-w-md space-y-8 animate-fade-in">
           <div className="flex flex-col items-center mb-6">
-  <img src="/Logo.png" alt="Logo" className="w-48 h-auto mb-2" />
+  <img src="/Logo.png" alt="Logo" className="w-64 h-auto mb-1" />
   <p className="text-zinc-400 text-sm tracking-wide">
     NOC Ticketing System
   </p>
