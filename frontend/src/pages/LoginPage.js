@@ -115,6 +115,7 @@ export default function LoginPage({ setUser }) {
             <p className="text-xl text-zinc-300">Manage your SMS & Voice tickets efficiently</p>
           </div>
         </div>
+      </div>
       <div className="fixed bottom-4 right-4 z-50">
   <div className="rounded-full bg-gradient-to-r from-emerald-600 to-emerald-500 px-4 py-2 text-xs font-bold text-white shadow-xl">
     Made by Wii Telecom
