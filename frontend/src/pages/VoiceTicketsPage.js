@@ -102,17 +102,26 @@ export default function VoiceTicketsPage() {
 
   const getOpenedViaPriority = (openedVia) => {
     if (!openedVia) return 999;
-    // Handle array format
+    // Handle array format - order: Monitoring > AM > Teams > Email
     const values = Array.isArray(openedVia) ? openedVia : [openedVia];
     let minPriority = 999;
     for (const val of values) {
       const lower = val.toLowerCase();
       if (lower.includes("monitoring")) minPriority = Math.min(minPriority, 0);
-      else if (lower.includes("teams")) minPriority = Math.min(minPriority, 1);
-      else if (lower.includes("email")) minPriority = Math.min(minPriority, 2);
-      else if (lower.includes("am")) minPriority = Math.min(minPriority, 3);
+      else if (lower.includes("am")) minPriority = Math.min(minPriority, 1);
+      else if (lower.includes("teams")) minPriority = Math.min(minPriority, 2);
+      else if (lower.includes("email")) minPriority = Math.min(minPriority, 3);
     }
     return minPriority;
+  };
+
+    // Helper to get display text for opened via
+  const getOpenedViaDisplayText = (ticket) => {
+    const openedVia = ticket.opened_via;
+    if (Array.isArray(openedVia)) {
+      return openedVia.join(", ");
+    }
+    return openedVia || "";
   };
 
   const filterAndSortTickets = () => {
@@ -185,16 +194,27 @@ export default function VoiceTicketsPage() {
       });
     }
 
+    // Multi-level sorting: Date (newest first) > Priority > Volume > Opened Via
     filtered.sort((a, b) => {
+            // First by date (newest to oldest)
+      const aDate = new Date(a.date).getTime();
+      const bDate = new Date(b.date).getTime();
+      if (aDate !== bDate) {
+        return bDate - aDate; // Descending (newest first)
+      }
+
+      // Then by priority (highest to lowest: Urgent > High > Medium > Low)
       const priorityOrder = { "Urgent": 0, "High": 1, "Medium": 2, "Low": 3 };
       const aPriority = priorityOrder[a.priority] || 999;
       const bPriority = priorityOrder[b.priority] || 999;
       if (aPriority !== bPriority) return aPriority - bPriority;
       
+      // Then by volume (highest to lowest)
       const aVolume = parseInt(a.volume) || 0;
       const bVolume = parseInt(b.volume) || 0;
       if (aVolume !== bVolume) return bVolume - aVolume;
       
+      // Then by opened via (Monitoring > AM > Teams > Email)
       return getOpenedViaPriority(a.opened_via) - getOpenedViaPriority(b.opened_via);
     });
 
@@ -382,8 +402,8 @@ export default function VoiceTicketsPage() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="text-zinc-400 text-sm flex items-center">Sorted by: Priority → Volume → Opened Via</div>
-        <Button variant="outline" onClick={() => { setSearchTerm(""); setPriorityFilter("all"); setStatusFilter("all"); setEnterpriseFilter("all"); setIssueTypeFilter("all"); setDestinationFilter(""); setAssignedToFilter("all"); setDateRange({ from: new Date(), to: new Date() }); }} className="border-zinc-700 text-zinc-400 hover:text-white hover:bg-zinc-800">Reset to Today</Button>
+                <div className="text-zinc-400 text-sm flex items-center">Sorted by: Date → Priority → Volume → Opened Via</div>
+                <Button variant="outline" onClick={() => { setSearchTerm(""); setPriorityFilter("all"); setStatusFilter("all"); setEnterpriseFilter("all"); setIssueTypeFilter("all"); setDestinationFilter(""); setAssignedToFilter("all"); setDateRange({ from: new Date(), to: new Date() }); }} className="border-zinc-700 text-zinc-400 hover:text-white hover:bg-zinc-800">Reset to Today</Button>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
@@ -398,14 +418,24 @@ export default function VoiceTicketsPage() {
             <Table>
               <TableHeader>
                 <TableRow className="border-white/5 hover:bg-transparent">
-                  <TableHead className="text-zinc-400">Priority</TableHead><TableHead className="text-zinc-400">Ticket #</TableHead><TableHead className="text-zinc-400">Enterprise</TableHead><TableHead className="text-zinc-400">Issue</TableHead><TableHead className="text-zinc-400">Status</TableHead><TableHead className="text-zinc-400">Assigned To</TableHead><TableHead className="text-zinc-400">Date</TableHead>
+                  <TableHead className="text-zinc-400">Priority</TableHead>
+                  <TableHead className="text-zinc-400">Volume</TableHead>
+                  <TableHead className="text-zinc-400">Ticket#</TableHead>
+                  <TableHead className="text-zinc-400">Enterprise Trunk</TableHead>
+                  <TableHead className="text-zinc-400">Destination</TableHead>
+                  <TableHead className="text-zinc-400">Issue</TableHead>
+                  <TableHead className="text-zinc-400">Opened Via</TableHead>
+                  <TableHead className="text-zinc-400">Status</TableHead>
+                  <TableHead className="text-zinc-400">Assigned To</TableHead>
+                  <TableHead className="text-zinc-400">Date Created</TableHead>
+                  <TableHead className="text-zinc-400">Date Modified</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredTickets.length > 0 ? Object.entries(groupTicketsByDate()).map(([date, tickets]) => (
                   <React.Fragment key={date}>
                     <TableRow className="bg-zinc-800/30 border-white/10">
-                      <TableCell colSpan={7} className="py-2 px-4">
+                      <TableCell colSpan={11} className="py-2 px-4">
                         <div className="flex items-center space-x-3">
                           <Calendar className="h-4 w-4 text-emerald-500" />
                           <span className="text-sm font-semibold text-emerald-500">{date}</span>
@@ -419,17 +449,25 @@ export default function VoiceTicketsPage() {
                       return (
                         <TableRow key={ticket.id} onClick={() => openEditSheet(ticket)} className="border-white/5 hover:bg-zinc-800/50 cursor-pointer">
                           <TableCell className="p-3"><PriorityIndicator priority={ticket.priority} /></TableCell>
+                          <TableCell className="text-zinc-300 tabular-nums">{ticket.volume || "0"}</TableCell>
                           <TableCell className="text-white font-medium tabular-nums">{ticket.ticket_number}</TableCell>
-                          <TableCell className="text-zinc-300">{ticket.customer}</TableCell>
+                          <TableCell className="text-zinc-300">{ticket.customer_trunk || "-"}</TableCell>
+                          <TableCell className="text-zinc-300">{ticket.destination || "-"}</TableCell>
                           <TableCell className="text-zinc-300 max-w-xs truncate">{getIssueDisplayText(ticket)}</TableCell>
+                          <TableCell className="text-zinc-300">{getOpenedViaDisplayText(ticket) || "-"}</TableCell>
                           <TableCell><StatusBadge status={ticket.status} /></TableCell>
                           <TableCell className="text-zinc-300">{assignedUser?.username || "Unassigned"}</TableCell>
-                          <TableCell className="text-zinc-400 tabular-nums">{new Date(ticket.date).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</TableCell>
+                          <TableCell className="text-zinc-400 tabular-nums">
+                            {new Date(ticket.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} {new Date(ticket.date).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                          </TableCell>
+                          <TableCell className="text-zinc-400 tabular-nums">
+                            {ticket.updated_at ? `${new Date(ticket.updated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} ${new Date(ticket.updated_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}` : "-"}
+                          </TableCell>
                         </TableRow>
                       );
                     })}
                   </React.Fragment>
-                )) : <TableRow><TableCell colSpan={7} className="text-center py-8 text-zinc-500">No tickets found</TableCell></TableRow>}
+                )) : <TableRow><TableCell colSpan={11} className="text-center py-8 text-zinc-500">No tickets found</TableCell></TableRow>}
               </TableBody>
             </Table>
           </div>
@@ -463,6 +501,7 @@ export default function VoiceTicketsPage() {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2"><Label>Volume *</Label><Input value={formData.volume || ""} onChange={(e) => setFormData({ ...formData, volume: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" required disabled={isAM} /></div>
               <div className="space-y-2"><Label>Enterprise Trunk *</Label><Input value={formData.customer_trunk || ""} onChange={(e) => setFormData({ ...formData, customer_trunk: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" required disabled={isAM} /></div>
+              <div className="space-y-2"><Label>Destination</Label><Input value={formData.destination || ""} onChange={(e) => setFormData({ ...formData, destination: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" disabled={isAM} /></div>
             </div>
 
             {/* Opened Via - Multi-select checklist */}
