@@ -331,6 +331,32 @@ export default function SMSTicketsPage() {
 
   return fallback;
 };
+  
+  // Check for similar tickets within the last week (must match ALL of SID, Destination, and Content)
+  const findSimilarTickets = (sid, destination, content) => {
+    if (!sid && !destination && !content) return [];
+    
+    const oneWeekAgo = new Date();
+    oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+    
+    return tickets.filter(ticket => {
+      // Skip if it's the same ticket being edited
+      if (editingTicket && ticket.id === editingTicket.id) return false;
+      
+      const ticketDate = new Date(ticket.date);
+      if (ticketDate < oneWeekAgo) return false;
+      
+      // Check for SID match (if provided)
+      const sidMatch = !sid || (ticket.sid && sid.toLowerCase() === ticket.sid.toLowerCase());
+      // Check for Destination match (if provided)
+      const destMatch = !destination || (ticket.destination && destination.toLowerCase() === ticket.destination.toLowerCase());
+      // Check for Content match (if provided)
+      const contentMatch = !content || (ticket.content && content.toLowerCase() === ticket.content.toLowerCase());
+      
+      // ALL provided fields must match
+      return sidMatch && destMatch && contentMatch;
+    });
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -364,6 +390,20 @@ export default function SMSTicketsPage() {
         const user = users.find(u => u.id === assignedToId);
         toast.error(`${user?.username || 'This member'} already has 3 assigned tickets. Maximum is 3.`);
         return;
+      }
+    }
+    
+        // Check for similar tickets (only for new tickets)
+    if (!editingTicket) {
+      const similarTickets = findSimilarTickets(
+        formData.sid,
+        formData.destination,
+        formData.content
+      );
+      
+      if (similarTickets.length > 0) {
+        const ticketNumbers = similarTickets.map(t => t.ticket_number).join(', ');
+        toast.warning(`Similar tickets found within the last week: ${ticketNumbers}`);
       }
     }
 
