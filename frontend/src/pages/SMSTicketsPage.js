@@ -248,7 +248,13 @@ export default function SMSTicketsPage() {
       }
       grouped[date].push(ticket);
     });
-    return grouped;
+        // Sort grouped entries by date (newest first) - Object.entries doesn't guarantee order
+    const sortedEntries = Object.entries(grouped).sort((a, b) => {
+      const aDate = new Date(a[0]).getTime();
+      const bDate = new Date(b[0]).getTime();
+      return bDate - aDate; // Descending (newest first)
+    });
+    return { entries: sortedEntries, grouped };
   };
 
   const openCreateSheet = () => {
@@ -559,8 +565,8 @@ export default function SMSTicketsPage() {
               <TableBody>
                 {filteredTickets.length > 0 ? (
                   (() => {
-                    const groupedTickets = groupTicketsByDate();
-                    return Object.entries(groupedTickets).map(([date, tickets]) => (
+                    const { entries: sortedEntries } = groupTicketsByDate();
+                    return sortedEntries.map(([date, tickets]) => (
                       <React.Fragment key={date}>
                         {/* Date Separator */}
                         <TableRow className="bg-zinc-800/30 border-white/10">
