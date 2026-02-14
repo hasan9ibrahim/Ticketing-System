@@ -13,6 +13,7 @@ const API = `${BACKEND_URL}/api`;
 
 export default function DashboardPage() {
   const [stats, setStats] = useState(null);
+  const [dateRange, setDateRange] = useState({ from: new Date(), to: new Date() });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
