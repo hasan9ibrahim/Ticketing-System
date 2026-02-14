@@ -204,17 +204,19 @@ export default function SMSTicketsPage() {
 
     // Multi-level sorting: Date (newest first) > Priority > Volume > Opened Via
     filtered.sort((a, b) => {
-            // First by date (newest to oldest)
-      const aDate = new Date(a.date).getTime();
-      const bDate = new Date(b.date).getTime();
-      if (aDate !== bDate) {
-        return bDate - aDate; // Descending (newest first)
+      // First by date only (not time) - newest to oldest
+      const aDateObj = new Date(a.date);
+      const bDateObj = new Date(b.date);
+      const aDateOnly = new Date(aDateObj.getFullYear(), aDateObj.getMonth(), aDateObj.getDate()).getTime();
+      const bDateOnly = new Date(bDateObj.getFullYear(), bDateObj.getMonth(), bDateObj.getDate()).getTime();
+      if (aDateOnly !== bDateOnly) {
+        return bDateOnly - aDateOnly; // Descending (newest first)
       }
 
       // Then by priority (highest to lowest: Urgent > High > Medium > Low)
       const priorityOrder = { "Urgent": 0, "High": 1, "Medium": 2, "Low": 3 };
-      const aPriority = priorityOrder[a.priority] || 999;
-      const bPriority = priorityOrder[b.priority] || 999;
+      const aPriority = priorityOrder[a.priority] ?? 999;
+      const bPriority = priorityOrder[b.priority] ?? 999;
       if (aPriority !== bPriority) {
         return aPriority - bPriority;
       }
