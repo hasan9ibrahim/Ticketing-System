@@ -55,7 +55,7 @@ export default function VoiceTicketsPage() {
 
   useEffect(() => {
     filterAndSortTickets();
-    }, [searchTerm, priorityFilter, statusFilter, enterpriseFilter, issueTypeFilter, destinationFilter, assignedToFilter, dateRange, activeTab, tickets]);
+  }, [searchTerm, priorityFilter, statusFilter, enterpriseFilter, issueTypeFilter, destinationFilter, assignedToFilter, dateRange, activeTab, tickets]);
 
   // Helper to get display text for issues
   const getIssueDisplayText = (ticket) => {
@@ -102,7 +102,7 @@ export default function VoiceTicketsPage() {
 
   const getOpenedViaPriority = (openedVia) => {
     if (!openedVia) return 999;
-        // Handle array format
+    // Handle array format
     const values = Array.isArray(openedVia) ? openedVia : [openedVia];
     let minPriority = 999;
     for (const val of values) {
@@ -157,7 +157,7 @@ export default function VoiceTicketsPage() {
       });
     }
 
-        // Destination filter
+    // Destination filter
     if (destinationFilter) {
       const term = destinationFilter.toLowerCase();
       filtered = filtered.filter((ticket) => 
@@ -219,7 +219,7 @@ export default function VoiceTicketsPage() {
 
   const openEditSheet = (ticket) => {
     setEditingTicket(ticket);
-        // Normalize opened_via to array
+    // Normalize opened_via to array
     const openedVia = Array.isArray(ticket.opened_via) 
       ? ticket.opened_via 
       : ticket.opened_via ? ticket.opened_via.split(",").map(v => v.trim()) : [];
@@ -248,17 +248,18 @@ export default function VoiceTicketsPage() {
       .join(", ");
     return msg || fallback;
   }
-
   return fallback;
 };
-  
+
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (!formData.customer_id) {
-  toast.error("Enterprise is required");
-  return;
-    
+    // ✅ Enterprise required
+  if (!formData.customer_id) {
+    toast.error("Enterprise is required");
+    return;
+  }
+
     // Validate opened_via
     if (!formData.opened_via || formData.opened_via.length === 0) {
       toast.error("Please select at least one 'Opened Via' option");
@@ -284,11 +285,12 @@ export default function VoiceTicketsPage() {
       setSheetOpen(false);
       fetchData();
     } catch (error) {
-      toast.error(formatApiError(error, "Failed to save ticket"));
+      // ✅ Never pass array/object to toast
+    toast.error(formatApiError(error, "Failed to save ticket"));
     }
   };
 
-    const handleDelete = async () => {
+  const handleDelete = async () => {
     try {
       const token = localStorage.getItem("token");
       await axios.delete(`${API}/tickets/voice/${ticketToDelete.id}`, {
@@ -358,7 +360,7 @@ export default function VoiceTicketsPage() {
             {VOICE_ISSUE_TYPES.map((type) => <SelectItem key={type} value={type}>{type}</SelectItem>)}
           </SelectContent>
         </Select>
-                 <Input
+        <Input
           placeholder="Filter by Destination..."
           data-testid="filter-destination"
           value={destinationFilter}
@@ -379,9 +381,9 @@ export default function VoiceTicketsPage() {
         </Select>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">                          
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="text-zinc-400 text-sm flex items-center">Sorted by: Priority → Volume → Opened Via</div>
-                <Button variant="outline" onClick={() => { setSearchTerm(""); setPriorityFilter("all"); setStatusFilter("all"); setEnterpriseFilter("all"); setIssueTypeFilter("all"); setDestinationFilter(""); setAssignedToFilter("all"); setDateRange({ from: new Date(), to: new Date() }); }} className="border-zinc-700 text-zinc-400 hover:text-white hover:bg-zinc-800">Reset to Today</Button>
+        <Button variant="outline" onClick={() => { setSearchTerm(""); setPriorityFilter("all"); setStatusFilter("all"); setEnterpriseFilter("all"); setIssueTypeFilter("all"); setDestinationFilter(""); setAssignedToFilter("all"); setDateRange({ from: new Date(), to: new Date() }); }} className="border-zinc-700 text-zinc-400 hover:text-white hover:bg-zinc-800">Reset to Today</Button>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
@@ -461,8 +463,8 @@ export default function VoiceTicketsPage() {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2"><Label>Volume *</Label><Input value={formData.volume || ""} onChange={(e) => setFormData({ ...formData, volume: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" required disabled={isAM} /></div>
               <div className="space-y-2"><Label>Enterprise Trunk *</Label><Input value={formData.customer_trunk || ""} onChange={(e) => setFormData({ ...formData, customer_trunk: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" required disabled={isAM} /></div>
-              <div className="space-y-2"><Label>Destination</Label><Input value={formData.destination || ""} onChange={(e) => setFormData({ ...formData, destination: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" disabled={isAM} /></div>
             </div>
+
             {/* Opened Via - Multi-select checklist */}
             <OpenedViaSelect
               selectedOptions={formData.opened_via || []}
@@ -515,7 +517,7 @@ export default function VoiceTicketsPage() {
 
             <div className="flex space-x-3 pt-4">
               {canModify && <Button type="submit" className="bg-emerald-500 text-black hover:bg-emerald-400">{editingTicket ? "Update" : "Create"} Ticket</Button>}
-                            {canModify && editingTicket && (
+              {canModify && editingTicket && (
                 <Button 
                   type="button" 
                   variant="outline" 
@@ -535,7 +537,7 @@ export default function VoiceTicketsPage() {
           </form>
         </SheetContent>
       </Sheet>
-                
+
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent className="bg-zinc-900 border-white/10">
