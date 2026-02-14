@@ -28,10 +28,18 @@ export default function DashboardPage() {
       const params = new URLSearchParams();
       
       if (dateRange?.from) {
-        params.append('date_from', dateRange.from.toISOString().split('T')[0]);
+                // Use local date format (YYYY-MM-DD) to avoid timezone issues
+        const fromYear = dateRange.from.getFullYear();
+        const fromMonth = String(dateRange.from.getMonth() + 1).padStart(2, '0');
+        const fromDay = String(dateRange.from.getDate()).padStart(2, '0');
+        params.append('date_from', `${fromYear}-${fromMonth}-${fromDay}`);
       }
       if (dateRange?.to) {
-        params.append('date_to', dateRange.to.toISOString().split('T')[0]);
+                // Use local date format (YYYY-MM-DD) to avoid timezone issues
+        const toYear = dateRange.to.getFullYear();
+        const toMonth = String(dateRange.to.getMonth() + 1).padStart(2, '0');
+        const toDay = String(dateRange.to.getDate()).padStart(2, '0');
+        params.append('date_to', `${toYear}-${toMonth}-${toDay}`);
       }
       
       if (params.toString()) {
