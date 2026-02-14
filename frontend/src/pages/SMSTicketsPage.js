@@ -56,7 +56,7 @@ export default function SMSTicketsPage() {
 
   useEffect(() => {
     filterAndSortTickets();
-    }, [searchTerm, priorityFilter, statusFilter, enterpriseFilter, issueTypeFilter, destinationFilter, assignedToFilter, dateRange, sortBy, activeTab, tickets]);
+  }, [searchTerm, priorityFilter, statusFilter, enterpriseFilter, issueTypeFilter, destinationFilter, assignedToFilter, dateRange, sortBy, activeTab, tickets]);
 
   // Helper to get display text for opened via
   const getOpenedViaDisplayText = (ticket) => {
@@ -107,7 +107,7 @@ export default function SMSTicketsPage() {
 
   const getOpenedViaPriority = (openedVia) => {
     if (!openedVia) return 999;
-        // Handle array format
+    // Handle array format
     const values = Array.isArray(openedVia) ? openedVia : [openedVia];
     // Return lowest priority (highest importance) found
     let minPriority = 999;
@@ -171,7 +171,7 @@ export default function SMSTicketsPage() {
       });
     }
 
-        // Destination filter
+    // Destination filter
     if (destinationFilter) {
       const term = destinationFilter.toLowerCase();
       filtered = filtered.filter((ticket) => 
@@ -260,7 +260,7 @@ export default function SMSTicketsPage() {
 
   const openEditSheet = (ticket) => {
     setEditingTicket(ticket);
-        // Normalize opened_via to array
+    // Normalize opened_via to array
     const openedVia = Array.isArray(ticket.opened_via) 
       ? ticket.opened_via 
       : ticket.opened_via ? ticket.opened_via.split(",").map(v => v.trim()) : [];
@@ -279,7 +279,7 @@ export default function SMSTicketsPage() {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-        // Validate opened_via
+    // Validate opened_via
     if (!formData.opened_via || formData.opened_via.length === 0) {
       toast.error("Please select at least one 'Opened Via' option");
       return;
@@ -310,7 +310,7 @@ export default function SMSTicketsPage() {
     }
   };
 
-    const handleDelete = async () => {
+  const handleDelete = async () => {
     try {
       const token = localStorage.getItem("token");
       await axios.delete(`${API}/tickets/sms/${ticketToDelete.id}`, {
@@ -432,7 +432,7 @@ export default function SMSTicketsPage() {
           </SelectContent>
         </Select>
 
-                <Input
+        <Input
           placeholder="Filter by Destination..."
           data-testid="filter-destination"
           value={destinationFilter}
@@ -639,9 +639,9 @@ export default function SMSTicketsPage() {
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2"><Label>Volume *</Label><Input value={formData.volume || ""} onChange={(e) => setFormData({ ...formData, volume: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" required disabled={isAM} /></div>
-
               <div className="space-y-2"><Label>Enterprise Trunk *</Label><Input value={formData.customer_trunk || ""} onChange={(e) => setFormData({ ...formData, customer_trunk: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" required disabled={isAM} /></div>
-    
+            </div>
+
             {/* Opened Via - Multi-select checklist */}
             <OpenedViaSelect
               selectedOptions={formData.opened_via || []}
@@ -704,7 +704,7 @@ export default function SMSTicketsPage() {
 
             <div className="flex space-x-3 pt-4">
               {canModify && <Button type="submit" className="bg-emerald-500 text-black hover:bg-emerald-400">{editingTicket ? "Update Ticket" : "Create Ticket"}</Button>}
-                {canModify && editingTicket && (
+              {canModify && editingTicket && (
                 <Button 
                   type="button" 
                   variant="outline" 
@@ -722,8 +722,8 @@ export default function SMSTicketsPage() {
               <Button type="button" variant="outline" onClick={() => setSheetOpen(false)} className="border-zinc-700 text-white hover:bg-zinc-800">{isAM ? "Close" : "Cancel"}</Button>
             </div>
           </form>
-         </SheetContent>
-    </Sheet>
+        </SheetContent>
+      </Sheet>
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
@@ -742,6 +742,6 @@ export default function SMSTicketsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-  </div>
-);
+    </div>
+  );
 }
