@@ -254,7 +254,8 @@ export default function SMSTicketsPage() {
       const bDate = new Date(b[0]).getTime();
       return bDate - aDate; // Descending (newest first)
     });
-        // Also sort tickets within each date group by priority > volume > opened_via
+    // Also sort tickets within each date group by priority > volume > opened_via
+    // IMPORTANT: Create a copy of each tickets array before sorting to avoid mutating state
     sortedEntries.forEach(([date, tickets]) => {
       const ticketsCopy = [...tickets];
       ticketsCopy.sort((a, b) => {
@@ -350,6 +351,20 @@ export default function SMSTicketsPage() {
     if (formData.status === "Assigned" && !formData.assigned_to) {
       toast.error("Status cannot be 'Assigned' unless a NOC member is assigned");
       return;
+    }
+    
+        // Validate max 3 assigned tickets per member
+    if (formData.status === "Assigned" && formData.assigned_to) {
+      const assignedToId = formData.assigned_to;
+      const currentAssignedCount = tickets.filter(
+        t => t.assigned_to === assignedToId && t.status === "Assigned" && t.id !== editingTicket?.id
+      ).length;
+      
+      if (currentAssignedCount >= 3) {
+        const user = users.find(u => u.id === assignedToId);
+        toast.error(`${user?.username || 'This member'} already has 3 assigned tickets. Maximum is 3.`);
+        return;
+      }
     }
 
     try {
