@@ -248,11 +248,29 @@ export default function SMSTicketsPage() {
       }
       grouped[date].push(ticket);
     });
-        // Sort grouped entries by date (newest first) - Object.entries doesn't guarantee order
+            // Sort entries by date (newest first)
     const sortedEntries = Object.entries(grouped).sort((a, b) => {
       const aDate = new Date(a[0]).getTime();
       const bDate = new Date(b[0]).getTime();
       return bDate - aDate; // Descending (newest first)
+    });
+        // Also sort tickets within each date group by priority > volume > opened_via
+    sortedEntries.forEach(([date, tickets]) => {
+      tickets.sort((a, b) => {
+        // By priority (urgent to low)
+        const priorityOrder = { "Urgent": 0, "High": 1, "Medium": 2, "Low": 3 };
+        const aPriority = priorityOrder[a.priority] ?? 999;
+        const bPriority = priorityOrder[b.priority] ?? 999;
+        if (aPriority !== bPriority) return aPriority - bPriority;
+        
+        // Then by volume (highest to lowest)
+        const aVolume = parseInt(a.volume) || 0;
+        const bVolume = parseInt(b.volume) || 0;
+        if (aVolume !== bVolume) return bVolume - aVolume;
+        
+        // Then by opened via (Monitoring > AM > Teams > Email)
+        return getOpenedViaPriority(a.opened_via) - getOpenedViaPriority(b.opened_via);
+      });
     });
     return { entries: sortedEntries, grouped };
   };
