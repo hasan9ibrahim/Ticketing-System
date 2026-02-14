@@ -61,8 +61,12 @@ export default function DashboardLayout({ user, setUser }) {
           {/* Logo */}
           <div className="h-16 flex items-center justify-between px-4 border-b border-white/5">
             {sidebarOpen && (
-              <div className="flex items-center space-x-3 animate-fade-in">
-                <Hexagon className="w-8 h-8 text-emerald-500" />
+              <div className="flex items-center gap-3">
+  <img
+    src="/Logo.png"
+    alt="Wii Telecom"
+    className="h-8 w-auto"
+  />
                 <span className="font-bold text-white text-lg">Wii NOC</span>
               </div>
             )}
