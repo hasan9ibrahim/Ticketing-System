@@ -58,15 +58,6 @@ export default function SMSTicketsPage() {
     filterAndSortTickets();
   }, [searchTerm, priorityFilter, statusFilter, enterpriseFilter, issueTypeFilter, destinationFilter, assignedToFilter, dateRange, sortBy, activeTab, tickets]);
 
-  // Helper to get display text for opened via
-  const getOpenedViaDisplayText = (ticket) => {
-    const openedVia = ticket.opened_via;
-    if (Array.isArray(openedVia)) {
-      return openedVia.join(", ");
-    }
-    return openedVia || "";
-  };
-
   // Helper to get display text for issues
   const getIssueDisplayText = (ticket) => {
     const issues = ticket.issue_types || [];
@@ -109,16 +100,25 @@ export default function SMSTicketsPage() {
     if (!openedVia) return 999;
     // Handle array format
     const values = Array.isArray(openedVia) ? openedVia : [openedVia];
-    // Return lowest priority (highest importance) found
+    // Return lowest priority (highest importance) found: Monitoring > AM > Teams > Email
     let minPriority = 999;
     for (const val of values) {
       const lower = val.toLowerCase();
       if (lower.includes("monitoring")) minPriority = Math.min(minPriority, 0);
-      else if (lower.includes("teams")) minPriority = Math.min(minPriority, 1);
-      else if (lower.includes("email")) minPriority = Math.min(minPriority, 2);
-      else if (lower.includes("am")) minPriority = Math.min(minPriority, 3);
+      else if (lower.includes("am")) minPriority = Math.min(minPriority, 1);
+      else if (lower.includes("teams")) minPriority = Math.min(minPriority, 2);
+      else if (lower.includes("email")) minPriority = Math.min(minPriority, 3);
     }
     return minPriority;
+  };
+
+  // Helper to get display text for opened via
+  const getOpenedViaDisplayText = (ticket) => {
+    const openedVia = ticket.opened_via;
+    if (Array.isArray(openedVia)) {
+      return openedVia.join(", ");
+    }
+    return openedVia || "";
   };
 
   const filterAndSortTickets = () => {
@@ -202,12 +202,19 @@ export default function SMSTicketsPage() {
       });
     }
 
-    // Complex multi-level sorting: Priority > Volume > Opened Via
+    // Multi-level sorting: Date (newest first) > Priority > Volume > Opened Via
     filtered.sort((a, b) => {
+            // First by date (newest to oldest)
+      const aDate = new Date(a.date).getTime();
+      const bDate = new Date(b.date).getTime();
+      if (aDate !== bDate) {
+        return bDate - aDate; // Descending (newest first)
+      }
+
+      // Then by priority (highest to lowest: Urgent > High > Medium > Low)
       const priorityOrder = { "Urgent": 0, "High": 1, "Medium": 2, "Low": 3 };
       const aPriority = priorityOrder[a.priority] || 999;
       const bPriority = priorityOrder[b.priority] || 999;
-      
       if (aPriority !== bPriority) {
         return aPriority - bPriority;
       }
@@ -219,7 +226,7 @@ export default function SMSTicketsPage() {
         return bVolume - aVolume;
       }
       
-      // Then by opened via (Monitoring > Teams > Email)
+      // Then by opened via (Monitoring > AM > Teams > Email)
       return getOpenedViaPriority(a.opened_via) - getOpenedViaPriority(b.opened_via);
     });
 
@@ -480,7 +487,7 @@ export default function SMSTicketsPage() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="text-zinc-400 text-sm flex items-center">
-          Sorted by: Priority → Volume → Opened Via
+              Sorted by: Date → Priority → Volume → Opened Via
         </div>
 
         <Button
@@ -535,12 +542,16 @@ export default function SMSTicketsPage() {
               <TableHeader>
                 <TableRow className="border-white/5 hover:bg-transparent">
                   <TableHead className="text-zinc-400">Priority</TableHead>
-                  <TableHead className="text-zinc-400">Ticket #</TableHead>
-                  <TableHead className="text-zinc-400">Enterprise</TableHead>
+                  <TableHead className="text-zinc-400">Volume</TableHead>
+                  <TableHead className="text-zinc-400">Ticket#</TableHead>
+                  <TableHead className="text-zinc-400">Enterprise Trunk</TableHead>
+                  <TableHead className="text-zinc-400">Destination</TableHead>
                   <TableHead className="text-zinc-400">Issue</TableHead>
+                  <TableHead className="text-zinc-400">Opened Via</TableHead>
                   <TableHead className="text-zinc-400">Status</TableHead>
                   <TableHead className="text-zinc-400">Assigned To</TableHead>
-                  <TableHead className="text-zinc-400">Date</TableHead>
+                  <TableHead className="text-zinc-400">Date Created</TableHead>
+                  <TableHead className="text-zinc-400">Date Modified</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -551,7 +562,7 @@ export default function SMSTicketsPage() {
                       <React.Fragment key={date}>
                         {/* Date Separator */}
                         <TableRow className="bg-zinc-800/30 border-white/10">
-                          <TableCell colSpan={7} className="py-2 px-4">
+                          <TableCell colSpan={11} className="py-2 px-4">
                             <div className="flex items-center space-x-3">
                               <Calendar className="h-4 w-4 text-emerald-500" />
                               <span className="text-sm font-semibold text-emerald-500">{date}</span>
@@ -573,15 +584,21 @@ export default function SMSTicketsPage() {
                               <TableCell className="p-3">
                                 <PriorityIndicator priority={ticket.priority} />
                               </TableCell>
+                              <TableCell className="text-zinc-300 tabular-nums">{ticket.volume || "0"}</TableCell>
                               <TableCell className="text-white font-medium tabular-nums">{ticket.ticket_number}</TableCell>
-                              <TableCell className="text-zinc-300">{ticket.customer}</TableCell>
+                              <TableCell className="text-zinc-300">{ticket.customer_trunk || "-"}</TableCell>
+                              <TableCell className="text-zinc-300">{ticket.destination || "-"}</TableCell>
                               <TableCell className="text-zinc-300 max-w-xs truncate">{getIssueDisplayText(ticket)}</TableCell>
+                              <TableCell className="text-zinc-300">{getOpenedViaDisplayText(ticket) || "-"}</TableCell>
                               <TableCell>
                                 <StatusBadge status={ticket.status} />
                               </TableCell>
                               <TableCell className="text-zinc-300">{assignedUser?.username || "Unassigned"}</TableCell>
                               <TableCell className="text-zinc-400 tabular-nums">
-                                {new Date(ticket.date).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                                                                {new Date(ticket.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} {new Date(ticket.date).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                              </TableCell>
+                              <TableCell className="text-zinc-400 tabular-nums">
+                                {ticket.updated_at ? `${new Date(ticket.updated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} ${new Date(ticket.updated_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}` : "-"}
                               </TableCell>
                             </TableRow>
                           );
@@ -591,7 +608,7 @@ export default function SMSTicketsPage() {
                   })()
                 ) : (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-8 text-zinc-500">
+                    <TableCell colSpan={11} className="text-center py-8 text-zinc-500">
                       No tickets found
                     </TableCell>
                   </TableRow>
