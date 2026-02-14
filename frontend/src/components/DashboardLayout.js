@@ -65,7 +65,7 @@ export default function DashboardLayout({ user, setUser }) {
   <img
     src="/Logo.png"
     alt="Wii Telecom"
-    className="h-8 w-auto"
+    className="h-9 w-auto object-contain"
   />
                 <span className="font-bold text-white text-lg">Wii NOC</span>
               </div>
