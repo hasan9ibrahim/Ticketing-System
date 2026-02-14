@@ -724,27 +724,31 @@ export default function SMSTicketsPage() {
               <Button type="button" variant="outline" onClick={() => setSheetOpen(false)} className="border-zinc-700 text-white hover:bg-zinc-800">{isAM ? "Close" : "Cancel"}</Button>
             </div>
           </form>
-        </SheetContent>
-      </Sheet>
-                
-      {/* Delete Confirmation Dialog */}
-      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <AlertDialogContent className="bg-zinc-900 border-white/10">
-          <AlertDialogHeader>
-            <AlertDialogTitle className="text-white">Delete Ticket</AlertDialogTitle>
-            <AlertDialogDescription className="text-zinc-400">
-              Are you sure you want to delete ticket {ticketToDelete?.ticket_number}? This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel className="border-zinc-700 text-white hover:bg-zinc-800">Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} className="bg-red-500 text-white hover:bg-red-600">
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+         </SheetContent>
+    </Sheet>
 
-    </div>
-  );
+    {/* Delete Confirmation Dialog */}
+    <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+      <AlertDialogContent className="bg-zinc-900 border-white/10">
+        <AlertDialogHeader>
+          <AlertDialogTitle className="text-white">Delete Ticket</AlertDialogTitle>
+          <AlertDialogDescription className="text-zinc-400">
+            Are you sure you want to delete ticket {ticketToDelete?.ticket_number}? This action cannot be undone.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel className="border-zinc-700 text-white hover:bg-zinc-800">
+            Cancel
+          </AlertDialogCancel>
+          <AlertDialogAction
+            onClick={handleDelete}
+            className="bg-red-500 text-white hover:bg-red-600"
+          >
+            Delete
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  </div>
+);
 }
