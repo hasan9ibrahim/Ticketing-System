@@ -501,7 +501,7 @@ export default function VoiceTicketsPage() {
                       );
                     })}
                   </React.Fragment>
-                )) : <TableRow><TableCell colSpan={11} className="text-center py-8 text-zinc-500">No tickets found</TableCell></TableRow>}
+                ))})() : <TableRow><TableCell colSpan={11} className="text-center py-8 text-zinc-500">No tickets found</TableCell></TableRow>}
               </TableBody>
             </Table>
           </div>
