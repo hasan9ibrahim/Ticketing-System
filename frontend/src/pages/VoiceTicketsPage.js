@@ -237,6 +237,14 @@ export default function VoiceTicketsPage() {
   const canModify = !isAM;
 
   const handleSubmit = async (e) => {
+    if (!formData.customer_id) {
+  toast.error("Please select an Enterprise first.");
+  return;
+}
+if (!formData.customer_trunk || !formData.customer_trunk.trim()) {
+  toast.error("Please select/enter a Customer Trunk.");
+  return;
+}
     e.preventDefault();
     
     // Validate opened_via
