@@ -256,7 +256,8 @@ export default function SMSTicketsPage() {
     });
         // Also sort tickets within each date group by priority > volume > opened_via
     sortedEntries.forEach(([date, tickets]) => {
-      tickets.sort((a, b) => {
+      const ticketsCopy = [...tickets];
+      ticketsCopy.sort((a, b) => {
         // By priority (urgent to low)
         const priorityOrder = { "Urgent": 0, "High": 1, "Medium": 2, "Low": 3 };
         const aPriority = priorityOrder[a.priority] ?? 999;
@@ -271,6 +272,11 @@ export default function SMSTicketsPage() {
         // Then by opened via (Monitoring > AM > Teams > Email)
         return getOpenedViaPriority(a.opened_via) - getOpenedViaPriority(b.opened_via);
       });
+            // Replace the original array with the sorted copy
+      const index = sortedEntries.findIndex(entry => entry[0] === date);
+      if (index !== -1) {
+        sortedEntries[index][1] = ticketsCopy;
+      }
     });
     return { entries: sortedEntries, grouped };
   };
