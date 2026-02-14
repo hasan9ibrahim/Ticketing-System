@@ -276,8 +276,30 @@ export default function SMSTicketsPage() {
   const isAM = currentUser?.role === "am";
   const canModify = !isAM;
 
+  const formatApiError = (error, fallback = "Request failed") => {
+  const detail = error?.response?.data?.detail;
+
+  if (typeof detail === "string") return detail;
+
+  if (Array.isArray(detail)) {
+    const msg = detail
+      .map((d) => d?.msg)
+      .filter(Boolean)
+      .join(", ");
+    return msg || fallback;
+  }
+
+  return fallback;
+};
+
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    // ✅ Enterprise required
+  if (!formData.customer_id) {
+    toast.error("Enterprise is required");
+    return;
+  }
 
     // Validate opened_via
     if (!formData.opened_via || formData.opened_via.length === 0) {
@@ -306,7 +328,7 @@ export default function SMSTicketsPage() {
       setSheetOpen(false);
       fetchData();
     } catch (error) {
-      toast.error(error.response?.data?.detail || "Failed to save ticket");
+      toast.error(formatApiError(error, "Failed to save ticket"));
     }
   };
 
