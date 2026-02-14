@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import axios from "axios";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, Search, ArrowUpDown, Calendar } from "lucide-react";
+import { Plus, Search, ArrowUpDown, Calendar, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -11,11 +11,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import StatusBadge from "@/components/custom/StatusBadge";
 import PriorityIndicator from "@/components/custom/PriorityIndicator";
 import SearchableSelect from "@/components/custom/SearchableSelect";
 import DateRangePickerWithRange from "@/components/custom/DateRangePickerWithRange";
 import IssueTypeSelect, { SMS_ISSUE_TYPES } from "@/components/custom/IssueTypeSelect";
+import OpenedViaSelect, { OPENED_VIA_OPTIONS } from "@/components/custom/OpenedViaSelect";
 
 const BACKEND_URL = process.env.REACT_APP_API_URL;
 const API = `${BACKEND_URL}/api`;
@@ -25,12 +27,15 @@ export default function SMSTicketsPage() {
   const [filteredTickets, setFilteredTickets] = useState([]);
   const [enterprises, setEnterprises] = useState([]);
   const [users, setUsers] = useState([]);
+  const [allUsers, setAllUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [enterpriseFilter, setEnterpriseFilter] = useState("all");
   const [issueTypeFilter, setIssueTypeFilter] = useState("all");
+  const [destinationFilter, setDestinationFilter] = useState("");
+  const [assignedToFilter, setAssignedToFilter] = useState("all");
   const [dateRange, setDateRange] = useState({ from: new Date(), to: new Date() });
   const [sortBy, setSortBy] = useState("priority-volume-opened");
   const [activeTab, setActiveTab] = useState("unassigned");
@@ -38,6 +43,8 @@ export default function SMSTicketsPage() {
   const [editingTicket, setEditingTicket] = useState(null);
   const [formData, setFormData] = useState({});
   const [currentUser, setCurrentUser] = useState(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [ticketToDelete, setTicketToDelete] = useState(null);
 
   useEffect(() => {
     const userData = localStorage.getItem("user");
@@ -49,7 +56,16 @@ export default function SMSTicketsPage() {
 
   useEffect(() => {
     filterAndSortTickets();
-  }, [searchTerm, priorityFilter, statusFilter, enterpriseFilter, issueTypeFilter, dateRange, sortBy, activeTab, tickets]);
+    }, [searchTerm, priorityFilter, statusFilter, enterpriseFilter, issueTypeFilter, destinationFilter, assignedToFilter, dateRange, sortBy, activeTab, tickets]);
+
+  // Helper to get display text for opened via
+  const getOpenedViaDisplayText = (ticket) => {
+    const openedVia = ticket.opened_via;
+    if (Array.isArray(openedVia)) {
+      return openedVia.join(", ");
+    }
+    return openedVia || "";
+  };
 
   // Helper to get display text for issues
   const getIssueDisplayText = (ticket) => {
@@ -80,6 +96,7 @@ export default function SMSTicketsPage() {
 
       setTickets(ticketsRes.data);
       setEnterprises(enterprisesRes.data);
+      setAllUsers(usersRes.data);
       setUsers(usersRes.data.filter((u) => u.role === "noc"));
     } catch (error) {
       toast.error("Failed to load data");
@@ -90,11 +107,18 @@ export default function SMSTicketsPage() {
 
   const getOpenedViaPriority = (openedVia) => {
     if (!openedVia) return 999;
-    const lower = openedVia.toLowerCase();
-    if (lower.includes("monitoring")) return 0;
-    if (lower.includes("teams")) return 1;
-    if (lower.includes("email")) return 2;
-    return 3;
+        // Handle array format
+    const values = Array.isArray(openedVia) ? openedVia : [openedVia];
+    // Return lowest priority (highest importance) found
+    let minPriority = 999;
+    for (const val of values) {
+      const lower = val.toLowerCase();
+      if (lower.includes("monitoring")) minPriority = Math.min(minPriority, 0);
+      else if (lower.includes("teams")) minPriority = Math.min(minPriority, 1);
+      else if (lower.includes("email")) minPriority = Math.min(minPriority, 2);
+      else if (lower.includes("am")) minPriority = Math.min(minPriority, 3);
+    }
+    return minPriority;
   };
 
   const filterAndSortTickets = () => {
@@ -145,6 +169,23 @@ export default function SMSTicketsPage() {
         const types = ticket.issue_types || [];
         return types.includes(issueTypeFilter);
       });
+    }
+
+        // Destination filter
+    if (destinationFilter) {
+      const term = destinationFilter.toLowerCase();
+      filtered = filtered.filter((ticket) => 
+        ticket.destination?.toLowerCase().includes(term)
+      );
+    }
+
+    // Assigned To filter
+    if (assignedToFilter !== "all") {
+      if (assignedToFilter === "unassigned") {
+        filtered = filtered.filter((ticket) => !ticket.assigned_to);
+      } else {
+        filtered = filtered.filter((ticket) => ticket.assigned_to === assignedToFilter);
+      }
     }
 
     // Date range filter
@@ -206,7 +247,7 @@ export default function SMSTicketsPage() {
     setFormData({
       priority: "Medium",
       status: "Unassigned",
-      opened_via: "Monitoring",
+      opened_via: ["Monitoring"],
       is_lcr: "no",
       client_or_vendor: "client",
       volume: "0",
@@ -219,8 +260,13 @@ export default function SMSTicketsPage() {
 
   const openEditSheet = (ticket) => {
     setEditingTicket(ticket);
+        // Normalize opened_via to array
+    const openedVia = Array.isArray(ticket.opened_via) 
+      ? ticket.opened_via 
+      : ticket.opened_via ? ticket.opened_via.split(",").map(v => v.trim()) : [];
     setFormData({
       ...ticket,
+      opened_via: openedVia,
       issue_types: ticket.issue_types || [],
       issue_other: ticket.issue_other || ""
     });
@@ -232,6 +278,18 @@ export default function SMSTicketsPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+        // Validate opened_via
+    if (!formData.opened_via || formData.opened_via.length === 0) {
+      toast.error("Please select at least one 'Opened Via' option");
+      return;
+    }
+
+    // Validate status - can't be "Assigned" without assigned_to
+    if (formData.status === "Assigned" && !formData.assigned_to) {
+      toast.error("Status cannot be 'Assigned' unless a NOC member is assigned");
+      return;
+    }
 
     try {
       const token = localStorage.getItem("token");
@@ -249,6 +307,21 @@ export default function SMSTicketsPage() {
       fetchData();
     } catch (error) {
       toast.error(error.response?.data?.detail || "Failed to save ticket");
+    }
+  };
+
+    const handleDelete = async () => {
+    try {
+      const token = localStorage.getItem("token");
+      await axios.delete(`${API}/tickets/sms/${ticketToDelete.id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      toast.success("Ticket deleted successfully");
+      setDeleteDialogOpen(false);
+      setTicketToDelete(null);
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Failed to delete ticket");
     }
   };
 
@@ -359,6 +432,31 @@ export default function SMSTicketsPage() {
           </SelectContent>
         </Select>
 
+                <Input
+          placeholder="Filter by Destination..."
+          data-testid="filter-destination"
+          value={destinationFilter}
+          onChange={(e) => setDestinationFilter(e.target.value)}
+          className="bg-zinc-900 border-zinc-700 text-white placeholder:text-zinc-500"
+        />
+
+        <Select value={assignedToFilter} onValueChange={setAssignedToFilter}>
+          <SelectTrigger className="bg-zinc-900 border-zinc-700 text-white" data-testid="filter-assigned-to">
+            <SelectValue placeholder="Filter by Assigned To" />
+          </SelectTrigger>
+          <SelectContent className="bg-zinc-800 border-zinc-700">
+            <SelectItem value="all">All Assignees</SelectItem>
+            <SelectItem value="unassigned">Unassigned</SelectItem>
+            {users.map((user) => (
+              <SelectItem key={user.id} value={user.id}>
+                {user.username}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="text-zinc-400 text-sm flex items-center">
           Sorted by: Priority → Volume → Opened Via
         </div>
@@ -371,6 +469,8 @@ export default function SMSTicketsPage() {
             setStatusFilter("all");
             setEnterpriseFilter("all");
             setIssueTypeFilter("all");
+            setDestinationFilter("");
+            setAssignedToFilter("all");
             setDateRange({ from: new Date(), to: new Date() });
           }}
           className="border-zinc-700 text-zinc-400 hover:text-white hover:bg-zinc-800"
@@ -539,21 +639,18 @@ export default function SMSTicketsPage() {
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2"><Label>Volume *</Label><Input value={formData.volume || ""} onChange={(e) => setFormData({ ...formData, volume: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" required disabled={isAM} /></div>
-              <div className="space-y-2">
-                <Label>Opened Via *</Label>
-                <Select value={formData.opened_via} onValueChange={(value) => setFormData({ ...formData, opened_via: value })} required disabled={isAM}>
-                  <SelectTrigger className="bg-zinc-800 border-zinc-700"><SelectValue /></SelectTrigger>
-                  <SelectContent className="bg-zinc-800 border-zinc-700">
-                    <SelectItem value="Monitoring">Monitoring</SelectItem><SelectItem value="Email">Email</SelectItem><SelectItem value="Teams">Teams</SelectItem><SelectItem value="AM">AM</SelectItem>
-                    <SelectItem value="Monitoring, Email">Monitoring, Email</SelectItem><SelectItem value="Monitoring, Teams">Monitoring, Teams</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
+
               <div className="space-y-2"><Label>Enterprise Trunk *</Label><Input value={formData.customer_trunk || ""} onChange={(e) => setFormData({ ...formData, customer_trunk: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" required disabled={isAM} /></div>
-              <div className="space-y-2"><Label>Destination</Label><Input value={formData.destination || ""} onChange={(e) => setFormData({ ...formData, destination: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" disabled={isAM} /></div>
-            </div>
+    
+            {/* Opened Via - Multi-select checklist */}
+            <OpenedViaSelect
+              selectedOptions={formData.opened_via || []}
+              onChange={(options) => setFormData({ ...formData, opened_via: options })}
+              disabled={isAM}
+            />
+
+            <div className="space-y-2"><Label>Destination</Label><Input value={formData.destination || ""} onChange={(e) => setFormData({ ...formData, destination: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" disabled={isAM} /></div>
+
 
             {/* SMS-Specific Fields */}
             <div className="border-t border-zinc-700 pt-4 mt-4">
@@ -608,11 +705,46 @@ export default function SMSTicketsPage() {
 
             <div className="flex space-x-3 pt-4">
               {canModify && <Button type="submit" className="bg-emerald-500 text-black hover:bg-emerald-400">{editingTicket ? "Update Ticket" : "Create Ticket"}</Button>}
+                            {canModify && editingTicket && (
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  onClick={() => {
+                    setTicketToDelete(editingTicket);
+                    setDeleteDialogOpen(true);
+                  }}
+                  className="border-red-500/50 text-red-500 hover:bg-red-500/10"
+                  data-testid="delete-ticket-button"
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Delete
+                </Button>
+              )}
+
               <Button type="button" variant="outline" onClick={() => setSheetOpen(false)} className="border-zinc-700 text-white hover:bg-zinc-800">{isAM ? "Close" : "Cancel"}</Button>
             </div>
           </form>
         </SheetContent>
       </Sheet>
+                
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent className="bg-zinc-900 border-white/10">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-white">Delete Ticket</AlertDialogTitle>
+            <AlertDialogDescription className="text-zinc-400">
+              Are you sure you want to delete ticket {ticketToDelete?.ticket_number}? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="border-zinc-700 text-white hover:bg-zinc-800">Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete} className="bg-red-500 text-white hover:bg-red-600">
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
     </div>
   );
 }
