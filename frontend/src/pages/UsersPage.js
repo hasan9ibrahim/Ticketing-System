@@ -148,6 +148,7 @@ export default function UsersPage() {
         <Table>
           <TableHeader>
             <TableRow className="border-white/5 hover:bg-transparent">
+              <TableHead className="text-zinc-400">Name</TableHead>
               <TableHead className="text-zinc-400">Username</TableHead>
               <TableHead className="text-zinc-400">Email</TableHead>
               <TableHead className="text-zinc-400">Phone</TableHead>
@@ -160,7 +161,8 @@ export default function UsersPage() {
             {filteredUsers.length > 0 ? (
               filteredUsers.map((user) => (
                 <TableRow key={user.id} className="border-white/5 hover:bg-zinc-800/50" data-testid="user-row">
-                  <TableCell className="text-white font-medium">{user.username}</TableCell>
+                  <TableCell className="text-white font-medium">{user.name || "-"}</TableCell>
+                  <TableCell className="text-zinc-300">{user.username}</TableCell>
                   <TableCell className="text-zinc-300">{user.email || "-"}</TableCell>
                   <TableCell className="text-zinc-300">{user.phone || "-"}</TableCell>
                   <TableCell>
@@ -194,7 +196,7 @@ export default function UsersPage() {
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-8 text-zinc-500">
+                  <TableCell colSpan={7} className="text-center py-8 text-zinc-500">
                   No users found
                 </TableCell>
               </TableRow>
@@ -211,6 +213,17 @@ export default function UsersPage() {
           </SheetHeader>
           <form onSubmit={handleSubmit} className="space-y-4 mt-6">
             <div className="space-y-2">
+                      <Label>Full Name *</Label>
+              <Input
+                value={formData.name || ""}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                className="bg-zinc-800 border-zinc-700 text-white"
+                data-testid="name-input"
+                required
+              />
+            </div>
+
+            <div className="space-y-2">
               <Label>Username *</Label>
               <Input
                 value={formData.username || ""}
@@ -222,17 +235,19 @@ export default function UsersPage() {
             </div>
 
             <div className="space-y-2">
-              <Label>Email</Label>
+                <Label>Email *</Label>
               <Input
                 type="email"
                 value={formData.email || ""}
                 onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                 className="bg-zinc-800 border-zinc-700 text-white"
+                       data-testid="email-input"
+                 required
               />
             </div>
 
             <div className="space-y-2">
-              <Label>Phone</Label>
+                <Label>Phone *</Label>
               <Input
                 value={formData.phone || ""}
                 onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
