@@ -705,84 +705,104 @@ export default function VoiceTicketsPage() {
               <h3 className="text-sm font-medium text-zinc-400 mb-4">Vendor & Cost</h3>
               <div className="grid grid-cols-3 gap-4">
                 <div className="space-y-2"><Label>Rate</Label><Input value={formData.rate || ""} onChange={(e) => setFormData({ ...formData, rate: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" placeholder="Rate per minute" disabled={isAM} /></div>
-              {/* Vendor Trunks - Multi-select with checkboxes */}
+              {/* Vendor Trunks - Searchable dropdown with selected at top */}
               <div className="space-y-2">
                 <Label>Vendor Trunks</Label>
                 <div className="bg-zinc-800/50 border border-zinc-700 rounded-md p-2 space-y-2">
-                  {/* All available vendor trunks as checkboxes */}
-                  {vendorTrunkOptions.length > 0 ? vendorTrunkOptions.map((trunk) => {
-                    const existingTrunk = (formData.vendor_trunks || []).find(v => v.trunk === trunk);
-                    return (
-                      <div key={trunk} className="flex items-center space-x-2">
-                        <input
-                          type="checkbox"
-                          id={`vendor-${trunk}`}
-                          checked={!!existingTrunk}
-                          onChange={(e) => {
-                            const currentTrunks = formData.vendor_trunks || [];
-                            if (e.target.checked) {
-                              setFormData({
-                                ...formData,
-                                vendor_trunks: [...currentTrunks, { trunk, percentage: "", position: "" }]
-                              });
-                            } else {
-                              setFormData({
-                                ...formData,
-                                vendor_trunks: currentTrunks.filter(v => v.trunk !== trunk)
-                              });
-                            }
-                          }}
-                          className="rounded border-zinc-600"
-                          disabled={isAM}
-                        />
-                        <Label htmlFor={`vendor-${trunk}`} className="text-white text-sm cursor-pointer w-32">{trunk}</Label>
-                        {existingTrunk && (
-                          <>
-                            <Input
-                              placeholder="%"
-                              value={existingTrunk.percentage || ""}
-                              onChange={(e) => {
-                                const updatedTrunks = (formData.vendor_trunks || []).map(v =>
-                                  v.trunk === trunk ? { ...v, percentage: e.target.value } : v
-                                );
-                                setFormData({ ...formData, vendor_trunks: updatedTrunks });
-                              }}
-                              className="bg-zinc-700 border-zinc-600 text-white text-xs w-20 h-7"
-                              disabled={isAM}
-                            />
-                            <Select
-                              value={existingTrunk.position || ""}
-                              onValueChange={(value) => {
-                                const updatedTrunks = (formData.vendor_trunks || []).map(v =>
-                                  v.trunk === trunk ? { ...v, position: value } : v
-                                );
-                                setFormData({ ...formData, vendor_trunks: updatedTrunks });
-                              }}
-                              disabled={isAM}
-                            >
-                              <SelectTrigger className="bg-zinc-700 border-zinc-600 h-7 w-24"><SelectValue placeholder="Position" /></SelectTrigger>
-                              <SelectContent className="bg-zinc-800 border-zinc-700">
-                                <SelectItem value="1">1st</SelectItem>
-                                <SelectItem value="2">2nd</SelectItem>
-                                <SelectItem value="3">3rd</SelectItem>
-                                <SelectItem value="4">4th</SelectItem>
-                                <SelectItem value="5">5th</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </>
-                        )}
-                      </div>
-                    );
-                  }) : <div className="text-zinc-500 text-sm">No vendor trunks available</div>}
-                  
-                  {/* Percentage total validation */}
+                  {/* Selected vendor trunks at top with % and position (when 2+) */}
                   {(formData.vendor_trunks || []).length > 0 && (
-                    <div className="text-xs text-zinc-400 pt-2 border-t border-zinc-600">
-                      Total: {((formData.vendor_trunks || []).reduce((sum, v) => sum + (parseFloat(v.percentage) || 0), 0))}%
-                      {((formData.vendor_trunks || []).reduce((sum, v) => sum + (parseFloat(v.percentage) || 0), 0)) !== 100 && 
-                        <span className="text-red-400 ml-1">(must equal 100%)</span>}
+                    <div className="space-y-2 pb-2 border-b border-zinc-600">
+                      {(formData.vendor_trunks || []).map((vendorTrunk, index) => (
+                        <div key={`selected-${index}`} className="flex items-center space-x-2 bg-zinc-700/50 p-2 rounded">
+                          <input
+                            type="checkbox"
+                            checked={true}
+                            readOnly
+                            className="rounded border-zinc-500"
+                          />
+                          <Label className="text-white text-sm flex-1 cursor-pointer">{vendorTrunk.trunk}</Label>
+                          {((formData.vendor_trunks || []).length >= 2) && (
+                            <>
+                              <Input
+                                placeholder="%"
+                                value={vendorTrunk.percentage || ""}
+                                onChange={(e) => {
+                                  const updatedTrunks = (formData.vendor_trunks || []).map((v, i) =>
+                                    i === index ? { ...v, percentage: e.target.value } : v
+                                  );
+                                  setFormData({ ...formData, vendor_trunks: updatedTrunks });
+                                }}
+                                className="bg-zinc-600 border-zinc-500 text-white text-xs w-16 h-7"
+                                disabled={isAM}
+                              />
+                              <Select
+                                value={vendorTrunk.position || ""}
+                                onValueChange={(value) => {
+                                  const updatedTrunks = (formData.vendor_trunks || []).map((v, i) =>
+                                    i === index ? { ...v, position: value } : v
+                                  );
+                                  setFormData({ ...formData, vendor_trunks: updatedTrunks });
+                                }}
+                                disabled={isAM}
+                              >
+                                <SelectTrigger className="bg-zinc-600 border-zinc-500 h-7 w-20"><SelectValue placeholder="Pos" /></SelectTrigger>
+                                <SelectContent className="bg-zinc-800 border-zinc-700">
+                                  <SelectItem value="1">1st</SelectItem>
+                                  <SelectItem value="2">2nd</SelectItem>
+                                  <SelectItem value="3">3rd</SelectItem>
+                                  <SelectItem value="4">4th</SelectItem>
+                                  <SelectItem value="5">5th</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </>
+                          )}
+                          <Button 
+                            size="sm" 
+                            variant="ghost" 
+                            onClick={() => {
+                              const updatedTrunks = (formData.vendor_trunks || []).filter((_, i) => i !== index);
+                              setFormData({ ...formData, vendor_trunks: updatedTrunks });
+                            }}
+                            className="text-red-400 hover:text-red-300 h-6 w-6 p-0"
+                            disabled={isAM}
+                          >
+                            <X className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      ))}
+                      {/* Total percentage when 2+ selected */}
+                      {((formData.vendor_trunks || []).length >= 2) && (
+                        <div className="text-xs text-zinc-400 pt-1">
+                          Total: {((formData.vendor_trunks || []).reduce((sum, v) => sum + (parseFloat(v.percentage) || 0), 0))}%
+                          {((formData.vendor_trunks || []).reduce((sum, v) => sum + (parseFloat(v.percentage) || 0), 0)) !== 100 && 
+                            <span className="text-red-400 ml-1">(must equal 100%)</span>}
+                        </div>
+                      )}
                     </div>
                   )}
+                  
+                  {/* Searchable dropdown for adding vendor trunks */}
+                  <Select 
+                    onValueChange={(value) => {
+                      if (value && !(formData.vendor_trunks || []).find(v => v.trunk === value)) {
+                        setFormData({
+                          ...formData,
+                          vendor_trunks: [...(formData.vendor_trunks || []), { trunk: value, percentage: "", position: "" }]
+                        });
+                      }
+                    }}
+                  >
+                    <SelectTrigger className="bg-zinc-700 border-zinc-600 w-full">
+                      <SelectValue placeholder="Search and add vendor trunk..." />
+                    </SelectTrigger>
+                    <SelectContent className="bg-zinc-800 border-zinc-700 max-h-60">
+                      {vendorTrunkOptions
+                        .filter(trunk => !(formData.vendor_trunks || []).find(v => v.trunk === trunk))
+                        .map((trunk) => (
+                          <SelectItem key={trunk} value={trunk}>{trunk}</SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
               <div className="space-y-2"><Label>Cost</Label><Input value={formData.cost || ""} onChange={(e) => setFormData({ ...formData, cost: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" placeholder="e.g., 0.005" disabled={isAM} /></div>
