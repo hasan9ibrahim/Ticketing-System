@@ -676,9 +676,7 @@ export default function VoiceTicketsPage() {
               disabled={isAM}
             />
 
-            <div className="space-y-2"><Label>Destination</Label><Input value={formData.destination || ""} onChange={(e) => setFormData({ ...formData, destination: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" disabled={isAM} /></div>
-
-            {/* Vendor & Cost Details */}
+      
             <div className="border-t border-zinc-700 pt-4 mt-4">
               <h3 className="text-sm font-medium text-zinc-400 mb-4">Vendor & Cost</h3>
               <div className="grid grid-cols-3 gap-4">
@@ -709,8 +707,8 @@ export default function VoiceTicketsPage() {
                   <Textarea value={formData.root_cause || ""} onChange={(e) => setFormData({ ...formData, root_cause: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" placeholder="Identified root cause" rows={2} disabled={isAM} />
                 </div>
                 <div className="space-y-2">
-                  <Label>Action Taken</Label>
-                  <Textarea value={formData.action_taken || ""} onChange={(e) => setFormData({ ...formData, action_taken: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" placeholder="Actions taken to resolve" rows={2} disabled={isAM} />
+                  <Label>Alternative Route/Solution</Label>
+                  <Textarea value={formData.action_taken || ""} onChange={(e) => setFormData({ ...formData, action_taken: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" placeholder="Alternative route or solution taken" rows={2} disabled={isAM} />
                 </div>
                 <div className="space-y-2">
                   <Label>Internal Notes</Label>
