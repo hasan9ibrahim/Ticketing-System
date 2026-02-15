@@ -13,6 +13,7 @@ import {
   X,
   Hexagon,
   Briefcase,
+  Settings,
 } from "lucide-react";
 
 export default function DashboardLayout({ user, setUser }) {
@@ -34,6 +35,7 @@ export default function DashboardLayout({ user, setUser }) {
     { path: "/enterprises", label: "Enterprises", icon: Building2, roles: ["admin", "noc"] },
     { path: "/my-enterprises", label: "My Enterprises", icon: Briefcase, roles: ["am"] },
     { path: "/users", label: "Users", icon: Users, roles: ["admin"] },
+    { path: "/departments", label: "Departments", icon: Settings, roles: ["admin"] },
   ];
 
   const filteredNavItems = navItems.filter((item) => {
