@@ -25,6 +25,8 @@ export default function EnterprisesPage() {
   const [formData, setFormData] = useState({});
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [enterpriseToDelete, setEnterpriseToDelete] = useState(null);
+  const [currentUser, setCurrentUser] = useState(null);
+  const isAM = currentUser?.role === "am";
   
   // Trunk management
   const [customerTrunks, setCustomerTrunks] = useState([]);
@@ -39,13 +41,15 @@ export default function EnterprisesPage() {
     try {
       const token = localStorage.getItem("token");
       const headers = { Authorization: `Bearer ${token}` };
-      const [enterprisesRes, usersRes] = await Promise.all([
+      const [enterprisesRes, usersRes, userRes] = await Promise.all([
         axios.get(`${API}/clients`, { headers }),
         axios.get(`${API}/users`, { headers }),
+        axios.get(`${API}/me`, { headers }),
       ]);
       setEnterprises(enterprisesRes.data);
       setFilteredEnterprises(enterprisesRes.data);
       setUsers(usersRes.data.filter((u) => u.role === "am"));
+      setCurrentUser(userRes.data);
     } catch (error) {
       toast.error("Failed to load data");
     } finally {
@@ -91,6 +95,23 @@ export default function EnterprisesPage() {
     try {
       const token = localStorage.getItem("token");
       const headers = { Authorization: `Bearer ${token}` };
+      
+      // For AMs, only allow updating contact fields
+      if (isAM && editingEnterprise) {
+        const contactData = {
+          contact_person: formData.contact_person,
+          contact_email: formData.contact_email,
+          contact_phone: formData.contact_phone,
+          noc_emails: formData.noc_emails,
+          notes: formData.notes
+        };
+        await axios.put(`${API}/clients/${editingEnterprise.id}/contact`, contactData, { headers });
+        toast.success("Contact updated successfully");
+        setSheetOpen(false);
+        fetchData();
+        return;
+      }
+      
       const dataToSubmit = {
         ...formData,
         customer_trunks: customerTrunks,
@@ -179,7 +200,7 @@ export default function EnterprisesPage() {
                   <TableCell>
                     <div className="flex space-x-2">
                       <Button size="sm" variant="ghost" onClick={() => openEditSheet(ent)} className="text-emerald-500 hover:text-emerald-400 hover:bg-emerald-500/10">Edit</Button>
-                      <Button size="sm" variant="ghost" onClick={() => { setEnterpriseToDelete(ent); setDeleteDialogOpen(true); }} className="text-red-500 hover:text-red-400 hover:bg-red-500/10"><Trash2 className="h-4 w-4" /></Button>
+                      {!isAM && <Button size="sm" variant="ghost" onClick={() => { setEnterpriseToDelete(ent); setDeleteDialogOpen(true); }} className="text-red-500 hover:text-red-400 hover:bg-red-500/10"><Trash2 className="h-4 w-4" /></Button>}
                     </div>
                   </TableCell>
                 </TableRow>
@@ -235,7 +256,7 @@ export default function EnterprisesPage() {
     <div className="p-6 lg:p-8 space-y-6 max-w-[1920px] mx-auto" data-testid="enterprises-page">
       <div className="flex items-center justify-between">
         <div><h1 className="text-4xl font-bold text-white">Enterprises</h1><p className="text-zinc-400 mt-1">Manage enterprise accounts and assignments</p></div>
-        <Button onClick={openCreateSheet} data-testid="create-enterprise-button" className="bg-emerald-500 text-black hover:bg-emerald-400 h-9"><Plus className="h-4 w-4 mr-2" />New Enterprise</Button>
+        {!isAM && <Button onClick={openCreateSheet} data-testid="create-enterprise-button" className="bg-emerald-500 text-black hover:bg-emerald-400 h-9"><Plus className="h-4 w-4 mr-2" />New Enterprise</Button>}
       </div>
       <div className="relative">
         <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-zinc-500" />
@@ -250,17 +271,17 @@ export default function EnterprisesPage() {
 
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
         <SheetContent className="bg-zinc-900 border-white/10 text-white sm:max-w-2xl overflow-y-auto" data-testid="enterprise-sheet">
-          <SheetHeader><SheetTitle className="text-white">{editingEnterprise ? "Edit Enterprise" : "Create Enterprise"}</SheetTitle></SheetHeader>
+          <SheetHeader><SheetTitle className="text-white">{isAM ? "View Enterprise" : editingEnterprise ? "Edit Enterprise" : "Create Enterprise"}</SheetTitle></SheetHeader>
           <form onSubmit={handleSubmit} className="space-y-4 mt-6">
-            <div className="space-y-2"><Label>Enterprise Name *</Label><Input value={formData.name || ""} onChange={(e) => setFormData({ ...formData, name: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" data-testid="enterprise-name-input" required /></div>
-            <div className="space-y-2"><Label>SMS/Voice *</Label><Select value={formData.enterprise_type || ""} onValueChange={(value) => setFormData({ ...formData, enterprise_type: value })} required><SelectTrigger className="bg-zinc-800 border-zinc-700" data-testid="enterprise-type-select"><SelectValue placeholder="Select type" /></SelectTrigger><SelectContent className="bg-zinc-800 border-zinc-700"><SelectItem value="sms">SMS</SelectItem><SelectItem value="voice">Voice</SelectItem></SelectContent></Select></div>
-            <div className="space-y-2"><Label>Tier *</Label><Select value={formData.tier} onValueChange={(value) => setFormData({ ...formData, tier: value })} required><SelectTrigger className="bg-zinc-800 border-zinc-700" data-testid="tier-select"><SelectValue placeholder="Select tier" /></SelectTrigger><SelectContent className="bg-zinc-800 border-zinc-700"><SelectItem value="Tier 1">Tier 1</SelectItem><SelectItem value="Tier 2">Tier 2</SelectItem><SelectItem value="Tier 3">Tier 3</SelectItem><SelectItem value="Tier 4">Tier 4</SelectItem></SelectContent></Select></div>
-            <div className="space-y-2"><Label>Contact Person</Label><Input value={formData.contact_person || ""} onChange={(e) => setFormData({ ...formData, contact_person: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" /></div>
-            <div className="space-y-2"><Label>Contact Email *</Label><Input type="email" value={formData.contact_email || ""} onChange={(e) => setFormData({ ...formData, contact_email: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" required /></div>
-            <div className="space-y-2"><Label>Contact Phone</Label><Input value={formData.contact_phone || ""} onChange={(e) => setFormData({ ...formData, contact_phone: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" /></div>
-            <div className="space-y-2"><Label>Assigned Account Manager</Label><Select value={formData.assigned_am_id} onValueChange={(value) => setFormData({ ...formData, assigned_am_id: value })}><SelectTrigger className="bg-zinc-800 border-zinc-700" data-testid="assigned-am-select"><SelectValue placeholder="Select AM" /></SelectTrigger><SelectContent className="bg-zinc-800 border-zinc-700">{users.map((user) => <SelectItem key={user.id} value={user.id}>{user.username}</SelectItem>)}</SelectContent></Select></div>
-            <div className="space-y-2"><Label>NOC Emails *</Label><Textarea value={formData.noc_emails || ""} onChange={(e) => setFormData({ ...formData, noc_emails: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" placeholder="email1@example.com, email2@example.com" required /></div>
-            <div className="space-y-2"><Label>Notes</Label><Textarea value={formData.notes || ""} onChange={(e) => setFormData({ ...formData, notes: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" /></div>
+            <div className="space-y-2"><Label>Enterprise Name *</Label><Input value={formData.name || ""} onChange={(e) => setFormData({ ...formData, name: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" data-testid="enterprise-name-input" required disabled={isAM} /></div>
+            <div className="space-y-2"><Label>SMS/Voice *</Label><Select value={formData.enterprise_type || ""} onValueChange={(value) => setFormData({ ...formData, enterprise_type: value })} required disabled={isAM}><SelectTrigger className="bg-zinc-800 border-zinc-700" data-testid="enterprise-type-select"><SelectValue placeholder="Select type" /></SelectTrigger><SelectContent className="bg-zinc-800 border-zinc-700"><SelectItem value="sms">SMS</SelectItem><SelectItem value="voice">Voice</SelectItem></SelectContent></Select></div>
+            <div className="space-y-2"><Label>Tier *</Label><Select value={formData.tier} onValueChange={(value) => setFormData({ ...formData, tier: value })} required disabled={isAM}><SelectTrigger className="bg-zinc-800 border-zinc-700" data-testid="tier-select"><SelectValue placeholder="Select tier" /></SelectTrigger><SelectContent className="bg-zinc-800 border-zinc-700"><SelectItem value="Tier 1">Tier 1</SelectItem><SelectItem value="Tier 2">Tier 2</SelectItem><SelectItem value="Tier 3">Tier 3</SelectItem><SelectItem value="Tier 4">Tier 4</SelectItem></SelectContent></Select></div>
+            <div className="space-y-2"><Label>Contact Person</Label><Input value={formData.contact_person || ""} onChange={(e) => setFormData({ ...formData, contact_person: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" disabled={!isAM && editingEnterprise} /></div>
+            <div className="space-y-2"><Label>Contact Email *</Label><Input type="email" value={formData.contact_email || ""} onChange={(e) => setFormData({ ...formData, contact_email: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" required disabled={!isAM && editingEnterprise} /></div>
+            <div className="space-y-2"><Label>Contact Phone</Label><Input value={formData.contact_phone || ""} onChange={(e) => setFormData({ ...formData, contact_phone: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" disabled={!isAM && editingEnterprise} /></div>
+            <div className="space-y-2"><Label>Assigned Account Manager</Label><Select value={formData.assigned_am_id} onValueChange={(value) => setFormData({ ...formData, assigned_am_id: value })} disabled={isAM}><SelectTrigger className="bg-zinc-800 border-zinc-700" data-testid="assigned-am-select"><SelectValue placeholder="Select AM" /></SelectTrigger><SelectContent className="bg-zinc-800 border-zinc-700">{users.map((user) => <SelectItem key={user.id} value={user.id}>{user.username}</SelectItem>)}</SelectContent></Select></div>
+            <div className="space-y-2"><Label>NOC Emails *</Label><Textarea value={formData.noc_emails || ""} onChange={(e) => setFormData({ ...formData, noc_emails: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" placeholder="email1@example.com, email2@example.com" required disabled={!isAM && editingEnterprise} /></div>
+            <div className="space-y-2"><Label>Notes</Label><Textarea value={formData.notes || ""} onChange={(e) => setFormData({ ...formData, notes: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" disabled={!isAM && editingEnterprise} /></div>
             
             {/* Customer Trunks and Vendor Trunks in adjacent columns */}
             <div className="grid grid-cols-2 gap-4">
@@ -283,8 +304,12 @@ export default function EnterprisesPage() {
             </div>
             
             <div className="flex space-x-3 pt-4">
-              <Button type="submit" className="bg-emerald-500 text-black hover:bg-emerald-400" data-testid="save-enterprise-button">{editingEnterprise ? "Update Enterprise" : "Create Enterprise"}</Button>
-              <Button type="button" variant="outline" onClick={() => setSheetOpen(false)} className="border-zinc-700 text-white hover:bg-zinc-800">Cancel</Button>
+              {isAM ? (
+                <Button type="submit" className="bg-emerald-500 text-black hover:bg-emerald-400" data-testid="save-enterprise-button">Update Contact</Button>
+              ) : (
+                <Button type="submit" className="bg-emerald-500 text-black hover:bg-emerald-400" data-testid="save-enterprise-button">{editingEnterprise ? "Update Enterprise" : "Create Enterprise"}</Button>
+              )}
+              <Button type="button" variant="outline" onClick={() => setSheetOpen(false)} className="border-zinc-700 text-white hover:bg-zinc-800">{isAM ? "Close" : "Cancel"}</Button>
             </div>
           </form>
         </SheetContent>
