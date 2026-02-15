@@ -467,6 +467,38 @@ async def update_client(client_id: str, client_data: ClientUpdate, current_admin
         result['created_at'] = datetime.fromisoformat(result['created_at'])
     return Client(**result)
 
+# AM-specific endpoint to update contact fields only
+class ClientContactUpdate(BaseModel):
+    contact_person: Optional[str] = None
+    contact_email: Optional[str] = None
+    contact_phone: Optional[str] = None
+    noc_emails: Optional[str] = None
+    notes: Optional[str] = None
+
+@api_router.put("/clients/{client_id}/contact", response_model=Client)
+async def update_client_contact(client_id: str, contact_data: ClientContactUpdate, current_user: dict = Depends(get_current_user)):
+    """Allow AMs to update contact fields for their assigned enterprises"""
+    if current_user["role"] != "am":
+        raise HTTPException(status_code=403, detail="Only AMs can use this endpoint")
+    
+    # Verify the client is assigned to this AM
+    client = await db.clients.find_one({"id": client_id, "assigned_am_id": current_user["id"]})
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found or not assigned to you")
+    
+    update_dict = {k: v for k, v in contact_data.model_dump().items() if v is not None}
+    
+    result = await db.clients.find_one_and_update(
+        {"id": client_id},
+        {"$set": update_dict},
+        return_document=True,
+        projection={"_id": 0}
+    )
+    
+    if isinstance(result['created_at'], str):
+        result['created_at'] = datetime.fromisoformat(result['created_at'])
+    return Client(**result)
+
 @api_router.delete("/clients/{client_id}")
 async def delete_client(client_id: str, current_admin: dict = Depends(get_current_admin)):
     result = await db.clients.delete_one({"id": client_id})
