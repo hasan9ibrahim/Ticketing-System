@@ -46,8 +46,59 @@ class User(BaseModel):
     phone: str  # Phone - required
     password_hash: str
     role: str  # admin, am, noc
+    department_id: Optional[str] = None  # Link to department
     am_type: Optional[str] = None  # "sms" or "voice" for AMs
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class Department(BaseModel):
+    """Department model with configurable permissions"""
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    name: str  # Department name (e.g., "Admin", "SMS Sales", "Voice Sales", "NOC")
+    description: Optional[str] = None
+    # Permissions
+    can_view_enterprises: bool = True
+    can_edit_enterprises: bool = False
+    can_create_enterprises: bool = False
+    can_delete_enterprises: bool = False
+    can_view_tickets: bool = True
+    can_create_tickets: bool = False
+    can_edit_tickets: bool = False
+    can_delete_tickets: bool = False
+    can_view_users: bool = False
+    can_edit_users: bool = False
+    can_view_all_tickets: bool = True  # See all tickets or only assigned
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class DepartmentCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    can_view_enterprises: bool = True
+    can_edit_enterprises: bool = False
+    can_create_enterprises: bool = False
+    can_delete_enterprises: bool = False
+    can_view_tickets: bool = True
+    can_create_tickets: bool = False
+    can_edit_tickets: bool = False
+    can_delete_tickets: bool = False
+    can_view_users: bool = False
+    can_edit_users: bool = False
+    can_view_all_tickets: bool = True
+
+class DepartmentUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    can_view_enterprises: Optional[bool] = None
+    can_edit_enterprises: Optional[bool] = None
+    can_create_enterprises: Optional[bool] = None
+    can_delete_enterprises: Optional[bool] = None
+    can_view_tickets: Optional[bool] = None
+    can_create_tickets: Optional[bool] = None
+    can_edit_tickets: Optional[bool] = None
+    can_delete_tickets: Optional[bool] = None
+    can_view_users: Optional[bool] = None
+    can_edit_users: Optional[bool] = None
+    can_view_all_tickets: Optional[bool] = None
 
 class UserCreate(BaseModel):
     username: str
@@ -425,6 +476,149 @@ async def delete_user(user_id: str, current_admin: dict = Depends(get_current_ad
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="User not found")
     return {"message": "User deleted successfully"}
+
+# ==================== DEPARTMENT ROUTES ====================
+
+async def init_default_departments():
+    """Initialize default departments if they don't exist"""
+    default_departments = [
+        {
+            "id": "dept_admin",
+            "name": "Admin",
+            "description": "Administrator Department with full access",
+            "can_view_enterprises": True,
+            "can_edit_enterprises": True,
+            "can_create_enterprises": True,
+            "can_delete_enterprises": True,
+            "can_view_tickets": True,
+            "can_create_tickets": True,
+            "can_edit_tickets": True,
+            "can_delete_tickets": True,
+            "can_view_users": True,
+            "can_edit_users": True,
+            "can_view_all_tickets": True
+        },
+        {
+            "id": "dept_sms_sales",
+            "name": "SMS Sales",
+            "description": "SMS Account Managers Department",
+            "can_view_enterprises": True,
+            "can_edit_enterprises": False,
+            "can_create_enterprises": False,
+            "can_delete_enterprises": False,
+            "can_view_tickets": True,
+            "can_create_tickets": False,
+            "can_edit_tickets": False,
+            "can_delete_tickets": False,
+            "can_view_users": False,
+            "can_edit_users": False,
+            "can_view_all_tickets": False
+        },
+        {
+            "id": "dept_voice_sales",
+            "name": "Voice Sales",
+            "description": "Voice Account Managers Department",
+            "can_view_enterprises": True,
+            "can_edit_enterprises": False,
+            "can_create_enterprises": False,
+            "can_delete_enterprises": False,
+            "can_view_tickets": True,
+            "can_create_tickets": False,
+            "can_edit_tickets": False,
+            "can_delete_tickets": False,
+            "can_view_users": False,
+            "can_edit_users": False,
+            "can_view_all_tickets": False
+        },
+        {
+            "id": "dept_noc",
+            "name": "NOC",
+            "description": "Network Operations Center Department",
+            "can_view_enterprises": True,
+            "can_edit_enterprises": True,
+            "can_create_enterprises": True,
+            "can_delete_enterprises": False,
+            "can_view_tickets": True,
+            "can_create_tickets": True,
+            "can_edit_tickets": True,
+            "can_delete_tickets": False,
+            "can_view_users": False,
+            "can_edit_users": False,
+            "can_view_all_tickets": True
+        }
+    ]
+    
+    for dept in default_departments:
+        existing = await db.departments.find_one({"id": dept["id"]})
+        if not existing:
+            await db.departments.insert_one(dept)
+
+@api_router.get("/departments", response_model=List[Department])
+async def get_departments(current_user: dict = Depends(get_current_user)):
+    """Get all departments - accessible by admin only"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    departments = await db.departments.find({}, {"_id": 0}).to_list(1000)
+    for dept in departments:
+        if isinstance(dept.get('created_at'), str):
+            dept['created_at'] = datetime.fromisoformat(dept['created_at'])
+    return [Department(**dept) for dept in departments]
+
+@api_router.post("/departments", response_model=Department)
+async def create_department(dept_data: DepartmentCreate, current_admin: dict = Depends(get_current_admin)):
+    """Create a new department - admin only"""
+    dept_obj = Department(**dept_data.model_dump())
+    doc = dept_obj.model_dump()
+    doc['created_at'] = doc['created_at'].isoformat()
+    
+    await db.departments.insert_one(doc)
+    return dept_obj
+
+@api_router.put("/departments/{dept_id}", response_model=Department)
+async def update_department(dept_id: str, dept_data: DepartmentUpdate, current_admin: dict = Depends(get_current_admin)):
+    """Update a department - admin only"""
+    update_dict = {k: v for k, v in dept_data.model_dump().items() if v is not None}
+    
+    result = await db.departments.find_one_and_update(
+        {"id": dept_id},
+        {"$set": update_dict},
+        return_document=True,
+        projection={"_id": 0}
+    )
+    
+    if not result:
+        raise HTTPException(status_code=404, detail="Department not found")
+    
+    if isinstance(result.get('created_at'), str):
+        result['created_at'] = datetime.fromisoformat(result['created_at'])
+    return Department(**result)
+
+@api_router.delete("/departments/{dept_id}")
+async def delete_department(dept_id: str, current_admin: dict = Depends(get_current_admin)):
+    """Delete a department - admin only"""
+    # Prevent deletion of default departments
+    if dept_id in ["dept_admin", "dept_sms_sales", "dept_voice_sales", "dept_noc"]:
+        raise HTTPException(status_code=400, detail="Cannot delete default departments")
+    
+    result = await db.departments.delete_one({"id": dept_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Department not found")
+    return {"message": "Department deleted successfully"}
+
+@api_router.get("/my-department")
+async def get_my_department(current_user: dict = Depends(get_current_user)):
+    """Get current user's department"""
+    if not current_user.get("department_id"):
+        return None
+    
+    dept = await db.departments.find_one({"id": current_user["department_id"]}, {"_id": 0})
+    if not dept:
+        return None
+    
+    if isinstance(dept.get('created_at'), str):
+        dept['created_at'] = datetime.fromisoformat(dept['created_at'])
+    return Department(**dept)
 
 # ==================== CLIENT ROUTES ====================
 
@@ -957,6 +1151,11 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+@app.on_event("startup")
+async def startup_init():
+    """Initialize default departments on startup"""
+    await init_default_departments()
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
