@@ -106,7 +106,6 @@ export default function EnterprisesPage() {
   // Separate enterprises by type
   const smsEnterprises = filteredEnterprises.filter(ent => ent.enterprise_type === "sms");
   const voiceEnterprises = filteredEnterprises.filter(ent => ent.enterprise_type === "voice");
-  const otherEnterprises = filteredEnterprises.filter(ent => !ent.enterprise_type || (ent.enterprise_type !== "sms" && ent.enterprise_type !== "voice"));
 
   const renderEnterpriseTable = (enterprisesList, title, emptyMessage) => (
     <div className="space-y-4">
@@ -168,9 +167,6 @@ export default function EnterprisesPage() {
 
       {/* Voice Enterprises Table */}
       {renderEnterpriseTable(voiceEnterprises, "Voice Enterprises", "No Voice enterprises found")}
-
-      {/* Other/Uncategorized Enterprises Table */}
-      {renderEnterpriseTable(otherEnterprises, "Other Enterprises (Need Type)", "No other enterprises found")}
 
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
         <SheetContent className="bg-zinc-900 border-white/10 text-white sm:max-w-lg overflow-y-auto" data-testid="enterprise-sheet">
