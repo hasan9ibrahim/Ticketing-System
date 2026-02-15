@@ -54,6 +54,21 @@ export default function SMSTicketsPage() {
   const [ticketActions, setTicketActions] = useState([]);
   const [newActionText, setNewActionText] = useState("");
   const [loadingActions, setLoadingActions] = useState(false);
+  const [customerTrunkOptions, setCustomerTrunkOptions] = useState([]);
+  const [vendorTrunkOptions, setVendorTrunkOptions] = useState([]);
+
+  // Fetch trunks for SMS enterprises
+  const fetchTrunks = async () => {
+    try {
+      const token = localStorage.getItem("token");
+      const headers = { Authorization: `Bearer ${token}` };
+      const response = await axios.get(`${API}/trunks/sms`, { headers });
+      setCustomerTrunkOptions(response.data.customer_trunks || []);
+      setVendorTrunkOptions(response.data.vendor_trunks || []);
+    } catch (error) {
+      console.error("Failed to fetch trunks:", error);
+    }
+  };
 
   useEffect(() => {
     const userData = localStorage.getItem("user");
@@ -61,6 +76,7 @@ export default function SMSTicketsPage() {
       setCurrentUser(JSON.parse(userData));
     }
     fetchData();
+    fetchTrunks();
   }, []);
 
   useEffect(() => {
@@ -307,7 +323,9 @@ export default function SMSTicketsPage() {
       sid: "",
       content: "",
       // New multiple SID/Content pairs
-      sms_details: [{ sid: "", content: "" }]
+      sms_details: [{ sid: "", content: "" }],
+      // Vendor trunks
+      vendor_trunks: []
     });
     setSheetOpen(true);
   };
@@ -318,7 +336,7 @@ export default function SMSTicketsPage() {
     const openedVia = Array.isArray(ticket.opened_via) 
       ? ticket.opened_via 
       : ticket.opened_via ? ticket.opened_via.split(",").map(v => v.trim()) : [];
-        
+    
     // Handle backward compatibility - convert old sid/content to new sms_details format
     let smsDetails = ticket.sms_details || [];
     if ((!smsDetails || smsDetails.length === 0) && (ticket.sid || ticket.content)) {
@@ -461,7 +479,7 @@ export default function SMSTicketsPage() {
     }
     
         // Check for similar tickets (only for new tickets)
-    if (!editingTicket) {      
+    if (!editingTicket) {
       // Get SID and Content from the new sms_details format or legacy fields
       const smsDetails = formData.sms_details || [];
       const hasSmsDetails = smsDetails.length > 0 && smsDetails.some(d => d.sid || d.content);
@@ -914,7 +932,17 @@ export default function SMSTicketsPage() {
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2"><Label>Volume *</Label><Input value={formData.volume || ""} onChange={(e) => setFormData({ ...formData, volume: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" required disabled={isAM} /></div>
-              <div className="space-y-2"><Label>Enterprise Trunk *</Label><Input value={formData.customer_trunk || ""} onChange={(e) => setFormData({ ...formData, customer_trunk: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" required disabled={isAM} /></div>
+              <div className="space-y-2">
+                <Label>Enterprise Trunk *</Label>
+                <Select value={formData.customer_trunk || ""} onValueChange={(value) => setFormData({ ...formData, customer_trunk: value })} required disabled={isAM}>
+                  <SelectTrigger className="bg-zinc-800 border-zinc-700"><SelectValue placeholder="Select customer trunk" /></SelectTrigger>
+                  <SelectContent className="bg-zinc-800 border-zinc-700">
+                    {customerTrunkOptions.map((trunk) => (
+                      <SelectItem key={trunk} value={trunk}>{trunk}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
             {/* Opened Via - Multi-select checklist */}
@@ -929,7 +957,7 @@ export default function SMSTicketsPage() {
             {/* SMS-Specific Fields */}
             <div className="border-t border-zinc-700 pt-4 mt-4">
               <h3 className="text-sm font-medium text-zinc-400 mb-4">SMS Details</h3>
-                            
+              
               {/* Dynamic SMS Details List */}
               <div className="space-y-3">
                 {(formData.sms_details || [{ sid: "", content: "" }]).map((detail, index) => (
@@ -952,7 +980,7 @@ export default function SMSTicketsPage() {
                         </Button>
                       )}
                     </div>
-                      <div className="space-y-2">
+                    <div className="space-y-2">
                       <div className="space-y-1">
                         <Label className="text-zinc-500 text-xs">SID</Label>
                         <Input
@@ -986,7 +1014,7 @@ export default function SMSTicketsPage() {
                   </div>
                 ))}
               </div>
-                                
+              
               {/* Add More Button */}
               {!isAM && (
                 <Button
@@ -1013,18 +1041,89 @@ export default function SMSTicketsPage() {
             {/* Vendor & Cost Details */}
             <div className="border-t border-zinc-700 pt-4 mt-4">
               <h3 className="text-sm font-medium text-zinc-400 mb-4">Vendor & Cost</h3>
-              <div className="grid grid-cols-3 gap-4">
-                <div className="space-y-2"><Label>Vendor Trunk</Label><Input value={formData.vendor_trunk || ""} onChange={(e) => setFormData({ ...formData, vendor_trunk: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" disabled={isAM} /></div>
-                <div className="space-y-2"><Label>Cost</Label><Input value={formData.cost || ""} onChange={(e) => setFormData({ ...formData, cost: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" placeholder="e.g., 0.005" disabled={isAM} /></div>
+              <div className="space-y-3">
+                {/* Vendor Trunks Checklist */}
                 <div className="space-y-2">
-                  <Label>Is LCR</Label>
-                  <Select value={formData.is_lcr || "no"} onValueChange={(value) => setFormData({ ...formData, is_lcr: value })} disabled={isAM}>
-                    <SelectTrigger className="bg-zinc-800 border-zinc-700"><SelectValue /></SelectTrigger>
-                    <SelectContent className="bg-zinc-800 border-zinc-700">
-                      <SelectItem value="yes">Yes</SelectItem>
-                      <SelectItem value="no">No</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <Label>Vendor Trunks</Label>
+                  <div className="bg-zinc-800/50 border border-zinc-700 rounded-md max-h-40 overflow-y-auto p-2 space-y-2">
+                    {vendorTrunkOptions.length > 0 ? vendorTrunkOptions.map((trunk) => {
+                      const existingTrunk = (formData.vendor_trunks || []).find(v => v.trunk === trunk);
+                      return (
+                        <div key={trunk} className="flex items-center space-x-2">
+                          <input
+                            type="checkbox"
+                            id={`vendor-${trunk}`}
+                            checked={!!existingTrunk}
+                            onChange={(e) => {
+                              const currentTrunks = formData.vendor_trunks || [];
+                              if (e.target.checked) {
+                                setFormData({
+                                  ...formData,
+                                  vendor_trunks: [...currentTrunks, { trunk, percentage: "", position: "" }]
+                                });
+                              } else {
+                                setFormData({
+                                  ...formData,
+                                  vendor_trunks: currentTrunks.filter(v => v.trunk !== trunk)
+                                });
+                              }
+                            }}
+                            className="rounded border-zinc-600"
+                            disabled={isAM}
+                          />
+                          <Label htmlFor={`vendor-${trunk}`} className="text-white text-sm cursor-pointer">{trunk}</Label>
+                          {existingTrunk && (
+                            <div className="flex items-center space-x-2 ml-2">
+                              <Input
+                                placeholder="%"
+                                value={existingTrunk.percentage || ""}
+                                onChange={(e) => {
+                                  const updatedTrunks = (formData.vendor_trunks || []).map(v =>
+                                    v.trunk === trunk ? { ...v, percentage: e.target.value } : v
+                                  );
+                                  setFormData({ ...formData, vendor_trunks: updatedTrunks });
+                                }}
+                                className="bg-zinc-700 border-zinc-600 text-white text-xs w-16 h-6"
+                                disabled={isAM}
+                              />
+                              <Select
+                                value={existingTrunk.position || ""}
+                                onValueChange={(value) => {
+                                  const updatedTrunks = (formData.vendor_trunks || []).map(v =>
+                                    v.trunk === trunk ? { ...v, position: value } : v
+                                  );
+                                  setFormData({ ...formData, vendor_trunks: updatedTrunks });
+                                }}
+                                disabled={isAM}
+                              >
+                                <SelectTrigger className="bg-zinc-700 border-zinc-600 h-6 w-20"><SelectValue placeholder="Pos" /></SelectTrigger>
+                                <SelectContent className="bg-zinc-800 border-zinc-700">
+                                  <SelectItem value="1">1st</SelectItem>
+                                  <SelectItem value="2">2nd</SelectItem>
+                                  <SelectItem value="3">3rd</SelectItem>
+                                  <SelectItem value="4">4th</SelectItem>
+                                  <SelectItem value="5">5th</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    }) : <div className="text-zinc-500 text-sm">No vendor trunks available</div>}
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2"><Label>Cost</Label><Input value={formData.cost || ""} onChange={(e) => setFormData({ ...formData, cost: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" placeholder="e.g., 0.005" disabled={isAM} /></div>
+                  <div className="space-y-2">
+                    <Label>Is LCR</Label>
+                    <Select value={formData.is_lcr || "no"} onValueChange={(value) => setFormData({ ...formData, is_lcr: value })} disabled={isAM}>
+                      <SelectTrigger className="bg-zinc-800 border-zinc-700"><SelectValue /></SelectTrigger>
+                      <SelectContent className="bg-zinc-800 border-zinc-700">
+                        <SelectItem value="yes">Yes</SelectItem>
+                        <SelectItem value="no">No</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
               </div>
             </div>
