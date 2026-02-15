@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import axios from "axios";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, Search, Trash2 } from "lucide-react";
+import { Plus, Search, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -25,6 +25,12 @@ export default function EnterprisesPage() {
   const [formData, setFormData] = useState({});
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [enterpriseToDelete, setEnterpriseToDelete] = useState(null);
+  
+  // Trunk management
+  const [customerTrunks, setCustomerTrunks] = useState([]);
+  const [vendorTrunks, setVendorTrunks] = useState([]);
+  const [newCustomerTrunk, setNewCustomerTrunk] = useState("");
+  const [newVendorTrunk, setNewVendorTrunk] = useState("");
 
   useEffect(() => { fetchData(); }, []);
   useEffect(() => { filterEnterprises(); }, [searchTerm, enterprises]);
@@ -63,12 +69,20 @@ export default function EnterprisesPage() {
   const openCreateSheet = () => {
     setEditingEnterprise(null);
     setFormData({});
+    setCustomerTrunks([]);
+    setVendorTrunks([]);
+    setNewCustomerTrunk("");
+    setNewVendorTrunk("");
     setSheetOpen(true);
   };
 
   const openEditSheet = (enterprise) => {
     setEditingEnterprise(enterprise);
     setFormData(enterprise);
+    setCustomerTrunks(enterprise.customer_trunks || []);
+    setVendorTrunks(enterprise.vendor_trunks || []);
+    setNewCustomerTrunk("");
+    setNewVendorTrunk("");
     setSheetOpen(true);
   };
 
@@ -77,11 +91,16 @@ export default function EnterprisesPage() {
     try {
       const token = localStorage.getItem("token");
       const headers = { Authorization: `Bearer ${token}` };
+      const dataToSubmit = {
+        ...formData,
+        customer_trunks: customerTrunks,
+        vendor_trunks: vendorTrunks
+      };
       if (editingEnterprise) {
-        await axios.put(`${API}/clients/${editingEnterprise.id}`, formData, { headers });
+        await axios.put(`${API}/clients/${editingEnterprise.id}`, dataToSubmit, { headers });
         toast.success("Enterprise updated successfully");
       } else {
-        await axios.post(`${API}/clients`, formData, { headers });
+        await axios.post(`${API}/clients`, dataToSubmit, { headers });
         toast.success("Enterprise created successfully");
       }
       setSheetOpen(false);
@@ -101,6 +120,29 @@ export default function EnterprisesPage() {
     } catch (error) {
       toast.error("Failed to delete enterprise");
     }
+  };
+
+  // Trunk management functions
+  const addCustomerTrunk = () => {
+    if (newCustomerTrunk.trim() && !customerTrunks.includes(newCustomerTrunk.trim())) {
+      setCustomerTrunks([...customerTrunks, newCustomerTrunk.trim()]);
+      setNewCustomerTrunk("");
+    }
+  };
+
+  const removeCustomerTrunk = (index) => {
+    setCustomerTrunks(customerTrunks.filter((_, i) => i !== index));
+  };
+
+  const addVendorTrunk = () => {
+    if (newVendorTrunk.trim() && !vendorTrunks.includes(newVendorTrunk.trim())) {
+      setVendorTrunks([...vendorTrunks, newVendorTrunk.trim()]);
+      setNewVendorTrunk("");
+    }
+  };
+
+  const removeVendorTrunk = (index) => {
+    setVendorTrunks(vendorTrunks.filter((_, i) => i !== index));
   };
 
   // Separate enterprises by type
@@ -149,6 +191,44 @@ export default function EnterprisesPage() {
     </div>
   );
 
+  const renderTrunksTable = (trunks, onRemove, title, newValue, setNewValue, onAdd) => (
+    <div className="space-y-2">
+      <Label className="text-zinc-300">{title}</Label>
+      <div className="flex space-x-2">
+        <Input 
+          value={newValue} 
+          onChange={(e) => setNewValue(e.target.value)} 
+          onKeyPress={(e) => e.key === 'Enter' && onAdd()}
+          placeholder={`Add ${title.toLowerCase().replace(' ', '')}`}
+          className="bg-zinc-800 border-zinc-700 text-white" 
+        />
+        <Button type="button" onClick={onAdd} size="sm" className="bg-emerald-500 text-black hover:bg-emerald-400">
+          <Plus className="h-4 w-4" />
+        </Button>
+      </div>
+      {trunks.length > 0 ? (
+        <div className="bg-zinc-800/50 border border-zinc-700 rounded-md max-h-40 overflow-y-auto">
+          <Table>
+            <TableBody>
+              {trunks.map((trunk, index) => (
+                <TableRow key={index} className="border-zinc-700">
+                  <TableCell className="text-white">{trunk}</TableCell>
+                  <TableCell className="text-right">
+                    <Button size="sm" variant="ghost" onClick={() => onRemove(index)} className="text-red-500 hover:text-red-400 h-6 w-6 p-0">
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      ) : (
+        <div className="text-zinc-500 text-sm py-2">No trunks added yet</div>
+      )}
+    </div>
+  );
+
   if (loading) return <div className="flex items-center justify-center h-full"><div className="text-emerald-500">Loading enterprises...</div></div>;
 
   return (
@@ -169,7 +249,7 @@ export default function EnterprisesPage() {
       {renderEnterpriseTable(voiceEnterprises, "Voice Enterprises", "No Voice enterprises found")}
 
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-        <SheetContent className="bg-zinc-900 border-white/10 text-white sm:max-w-lg overflow-y-auto" data-testid="enterprise-sheet">
+        <SheetContent className="bg-zinc-900 border-white/10 text-white sm:max-w-2xl overflow-y-auto" data-testid="enterprise-sheet">
           <SheetHeader><SheetTitle className="text-white">{editingEnterprise ? "Edit Enterprise" : "Create Enterprise"}</SheetTitle></SheetHeader>
           <form onSubmit={handleSubmit} className="space-y-4 mt-6">
             <div className="space-y-2"><Label>Enterprise Name *</Label><Input value={formData.name || ""} onChange={(e) => setFormData({ ...formData, name: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" data-testid="enterprise-name-input" required /></div>
@@ -181,6 +261,27 @@ export default function EnterprisesPage() {
             <div className="space-y-2"><Label>Assigned Account Manager</Label><Select value={formData.assigned_am_id} onValueChange={(value) => setFormData({ ...formData, assigned_am_id: value })}><SelectTrigger className="bg-zinc-800 border-zinc-700" data-testid="assigned-am-select"><SelectValue placeholder="Select AM" /></SelectTrigger><SelectContent className="bg-zinc-800 border-zinc-700">{users.map((user) => <SelectItem key={user.id} value={user.id}>{user.username}</SelectItem>)}</SelectContent></Select></div>
             <div className="space-y-2"><Label>NOC Emails *</Label><Textarea value={formData.noc_emails || ""} onChange={(e) => setFormData({ ...formData, noc_emails: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" placeholder="email1@example.com, email2@example.com" required /></div>
             <div className="space-y-2"><Label>Notes</Label><Textarea value={formData.notes || ""} onChange={(e) => setFormData({ ...formData, notes: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" /></div>
+            
+            {/* Customer Trunks and Vendor Trunks in adjacent columns */}
+            <div className="grid grid-cols-2 gap-4">
+              {renderTrunksTable(
+                customerTrunks, 
+                removeCustomerTrunk, 
+                "Customer Trunks", 
+                newCustomerTrunk, 
+                setNewCustomerTrunk, 
+                addCustomerTrunk
+              )}
+              {renderTrunksTable(
+                vendorTrunks, 
+                removeVendorTrunk, 
+                "Vendor Trunks", 
+                newVendorTrunk, 
+                setNewVendorTrunk, 
+                addVendorTrunk
+              )}
+            </div>
+            
             <div className="flex space-x-3 pt-4">
               <Button type="submit" className="bg-emerald-500 text-black hover:bg-emerald-400" data-testid="save-enterprise-button">{editingEnterprise ? "Update Enterprise" : "Create Enterprise"}</Button>
               <Button type="button" variant="outline" onClick={() => setSheetOpen(false)} className="border-zinc-700 text-white hover:bg-zinc-800">Cancel</Button>
