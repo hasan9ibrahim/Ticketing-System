@@ -37,7 +37,7 @@ function App() {
             <Route index element={<DashboardPage />} />
             <Route path="sms-tickets" element={<SMSTicketsPage />} />
             <Route path="voice-tickets" element={<VoiceTicketsPage />} />
-            <Route path="enterprises" element={user?.role === "admin" ? <EnterprisesPage /> : <Navigate to="/my-enterprises" />} />
+            <Route path="enterprises" element={user?.role === "admin" || user?.role === "noc" ? <EnterprisesPage /> : <Navigate to="/my-enterprises" />} />
             <Route path="my-enterprises" element={user?.role === "am" ? <MyEnterprisesPage /> : <Navigate to="/" />} />
             <Route path="users" element={user?.role === "admin" ? <UsersPage /> : <Navigate to="/" />} />
           </Route>
