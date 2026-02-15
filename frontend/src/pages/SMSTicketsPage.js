@@ -460,11 +460,47 @@ export default function SMSTicketsPage() {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
+    // ✅ Priority required
+    if (!formData.priority) {
+      toast.error("Priority is required");
+      return;
+    }
+
+    // ✅ Status required
+    if (!formData.status) {
+      toast.error("Status is required");
+      return;
+    }
+
+    // ✅ Volume required
+    if (!formData.volume) {
+      toast.error("Volume is required");
+      return;
+    }
+
     // ✅ Enterprise required
-  if (!formData.customer_id) {
-    toast.error("Enterprise is required");
-    return;
-  }
+    if (!formData.customer_id) {
+      toast.error("Enterprise is required");
+      return;
+    }
+
+    // ✅ Enterprise Trunk required
+    if (!formData.customer_trunk) {
+      toast.error("Enterprise Trunk is required");
+      return;
+    }
+
+    // ✅ Destination required
+    if (!formData.destination) {
+      toast.error("Destination is required");
+      return;
+    }
+
+    // ✅ Issue Type required
+    if (!formData.issue_types || formData.issue_types.length === 0) {
+      toast.error("Issue Type is required");
+      return;
+    }
 
     // Validate opened_via
     if (!formData.opened_via || formData.opened_via.length === 0) {
@@ -903,30 +939,22 @@ export default function SMSTicketsPage() {
             <SheetTitle className="text-white">{isAM ? "View SMS Ticket" : editingTicket ? "Edit SMS Ticket" : "Create SMS Ticket"}</SheetTitle>
           </SheetHeader>
           <form onSubmit={handleSubmit} className="space-y-4 mt-6">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Priority *</Label>
-                <Select value={formData.priority} onValueChange={(value) => setFormData({ ...formData, priority: value })} required>
-                  <SelectTrigger className="bg-zinc-800 border-zinc-700"><SelectValue /></SelectTrigger>
-                  <SelectContent className="bg-zinc-800 border-zinc-700">
-                    <SelectItem value="Low">Low</SelectItem><SelectItem value="Medium">Medium</SelectItem>
-                    <SelectItem value="High">High</SelectItem><SelectItem value="Urgent">Urgent</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Status *</Label>
-                <Select value={formData.status} onValueChange={(value) => setFormData({ ...formData, status: value })} required>
-                  <SelectTrigger className="bg-zinc-800 border-zinc-700"><SelectValue /></SelectTrigger>
-                  <SelectContent className="bg-zinc-800 border-zinc-700">
-                    <SelectItem value="Unassigned">Unassigned</SelectItem><SelectItem value="Assigned">Assigned</SelectItem>
-                    <SelectItem value="Awaiting Vendor">Awaiting Vendor</SelectItem><SelectItem value="Awaiting Client">Awaiting Client</SelectItem>
-                    <SelectItem value="Awaiting AM">Awaiting AM</SelectItem><SelectItem value="Resolved">Resolved</SelectItem>
-                    <SelectItem value="Unresolved">Unresolved</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+            {/* Priority */}
+            <div className="space-y-2">
+              <Label>Priority *</Label>
+              <Select value={formData.priority} onValueChange={(value) => setFormData({ ...formData, priority: value })} required>
+                <SelectTrigger className="bg-zinc-800 border-zinc-700"><SelectValue placeholder="Select priority" /></SelectTrigger>
+                <SelectContent className="bg-zinc-800 border-zinc-700">
+                  <SelectItem value="Low">Low</SelectItem><SelectItem value="Medium">Medium</SelectItem>
+                  <SelectItem value="High">High</SelectItem><SelectItem value="Urgent">Urgent</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
+
+            {/* Volume */}
+            <div className="space-y-2"><Label>Volume *</Label><Input value={formData.volume || ""} onChange={(e) => setFormData({ ...formData, volume: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" placeholder="Enter volume" required disabled={isAM} /></div>
+
+            {/* Enterprise */}
             <div className="space-y-2">
               <Label>Enterprise *</Label>
               <SearchableSelect 
@@ -938,18 +966,23 @@ export default function SMSTicketsPage() {
                 isDisabled={!!editingTicket} 
               />
             </div>
+
+            {/* Enterprise Trunk */}
             <div className="space-y-2">
-              <Label>Enterprise Role *</Label>
-              <RadioGroup value={formData.client_or_vendor} onValueChange={(value) => setFormData({ ...formData, client_or_vendor: value })} className="flex space-x-4">
-                <div className="flex items-center space-x-2"><RadioGroupItem value="client" id="client" /><Label htmlFor="client" className="font-normal cursor-pointer">Client</Label></div>
-                <div className="flex items-center space-x-2"><RadioGroupItem value="vendor" id="vendor" /><Label htmlFor="vendor" className="font-normal cursor-pointer">Vendor</Label></div>
-              </RadioGroup>
+              <Label>Enterprise Trunk *</Label>
+              <Select value={formData.customer_trunk || ""} onValueChange={(value) => setFormData({ ...formData, customer_trunk: value })} required disabled={isAM}>
+                <SelectTrigger className="bg-zinc-800 border-zinc-700"><SelectValue placeholder="Select customer trunk" /></SelectTrigger>
+                <SelectContent className="bg-zinc-800 border-zinc-700">
+                  {customerTrunkOptions.map((trunk) => (
+                    <SelectItem key={trunk} value={trunk}>{trunk}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-            <div className="space-y-2">
-              <Label>Assigned To</Label>
-              <SearchableSelect options={users.map(u => ({ value: u.id, label: u.username }))} value={formData.assigned_to} onChange={(value) => setFormData({ ...formData, assigned_to: value })} placeholder="Search NOC member..." />
-            </div>
-            
+
+            {/* Destination */}
+            <div className="space-y-2"><Label>Destination *</Label><Input value={formData.destination || ""} onChange={(e) => setFormData({ ...formData, destination: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" placeholder="Enter destination" required disabled={isAM} /></div>
+
             {/* Issue Types - Multi-select checklist */}
             <IssueTypeSelect
               selectedTypes={formData.issue_types || []}
@@ -960,21 +993,6 @@ export default function SMSTicketsPage() {
               ticketType="sms"
             />
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2"><Label>Volume *</Label><Input value={formData.volume || ""} onChange={(e) => setFormData({ ...formData, volume: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" required disabled={isAM} /></div>
-              <div className="space-y-2">
-                <Label>Enterprise Trunk *</Label>
-                <Select value={formData.customer_trunk || ""} onValueChange={(value) => setFormData({ ...formData, customer_trunk: value })} required disabled={isAM}>
-                  <SelectTrigger className="bg-zinc-800 border-zinc-700"><SelectValue placeholder="Select customer trunk" /></SelectTrigger>
-                  <SelectContent className="bg-zinc-800 border-zinc-700">
-                    {customerTrunkOptions.map((trunk) => (
-                      <SelectItem key={trunk} value={trunk}>{trunk}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
             {/* Opened Via - Multi-select checklist */}
             <OpenedViaSelect
               selectedOptions={formData.opened_via || []}
@@ -982,7 +1000,34 @@ export default function SMSTicketsPage() {
               disabled={isAM}
             />
 
-            <div className="space-y-2"><Label>Destination</Label><Input value={formData.destination || ""} onChange={(e) => setFormData({ ...formData, destination: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" disabled={isAM} /></div>
+            {/* Assigned To */}
+            <div className="space-y-2">
+              <Label>Assigned To</Label>
+              <SearchableSelect options={users.map(u => ({ value: u.id, label: u.username }))} value={formData.assigned_to} onChange={(value) => setFormData({ ...formData, assigned_to: value })} placeholder="Search NOC member..." />
+            </div>
+
+            {/* Status */}
+            <div className="space-y-2">
+              <Label>Status *</Label>
+              <Select value={formData.status} onValueChange={(value) => setFormData({ ...formData, status: value })} required>
+                <SelectTrigger className="bg-zinc-800 border-zinc-700"><SelectValue /></SelectTrigger>
+                <SelectContent className="bg-zinc-800 border-zinc-700">
+                  <SelectItem value="Unassigned">Unassigned</SelectItem><SelectItem value="Assigned">Assigned</SelectItem>
+                  <SelectItem value="Awaiting Vendor">Awaiting Vendor</SelectItem><SelectItem value="Awaiting Client">Awaiting Client</SelectItem>
+                  <SelectItem value="Awaiting AM">Awaiting AM</SelectItem><SelectItem value="Resolved">Resolved</SelectItem>
+                  <SelectItem value="Unresolved">Unresolved</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Enterprise Role */}
+            <div className="space-y-2">
+              <Label>Enterprise Role *</Label>
+              <RadioGroup value={formData.client_or_vendor} onValueChange={(value) => setFormData({ ...formData, client_or_vendor: value })} className="flex space-x-4">
+                <div className="flex items-center space-x-2"><RadioGroupItem value="client" id="client" /><Label htmlFor="client" className="font-normal cursor-pointer">Client</Label></div>
+                <div className="flex items-center space-x-2"><RadioGroupItem value="vendor" id="vendor" /><Label htmlFor="vendor" className="font-normal cursor-pointer">Vendor</Label></div>
+              </RadioGroup>
+            </div>
 
             {/* SMS-Specific Fields */}
             <div className="border-t border-zinc-700 pt-4 mt-4">
