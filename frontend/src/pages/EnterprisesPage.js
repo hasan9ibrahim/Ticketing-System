@@ -103,27 +103,28 @@ export default function EnterprisesPage() {
     }
   };
 
-  if (loading) return <div className="flex items-center justify-center h-full"><div className="text-emerald-500">Loading enterprises...</div></div>;
+    // Separate enterprises by type
+  const smsEnterprises = filteredEnterprises.filter(ent => ent.enterprise_type === "sms");
+  const voiceEnterprises = filteredEnterprises.filter(ent => ent.enterprise_type === "voice");
 
-  return (
-    <div className="p-6 lg:p-8 space-y-6 max-w-[1920px] mx-auto" data-testid="enterprises-page">
-      <div className="flex items-center justify-between">
-        <div><h1 className="text-4xl font-bold text-white">Enterprises</h1><p className="text-zinc-400 mt-1">Manage enterprise accounts and assignments</p></div>
-        <Button onClick={openCreateSheet} data-testid="create-enterprise-button" className="bg-emerald-500 text-black hover:bg-emerald-400 h-9"><Plus className="h-4 w-4 mr-2" />New Enterprise</Button>
-      </div>
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-zinc-500" />
-        <Input placeholder="Search enterprises..." data-testid="search-enterprises-input" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-10 bg-zinc-900 border-zinc-700 text-white placeholder:text-zinc-500" />
-      </div>
+   const renderEnterpriseTable = (enterprisesList, title, emptyMessage) => (
+    <div className="space-y-4">
+      <h2 className="text-2xl font-bold text-white">{title}</h2>
       <div className="bg-zinc-900/50 border border-white/10 rounded-lg overflow-hidden">
         <Table>
           <TableHeader>
             <TableRow className="border-white/5 hover:bg-transparent">
-              <TableHead className="text-zinc-400">Enterprise Name</TableHead><TableHead className="text-zinc-400">Tier</TableHead><TableHead className="text-zinc-400">Contact Person</TableHead><TableHead className="text-zinc-400">Email</TableHead><TableHead className="text-zinc-400">Phone</TableHead><TableHead className="text-zinc-400">Assigned AM</TableHead><TableHead className="text-zinc-400">Actions</TableHead>
+              <TableHead className="text-zinc-400">Enterprise Name</TableHead>
+              <TableHead className="text-zinc-400">Tier</TableHead>
+              <TableHead className="text-zinc-400">Contact Person</TableHead>
+              <TableHead className="text-zinc-400">Email</TableHead>
+              <TableHead className="text-zinc-400">Phone</TableHead>
+              <TableHead className="text-zinc-400">Assigned AM</TableHead>
+              <TableHead className="text-zinc-400">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filteredEnterprises.length > 0 ? filteredEnterprises.map((ent) => {
+              {enterprisesList.length > 0 ? enterprisesList.map((ent) => {
               const assignedAM = users.find((u) => u.id === ent.assigned_am_id);
               return (
                 <TableRow key={ent.id} className="border-white/5 hover:bg-zinc-800/50" data-testid="enterprise-row">
@@ -141,16 +142,38 @@ export default function EnterprisesPage() {
                   </TableCell>
                 </TableRow>
               );
-            }) : <TableRow><TableCell colSpan={7} className="text-center py-8 text-zinc-500">No enterprises found</TableCell></TableRow>}
+            }) : <TableRow><TableCell colSpan={7} className="text-center py-8 text-zinc-500">{emptyMessage}</TableCell></TableRow>}
           </TableBody>
         </Table>
       </div>
+          </div>
+  );
+
+  if (loading) return <div className="flex items-center justify-center h-full"><div className="text-emerald-500">Loading enterprises...</div></div>;
+
+  return (
+    <div className="p-6 lg:p-8 space-y-6 max-w-[1920px] mx-auto" data-testid="enterprises-page">
+      <div className="flex items-center justify-between">
+        <div><h1 className="text-4xl font-bold text-white">Enterprises</h1><p className="text-zinc-400 mt-1">Manage enterprise accounts and assignments</p></div>
+        <Button onClick={openCreateSheet} data-testid="create-enterprise-button" className="bg-emerald-500 text-black hover:bg-emerald-400 h-9"><Plus className="h-4 w-4 mr-2" />New Enterprise</Button>
+      </div>
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-zinc-500" />
+        <Input placeholder="Search enterprises..." data-testid="search-enterprises-input" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-10 bg-zinc-900 border-zinc-700 text-white placeholder:text-zinc-500" />
+      </div>
+
+      {/* SMS Enterprises Table */}
+      {renderEnterpriseTable(smsEnterprises, "SMS Enterprises", "No SMS enterprises found")}
+
+      {/* Voice Enterprises Table */}
+      {renderEnterpriseTable(voiceEnterprises, "Voice Enterprises", "No Voice enterprises found")}
 
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
         <SheetContent className="bg-zinc-900 border-white/10 text-white sm:max-w-lg overflow-y-auto" data-testid="enterprise-sheet">
           <SheetHeader><SheetTitle className="text-white">{editingEnterprise ? "Edit Enterprise" : "Create Enterprise"}</SheetTitle></SheetHeader>
           <form onSubmit={handleSubmit} className="space-y-4 mt-6">
             <div className="space-y-2"><Label>Enterprise Name *</Label><Input value={formData.name || ""} onChange={(e) => setFormData({ ...formData, name: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" data-testid="enterprise-name-input" required /></div>
+            <div className="space-y-2"><Label>SMS/Voice *</Label><Select value={formData.enterprise_type} onValueChange={(value) => setFormData({ ...formData, enterprise_type: value })} required><SelectTrigger className="bg-zinc-800 border-zinc-700" data-testid="enterprise-type-select"><SelectValue placeholder="Select type" /></SelectTrigger><SelectContent className="bg-zinc-800 border-zinc-700"><SelectItem value="sms">SMS</SelectItem><SelectItem value="voice">Voice</SelectItem></SelectContent></Select></div>
             <div className="space-y-2"><Label>Tier *</Label><Select value={formData.tier} onValueChange={(value) => setFormData({ ...formData, tier: value })} required><SelectTrigger className="bg-zinc-800 border-zinc-700" data-testid="tier-select"><SelectValue placeholder="Select tier" /></SelectTrigger><SelectContent className="bg-zinc-800 border-zinc-700"><SelectItem value="Tier 1">Tier 1</SelectItem><SelectItem value="Tier 2">Tier 2</SelectItem><SelectItem value="Tier 3">Tier 3</SelectItem><SelectItem value="Tier 4">Tier 4</SelectItem></SelectContent></Select></div>
             <div className="space-y-2"><Label>Contact Person</Label><Input value={formData.contact_person || ""} onChange={(e) => setFormData({ ...formData, contact_person: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" /></div>
             <div className="space-y-2"><Label>Contact Email *</Label><Input type="email" value={formData.contact_email || ""} onChange={(e) => setFormData({ ...formData, contact_email: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" required /></div>
