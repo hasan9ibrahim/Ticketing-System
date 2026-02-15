@@ -129,8 +129,11 @@ class SMSTicket(BaseModel):
     opened_via: List[str] = []  # Multi-select: Monitoring, Teams, Email, AM
     assigned_to: Optional[str] = None
     status: str
+    # Legacy single SID/Content fields (kept for backward compatibility)
     sid: Optional[str] = None
     content: Optional[str] = None
+    # New multiple SID/Content pairs
+    sms_details: Optional[List[dict]] = []  # List of {sid, content} objects
     rate: Optional[str] = None
     vendor_trunk: Optional[str] = None
     cost: Optional[str] = None
@@ -164,8 +167,11 @@ class SMSTicketCreate(BaseModel):
     opened_via: List[str] = []  # Multi-select checklist
     assigned_to: Optional[str] = None
     status: str = "Unassigned"
+    # Legacy single SID/Content fields (kept for backward compatibility)
     sid: Optional[str] = None
     content: Optional[str] = None
+    # New multiple SID/Content pairs
+    sms_details: Optional[List[dict]] = []
     rate: Optional[str] = None
     vendor_trunk: Optional[str] = None
     cost: Optional[str] = None
@@ -185,8 +191,11 @@ class SMSTicketUpdate(BaseModel):
     opened_via: Optional[List[str]] = None  # Multi-select checklist
     assigned_to: Optional[str] = None
     status: Optional[str] = None
+    # Legacy single SID/Content fields (kept for backward compatibility)
     sid: Optional[str] = None
     content: Optional[str] = None
+    # New multiple SID/Content pairs
+    sms_details: Optional[List[dict]] = None
     rate: Optional[str] = None
     vendor_trunk: Optional[str] = None
     cost: Optional[str] = None
