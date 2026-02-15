@@ -429,7 +429,9 @@ async def delete_user(user_id: str, current_admin: dict = Depends(get_current_ad
 # ==================== CLIENT ROUTES ====================
 
 @api_router.post("/clients", response_model=Client)
-async def create_client(client_data: ClientCreate, current_admin: dict = Depends(get_current_admin)):
+async def create_client(client_data: ClientCreate, current_user: dict = Depends(get_current_user)):
+    if current_user["role"] not in ["admin", "noc"]:
+        raise HTTPException(status_code=403, detail="Admin or NOC access required")
     client_obj = Client(**client_data.model_dump())
     doc = client_obj.model_dump()
     doc['created_at'] = doc['created_at'].isoformat()
@@ -450,7 +452,9 @@ async def get_clients(current_user: dict = Depends(get_current_user)):
     return [Client(**client) for client in clients]
 
 @api_router.put("/clients/{client_id}", response_model=Client)
-async def update_client(client_id: str, client_data: ClientUpdate, current_admin: dict = Depends(get_current_admin)):
+async def update_client(client_id: str, client_data: ClientUpdate, current_user: dict = Depends(get_current_user)):
+    if current_user["role"] not in ["admin", "noc"]:
+        raise HTTPException(status_code=403, detail="Admin or NOC access required")
     update_dict = {k: v for k, v in client_data.model_dump().items() if v is not None}
     
     result = await db.clients.find_one_and_update(
