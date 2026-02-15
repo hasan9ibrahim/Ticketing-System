@@ -103,11 +103,12 @@ export default function EnterprisesPage() {
     }
   };
 
-    // Separate enterprises by type
+  // Separate enterprises by type
   const smsEnterprises = filteredEnterprises.filter(ent => ent.enterprise_type === "sms");
   const voiceEnterprises = filteredEnterprises.filter(ent => ent.enterprise_type === "voice");
+  const otherEnterprises = filteredEnterprises.filter(ent => !ent.enterprise_type || (ent.enterprise_type !== "sms" && ent.enterprise_type !== "voice"));
 
-   const renderEnterpriseTable = (enterprisesList, title, emptyMessage) => (
+  const renderEnterpriseTable = (enterprisesList, title, emptyMessage) => (
     <div className="space-y-4">
       <h2 className="text-2xl font-bold text-white">{title}</h2>
       <div className="bg-zinc-900/50 border border-white/10 rounded-lg overflow-hidden">
@@ -124,7 +125,7 @@ export default function EnterprisesPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-              {enterprisesList.length > 0 ? enterprisesList.map((ent) => {
+            {enterprisesList.length > 0 ? enterprisesList.map((ent) => {
               const assignedAM = users.find((u) => u.id === ent.assigned_am_id);
               return (
                 <TableRow key={ent.id} className="border-white/5 hover:bg-zinc-800/50" data-testid="enterprise-row">
@@ -146,7 +147,7 @@ export default function EnterprisesPage() {
           </TableBody>
         </Table>
       </div>
-          </div>
+    </div>
   );
 
   if (loading) return <div className="flex items-center justify-center h-full"><div className="text-emerald-500">Loading enterprises...</div></div>;
@@ -167,6 +168,9 @@ export default function EnterprisesPage() {
 
       {/* Voice Enterprises Table */}
       {renderEnterpriseTable(voiceEnterprises, "Voice Enterprises", "No Voice enterprises found")}
+
+      {/* Other/Uncategorized Enterprises Table */}
+      {renderEnterpriseTable(otherEnterprises, "Other Enterprises (Need Type)", "No other enterprises found")}
 
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
         <SheetContent className="bg-zinc-900 border-white/10 text-white sm:max-w-lg overflow-y-auto" data-testid="enterprise-sheet">
