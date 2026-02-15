@@ -32,7 +32,7 @@ export default function DashboardLayout({ user, setUser }) {
     { path: "/sms-tickets", label: "SMS Tickets", icon: MessageSquare, roles: ["admin", "am", "noc"], amTypes: ["sms"] },
     { path: "/voice-tickets", label: "Voice Tickets", icon: Phone, roles: ["admin", "am", "noc"], amTypes: ["voice"] },
     { path: "/enterprises", label: "Enterprises", icon: Building2, roles: ["admin", "noc"] },
-    { path: "/my-enterprises", label: "My Enterprises", icon: Briefcase, roles: ["am", "noc"] },
+    { path: "/my-enterprises", label: "My Enterprises", icon: Briefcase, roles: ["am"] },
     { path: "/users", label: "Users", icon: Users, roles: ["admin"] },
   ];
 
