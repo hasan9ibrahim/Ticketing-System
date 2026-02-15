@@ -89,6 +89,7 @@ class Client(BaseModel):
     tier: Optional[str] = None  # Required for new, optional for backward compat
     noc_emails: Optional[str] = None  # Required for new, optional for backward compat
     notes: Optional[str] = None  # Optional
+    enterprise_type: str  # "sms" or "voice" - required
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class ClientCreate(BaseModel):
@@ -100,6 +101,7 @@ class ClientCreate(BaseModel):
     tier: str  # Required
     noc_emails: str  # Required
     notes: Optional[str] = None  # Optional
+    enterprise_type: str  # "sms" or "voice" - required
 
 class ClientUpdate(BaseModel):
     name: Optional[str] = None
@@ -110,6 +112,7 @@ class ClientUpdate(BaseModel):
     tier: Optional[str] = None
     noc_emails: Optional[str] = None
     notes: Optional[str] = None
+    enterprise_type: Optional[str] = None  # "sms" or "voice" - can be updated
 
 class SMSTicket(BaseModel):
     model_config = ConfigDict(extra="ignore")
