@@ -334,6 +334,16 @@ export default function SMSTicketsPage() {
     setSheetOpen(true);
   };
 
+  const copyAutoReplyTemplate = async (ticketNumber) => {
+    const template = `Hello team, We have received your request with ticket #: ${ticketNumber}. Rest assured we are working on your request and we will update you as soon as possible. Thank you for your patience!`;
+    try {
+      await navigator.clipboard.writeText(template);
+      toast.success("Auto-reply template copied to clipboard!");
+    } catch (err) {
+      toast.error("Failed to copy to clipboard");
+    }
+  };
+
   const openEditSheet = (ticket) => {
     setEditingTicket(ticket);
     // Normalize opened_via to array
@@ -829,7 +839,16 @@ export default function SMSTicketsPage() {
                                 <PriorityIndicator priority={ticket.priority} />
                               </TableCell>
                               <TableCell className="text-zinc-300 tabular-nums">{ticket.volume || "0"}</TableCell>
-                              <TableCell className="text-white font-medium tabular-nums">{ticket.ticket_number}</TableCell>
+                              <TableCell 
+                                className="text-white font-medium tabular-nums cursor-pointer hover:text-blue-400 transition-colors"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  copyAutoReplyTemplate(ticket.ticket_number);
+                                }}
+                                title="Click to copy auto-reply template"
+                              >
+                                {ticket.ticket_number}
+                              </TableCell>
                               <TableCell className="text-zinc-300">{ticket.customer_trunk || "-"}</TableCell>
                               <TableCell className="text-zinc-300">{ticket.destination || "-"}</TableCell>
                               <TableCell className="text-zinc-300 max-w-xs truncate">{getIssueDisplayText(ticket)}</TableCell>
