@@ -952,7 +952,7 @@ export default function SMSTicketsPage() {
                         </Button>
                       )}
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-2">
                       <div className="space-y-1">
                         <Label className="text-zinc-500 text-xs">SID</Label>
                         <Input
@@ -968,30 +968,20 @@ export default function SMSTicketsPage() {
                         />
                       </div>
                       <div className="space-y-1">
-                        <Label className="text-zinc-500 text-xs">Rate</Label>
-                        <Input
-                          value={formData.rate || ""}
-                          onChange={(e) => setFormData({ ...formData, rate: e.target.value })}
+                        <Label className="text-zinc-500 text-xs">Content</Label>
+                        <Textarea
+                          value={detail.content || ""}
+                          onChange={(e) => {
+                            const newDetails = [...(formData.sms_details || [])];
+                            newDetails[index] = { ...newDetails[index], content: e.target.value };
+                            setFormData({ ...formData, sms_details: newDetails });
+                          }}
                           className="bg-zinc-800 border-zinc-700 text-white text-sm"
-                          placeholder="Rate per message"
+                          placeholder="Message content sample"
+                          rows={2}
                           disabled={isAM}
                         />
                       </div>
-                    </div>
-                    <div className="space-y-1 mt-2">
-                      <Label className="text-zinc-500 text-xs">Content</Label>
-                      <Textarea
-                        value={detail.content || ""}
-                        onChange={(e) => {
-                          const newDetails = [...(formData.sms_details || [])];
-                          newDetails[index] = { ...newDetails[index], content: e.target.value };
-                          setFormData({ ...formData, sms_details: newDetails });
-                        }}
-                        className="bg-zinc-800 border-zinc-700 text-white text-sm"
-                        placeholder="Message content sample"
-                        rows={2}
-                        disabled={isAM}
-                      />
                     </div>
                   </div>
                 ))}
@@ -1012,6 +1002,12 @@ export default function SMSTicketsPage() {
                   Add Another SID/Content Pair
                 </Button>
               )}
+            </div>
+
+            {/* Rate Field - Moved outside SMS Details */}
+            <div className="space-y-2">
+              <Label>Rate</Label>
+              <Input value={formData.rate || ""} onChange={(e) => setFormData({ ...formData, rate: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" placeholder="Rate per message" disabled={isAM} />
             </div>
 
             {/* Vendor & Cost Details */}
