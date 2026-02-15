@@ -302,7 +302,12 @@ export default function SMSTicketsPage() {
       volume: "0",
       customer_trunk: "",
       issue_types: [],
-      issue_other: ""
+      issue_other: "",
+      // Legacy fields for backward compatibility
+      sid: "",
+      content: "",
+      // New multiple SID/Content pairs
+      sms_details: [{ sid: "", content: "" }]
     });
     setSheetOpen(true);
   };
@@ -313,11 +318,28 @@ export default function SMSTicketsPage() {
     const openedVia = Array.isArray(ticket.opened_via) 
       ? ticket.opened_via 
       : ticket.opened_via ? ticket.opened_via.split(",").map(v => v.trim()) : [];
+        
+    // Handle backward compatibility - convert old sid/content to new sms_details format
+    let smsDetails = ticket.sms_details || [];
+    if ((!smsDetails || smsDetails.length === 0) && (ticket.sid || ticket.content)) {
+      // Convert legacy single sid/content to new format
+      smsDetails = [{ sid: ticket.sid || "", content: ticket.content || "" }];
+    }
+    // Ensure at least one empty row for editing
+    if (smsDetails.length === 0) {
+      smsDetails = [{ sid: "", content: "" }];
+    }
+    
     setFormData({
       ...ticket,
       opened_via: openedVia,
       issue_types: ticket.issue_types || [],
-      issue_other: ticket.issue_other || ""
+      issue_other: ticket.issue_other || "",
+      // Legacy fields
+      sid: ticket.sid || "",
+      content: ticket.content || "",
+      // New multiple SID/Content pairs
+      sms_details: smsDetails
     });
     setSheetOpen(true);
   };
@@ -355,12 +377,18 @@ export default function SMSTicketsPage() {
       const ticketDate = new Date(ticket.date);
       if (ticketDate < oneWeekAgo) return false;
       
+      // Get ticket's SMS details for comparison (support both old and new format)
+      const ticketSmsDetails = ticket.sms_details || [];
+      const hasTicketSmsDetails = ticketSmsDetails.length > 0 && ticketSmsDetails.some(d => d.sid || d.content);
+      const ticketSid = hasTicketSmsDetails ? ticketSmsDetails[0].sid : ticket.sid;
+      const ticketContent = hasTicketSmsDetails ? ticketSmsDetails[0].content : ticket.content;
+      
       // Check for SID match (if provided)
-      const sidMatch = !sid || (ticket.sid && sid.toLowerCase() === ticket.sid.toLowerCase());
+      const sidMatch = !sid || (ticketSid && sid.toLowerCase() === ticketSid.toLowerCase());
       // Check for Destination match (if provided)
       const destMatch = !destination || (ticket.destination && destination.toLowerCase() === ticket.destination.toLowerCase());
       // Check for Content match (if provided)
-      const contentMatch = !content || (ticket.content && content.toLowerCase() === ticket.content.toLowerCase());
+      const contentMatch = !content || (ticketContent && content.toLowerCase() === ticketContent.toLowerCase());
       
       // ALL provided fields must match
       return sidMatch && destMatch && contentMatch;
@@ -433,11 +461,17 @@ export default function SMSTicketsPage() {
     }
     
         // Check for similar tickets (only for new tickets)
-    if (!editingTicket) {
+    if (!editingTicket) {      
+      // Get SID and Content from the new sms_details format or legacy fields
+      const smsDetails = formData.sms_details || [];
+      const hasSmsDetails = smsDetails.length > 0 && smsDetails.some(d => d.sid || d.content);
+      const sid = hasSmsDetails ? smsDetails[0].sid : formData.sid;
+      const content = hasSmsDetails ? smsDetails[0].content : formData.content;
+      
       const similarTickets = findSimilarTickets(
-        formData.sid,
+        sid,
         formData.destination,
-        formData.content
+        content
       );
       
       if (similarTickets.length > 0) {
@@ -895,14 +929,89 @@ export default function SMSTicketsPage() {
             {/* SMS-Specific Fields */}
             <div className="border-t border-zinc-700 pt-4 mt-4">
               <h3 className="text-sm font-medium text-zinc-400 mb-4">SMS Details</h3>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2"><Label>SID</Label><Input value={formData.sid || ""} onChange={(e) => setFormData({ ...formData, sid: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" placeholder="Message SID" disabled={isAM} /></div>
-                <div className="space-y-2"><Label>Rate</Label><Input value={formData.rate || ""} onChange={(e) => setFormData({ ...formData, rate: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" placeholder="Rate per message" disabled={isAM} /></div>
+                            
+              {/* Dynamic SMS Details List */}
+              <div className="space-y-3">
+                {(formData.sms_details || [{ sid: "", content: "" }]).map((detail, index) => (
+                  <div key={index} className="bg-zinc-800/50 rounded-lg p-3 border border-zinc-700/50">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-xs text-zinc-500">SMS Pair #{index + 1}</span>
+                      {formData.sms_details && formData.sms_details.length > 1 && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            const newDetails = formData.sms_details.filter((_, i) => i !== index);
+                            setFormData({ ...formData, sms_details: newDetails });
+                          }}
+                          className="text-red-400 hover:text-red-300 hover:bg-red-500/10 h-6 px-2"
+                          disabled={isAM}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <Label className="text-zinc-500 text-xs">SID</Label>
+                        <Input
+                          value={detail.sid || ""}
+                          onChange={(e) => {
+                            const newDetails = [...(formData.sms_details || [])];
+                            newDetails[index] = { ...newDetails[index], sid: e.target.value };
+                            setFormData({ ...formData, sms_details: newDetails });
+                          }}
+                          className="bg-zinc-800 border-zinc-700 text-white text-sm"
+                          placeholder="Message SID"
+                          disabled={isAM}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-zinc-500 text-xs">Rate</Label>
+                        <Input
+                          value={formData.rate || ""}
+                          onChange={(e) => setFormData({ ...formData, rate: e.target.value })}
+                          className="bg-zinc-800 border-zinc-700 text-white text-sm"
+                          placeholder="Rate per message"
+                          disabled={isAM}
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-1 mt-2">
+                      <Label className="text-zinc-500 text-xs">Content</Label>
+                      <Textarea
+                        value={detail.content || ""}
+                        onChange={(e) => {
+                          const newDetails = [...(formData.sms_details || [])];
+                          newDetails[index] = { ...newDetails[index], content: e.target.value };
+                          setFormData({ ...formData, sms_details: newDetails });
+                        }}
+                        className="bg-zinc-800 border-zinc-700 text-white text-sm"
+                        placeholder="Message content sample"
+                        rows={2}
+                        disabled={isAM}
+                      />
+                    </div>
+                  </div>
+                ))}
               </div>
-              <div className="space-y-2 mt-4">
-                <Label>Content</Label>
-                <Textarea value={formData.content || ""} onChange={(e) => setFormData({ ...formData, content: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" placeholder="Message content sample" rows={2} disabled={isAM} />
-              </div>
+                                
+              {/* Add More Button */}
+              {!isAM && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    const newDetails = [...(formData.sms_details || []), { sid: "", content: "" }];
+                    setFormData({ ...formData, sms_details: newDetails });
+                  }}
+                  className="mt-3 border-zinc-700 text-zinc-400 hover:text-white hover:bg-zinc-800"
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Another SID/Content Pair
+                </Button>
+              )}
             </div>
 
             {/* Vendor & Cost Details */}
