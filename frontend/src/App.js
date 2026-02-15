@@ -9,6 +9,7 @@ import VoiceTicketsPage from "./pages/VoiceTicketsPage";
 import EnterprisesPage from "./pages/EnterprisesPage";
 import UsersPage from "./pages/UsersPage";
 import MyEnterprisesPage from "./pages/MyEnterprisesPage";
+import DepartmentsPage from "./pages/DepartmentsPage";
 import { Toaster } from "@/components/ui/sonner";
 
 function App() {
@@ -40,6 +41,7 @@ function App() {
             <Route path="enterprises" element={user?.role === "admin" || user?.role === "noc" ? <EnterprisesPage /> : <Navigate to="/my-enterprises" />} />
             <Route path="my-enterprises" element={user?.role === "am" ? <MyEnterprisesPage /> : <Navigate to="/" />} />
             <Route path="users" element={user?.role === "admin" ? <UsersPage /> : <Navigate to="/" />} />
+            <Route path="departments" element={user?.role === "admin" ? <DepartmentsPage /> : <Navigate to="/" />} />
           </Route>
         </Routes>
       </BrowserRouter>
