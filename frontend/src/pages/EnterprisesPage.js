@@ -27,6 +27,9 @@ export default function EnterprisesPage() {
   const [enterpriseToDelete, setEnterpriseToDelete] = useState(null);
   const [currentUser, setCurrentUser] = useState(null);
   const isAM = currentUser?.role === "am";
+  const isAdmin = currentUser?.role === "admin";
+  const canDelete = isAdmin;
+  const canCreate = isAdmin || currentUser?.role === "noc";
   
   // Trunk management
   const [customerTrunks, setCustomerTrunks] = useState([]);
@@ -200,7 +203,7 @@ export default function EnterprisesPage() {
                   <TableCell>
                     <div className="flex space-x-2">
                       <Button size="sm" variant="ghost" onClick={() => openEditSheet(ent)} className="text-emerald-500 hover:text-emerald-400 hover:bg-emerald-500/10">Edit</Button>
-                      {!isAM && <Button size="sm" variant="ghost" onClick={() => { setEnterpriseToDelete(ent); setDeleteDialogOpen(true); }} className="text-red-500 hover:text-red-400 hover:bg-red-500/10"><Trash2 className="h-4 w-4" /></Button>}
+                      {canDelete && <Button size="sm" variant="ghost" onClick={() => { setEnterpriseToDelete(ent); setDeleteDialogOpen(true); }} className="text-red-500 hover:text-red-400 hover:bg-red-500/10"><Trash2 className="h-4 w-4" /></Button>}
                     </div>
                   </TableCell>
                 </TableRow>
@@ -256,7 +259,7 @@ export default function EnterprisesPage() {
     <div className="p-6 lg:p-8 space-y-6 max-w-[1920px] mx-auto" data-testid="enterprises-page">
       <div className="flex items-center justify-between">
         <div><h1 className="text-4xl font-bold text-white">Enterprises</h1><p className="text-zinc-400 mt-1">Manage enterprise accounts and assignments</p></div>
-        {!isAM && <Button onClick={openCreateSheet} data-testid="create-enterprise-button" className="bg-emerald-500 text-black hover:bg-emerald-400 h-9"><Plus className="h-4 w-4 mr-2" />New Enterprise</Button>}
+        {canCreate && <Button onClick={openCreateSheet} data-testid="create-enterprise-button" className="bg-emerald-500 text-black hover:bg-emerald-400 h-9"><Plus className="h-4 w-4 mr-2" />New Enterprise</Button>}
       </div>
       <div className="relative">
         <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-zinc-500" />
