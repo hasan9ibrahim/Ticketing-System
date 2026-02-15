@@ -140,7 +140,7 @@ class SMSTicket(BaseModel):
     internal_notes: Optional[str] = None
     created_by: str
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-        actions: List[dict] = Field(default_factory=list)  # Array of action objects
+    actions: List[dict] = Field(default_factory=list)
 
 
 class TicketAction(BaseModel):
