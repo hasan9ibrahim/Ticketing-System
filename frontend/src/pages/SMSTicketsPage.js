@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import axios from "axios";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, Search, ArrowUpDown, Calendar, Trash2, MessageSquare } from "lucide-react";
+import { Plus, Search, ArrowUpDown, Calendar, Trash2, MessageSquare, ListChecks, X } from "lucide-react";
 import { toast } from "sonner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -13,6 +13,8 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Checkbox } from "@/components/ui/checkbox";
 import StatusBadge from "@/components/custom/StatusBadge";
 import PriorityIndicator from "@/components/custom/PriorityIndicator";
 import SearchableSelect from "@/components/custom/SearchableSelect";
@@ -56,6 +58,7 @@ export default function SMSTicketsPage() {
   const [loadingActions, setLoadingActions] = useState(false);
   const [customerTrunkOptions, setCustomerTrunkOptions] = useState([]);
   const [vendorTrunkOptions, setVendorTrunkOptions] = useState([]);
+  const [vendorTrunksOpen, setVendorTrunksOpen] = useState(false);
 
   // Fetch trunks for SMS enterprises
   const fetchTrunks = async () => {
@@ -1049,13 +1052,68 @@ export default function SMSTicketsPage() {
             <div className="border-t border-zinc-700 pt-4 mt-4">
               <h3 className="text-sm font-medium text-zinc-400 mb-4">Vendor & Cost</h3>
               <div className="space-y-3">
-                {/* Vendor Trunks - Searchable dropdown with selected at top */}
+                {/* Vendor Trunks - Multi-select checklist with popover */}
                 <div className="space-y-2">
                   <Label>Vendor Trunks</Label>
-                  <div className="bg-zinc-800/50 border border-zinc-700 rounded-md p-2 space-y-2">
-                    {/* Selected vendor trunks at top with % and position (when 2+) */}
-                    {(formData.vendor_trunks || []).length > 0 && (
-                      <div className="space-y-2 pb-2 border-b border-zinc-600">
+                  <Popover open={vendorTrunksOpen} onOpenChange={setVendorTrunksOpen}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        className="bg-zinc-800 border-zinc-700 text-white w-full justify-start hover:bg-zinc-700"
+                        disabled={isAM}
+                      >
+                        <ListChecks className="mr-2 h-4 w-4" />
+                        {(formData.vendor_trunks || []).length > 0
+                          ? `${(formData.vendor_trunks || []).length} trunk(s) selected`
+                          : "Select vendor trunks..."}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-80 p-0 bg-zinc-800 border-zinc-700" align="start">
+                      <div className="p-2 border-b border-zinc-700">
+                        <span className="text-xs text-zinc-400">Select vendor trunks (check 2+ for % and position)</span>
+                      </div>
+                      <div className="max-h-64 overflow-y-auto p-2">
+                        {vendorTrunkOptions.length === 0 ? (
+                          <p className="text-sm text-zinc-500 p-2">No vendor trunks available</p>
+                        ) : (
+                          vendorTrunkOptions.map((trunk) => {
+                            const isSelected = (formData.vendor_trunks || []).find(v => v.trunk === trunk);
+                            return (
+                              <div
+                                key={trunk}
+                                className="flex items-center space-x-2 p-2 rounded hover:bg-zinc-700 cursor-pointer"
+                                onClick={() => {
+                                  if (isSelected) {
+                                    // Remove trunk
+                                    const updatedTrunks = (formData.vendor_trunks || []).filter(v => v.trunk !== trunk);
+                                    setFormData({ ...formData, vendor_trunks: updatedTrunks });
+                                  } else {
+                                    // Add trunk
+                                    setFormData({
+                                      ...formData,
+                                      vendor_trunks: [...(formData.vendor_trunks || []), { trunk: trunk, percentage: "", position: "" }]
+                                    });
+                                  }
+                                }}
+                              >
+                                <Checkbox
+                                  checked={!!isSelected}
+                                  className="border-zinc-500"
+                                  onCheckedChange={() => {}}
+                                />
+                                <Label className="text-white text-sm cursor-pointer flex-1">{trunk}</Label>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+
+                  {/* Selected vendor trunks with % and position (when 2+) */}
+                  {(formData.vendor_trunks || []).length > 0 && (
+                    <div className="bg-zinc-800/50 border border-zinc-700 rounded-md p-2 space-y-2">
+                      <div className="space-y-2">
                         {(formData.vendor_trunks || []).map((vendorTrunk, index) => (
                           <div key={`selected-${index}`} className="flex items-center space-x-2 bg-zinc-700/50 p-2 rounded">
                             <input
@@ -1123,31 +1181,8 @@ export default function SMSTicketsPage() {
                           </div>
                         )}
                       </div>
-                    )}
-                    
-                    {/* Searchable dropdown for adding vendor trunks */}
-                    <Select 
-                      onValueChange={(value) => {
-                        if (value && !(formData.vendor_trunks || []).find(v => v.trunk === value)) {
-                          setFormData({
-                            ...formData,
-                            vendor_trunks: [...(formData.vendor_trunks || []), { trunk: value, percentage: "", position: "" }]
-                          });
-                        }
-                      }}
-                    >
-                      <SelectTrigger className="bg-zinc-700 border-zinc-600 w-full">
-                        <SelectValue placeholder="Search and add vendor trunk..." />
-                      </SelectTrigger>
-                      <SelectContent className="bg-zinc-800 border-zinc-700 max-h-60">
-                        {vendorTrunkOptions
-                          .filter(trunk => !(formData.vendor_trunks || []).find(v => v.trunk === trunk))
-                          .map((trunk) => (
-                            <SelectItem key={trunk} value={trunk}>{trunk}</SelectItem>
-                          ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                    </div>
+                  )}
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2"><Label>Cost</Label><Input value={formData.cost || ""} onChange={(e) => setFormData({ ...formData, cost: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" placeholder="e.g., 0.005" disabled={isAM} /></div>
