@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import axios from "axios";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, Search, Phone, Calendar, Trash2 } from "lucide-react";
+import { Plus, Search, Phone, Calendar, Trash2, MessageSquare } from "lucide-react";
 import { toast } from "sonner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import StatusBadge from "@/components/custom/StatusBadge";
 import PriorityIndicator from "@/components/custom/PriorityIndicator";
 import SearchableSelect from "@/components/custom/SearchableSelect";
@@ -47,6 +48,10 @@ export default function VoiceTicketsPage() {
   const [sameDayDialogOpen, setSameDayDialogOpen] = useState(false);
   const [sameDayTickets, setSameDayTickets] = useState([]);
   const [pendingFormData, setPendingFormData] = useState(null);
+  const [actionsDialogOpen, setActionsDialogOpen] = useState(false);
+  const [selectedTicket, setSelectedTicket] = useState(null);
+  const [ticketActions, setTicketActions] = useState([]);
+  const [newActionText, setNewActionText] = useState("");
 
   useEffect(() => {
     const userData = localStorage.getItem("user");
@@ -441,6 +446,33 @@ export default function VoiceTicketsPage() {
     }
   };
 
+    const openActionsDialog = async (ticket) => {
+    setSelectedTicket(ticket);
+    setTicketActions(ticket.actions || []);
+    setActionsDialogOpen(true);
+  };
+
+  const handleAddAction = async () => {
+    if (!newActionText.trim() || !selectedTicket) return;
+    
+    try {
+      const token = localStorage.getItem("token");
+      const headers = { Authorization: `Bearer ${token}` };
+      const response = await axios.post(
+        `${API}/tickets/voice/${selectedTicket.id}/actions`,
+        { text: newActionText },
+        { headers }
+      );
+      
+      setTicketActions([...ticketActions, response.data.action]);
+      setNewActionText("");
+      toast.success("Action added successfully");
+      fetchData();
+    } catch (error) {
+      toast.error("Failed to add action");
+    }
+  };
+
   if (loading) return <div className="flex items-center justify-center h-full"><div className="text-emerald-500">Loading voice tickets...</div></div>;
 
   const unassignedCount = tickets.filter(t => t.status === "Unassigned").length;
@@ -545,6 +577,7 @@ export default function VoiceTicketsPage() {
                   <TableHead className="text-zinc-400">Assigned To</TableHead>
                   <TableHead className="text-zinc-400">Date Created</TableHead>
                   <TableHead className="text-zinc-400">Date Modified</TableHead>
+                  <TableHead className="text-zinc-400">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -580,6 +613,20 @@ export default function VoiceTicketsPage() {
                           </TableCell>
                           <TableCell className="text-zinc-400 tabular-nums">
                             {ticket.updated_at ? `${new Date(ticket.updated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} ${new Date(ticket.updated_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}` : "-"}
+                          </TableCell>
+                            <TableCell className="text-zinc-400">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openActionsDialog(ticket);
+                              }}
+                              className="text-zinc-400 hover:text-white"
+                            >
+                              <MessageSquare className="h-4 w-4 mr-1" />
+                              {ticket.actions?.length || 0}
+                            </Button>
                           </TableCell>
                         </TableRow>
                       );
@@ -734,6 +781,50 @@ export default function VoiceTicketsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Actions/Ticket History Dialog */}
+      <Dialog open={actionsDialogOpen} onOpenChange={setActionsDialogOpen}>
+        <DialogContent className="bg-zinc-900 border-white/10 text-white max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Ticket Actions - {selectedTicket?.ticket_number}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 max-h-[400px] overflow-y-auto">
+            {ticketActions.length === 0 ? (
+              <p className="text-zinc-500 text-center py-4">No actions recorded yet</p>
+            ) : (
+              ticketActions.map((action) => (
+                <div key={action.id} className="bg-zinc-800/50 rounded-lg p-3 border border-white/5">
+                  <div className="flex justify-between items-start mb-2">
+                    <span className="text-emerald-500 font-medium text-sm">{action.created_by_username}</span>
+                    <span className="text-zinc-500 text-xs">
+                      {new Date(action.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </div>
+                  <p className="text-zinc-300 text-sm whitespace-pre-wrap">{action.text}</p>
+                </div>
+              ))
+            )}
+          </div>
+          <DialogFooter className="mt-4">
+            <div className="flex flex-col w-full gap-2">
+              <Textarea
+                value={newActionText}
+                onChange={(e) => setNewActionText(e.target.value)}
+                placeholder="Add a new action/update..."
+                className="bg-zinc-800 border-zinc-700 text-white placeholder:text-zinc-500"
+                rows={3}
+              />
+              <Button
+                onClick={handleAddAction}
+                disabled={!newActionText.trim()}
+                className="bg-emerald-500 text-black hover:bg-emerald-400"
+              >
+                Add Action
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
