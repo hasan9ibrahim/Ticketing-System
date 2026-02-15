@@ -44,6 +44,9 @@ export default function VoiceTicketsPage() {
   const [currentUser, setCurrentUser] = useState(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [ticketToDelete, setTicketToDelete] = useState(null);
+  const [sameDayDialogOpen, setSameDayDialogOpen] = useState(false);
+  const [sameDayTickets, setSameDayTickets] = useState([]);
+  const [pendingFormData, setPendingFormData] = useState(null);
 
   useEffect(() => {
     const userData = localStorage.getItem("user");
@@ -122,6 +125,36 @@ export default function VoiceTicketsPage() {
       return openedVia.join(", ");
     }
     return openedVia || "";
+  };
+
+    // Check for same-day identical tickets (Enterprise, Trunk, Destination, Issue)
+  const findSameDayIdenticalTickets = (customerId, customerTrunk, destination, issueTypes) => {
+    if (!customerId) return [];
+    
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    
+    return tickets.filter(ticket => {
+      // Skip if it's the same ticket being edited
+      if (editingTicket && ticket.id === editingTicket.id) return false;
+      
+      const ticketDate = new Date(ticket.date);
+      if (ticketDate < today || ticketDate >= tomorrow) return false;
+      
+      // Check for Enterprise match
+      const enterpriseMatch = ticket.customer_id === customerId;
+      // Check for Trunk match
+      const trunkMatch = !customerTrunk || (ticket.customer_trunk && customerTrunk.toLowerCase() === ticket.customer_trunk.toLowerCase());
+      // Check for Destination match
+      const destMatch = !destination || (ticket.destination && destination.toLowerCase() === ticket.destination.toLowerCase());
+      // Check for Issue match (check if any issue types overlap)
+      const ticketIssues = ticket.issue_types || [];
+      const issueMatch = !issueTypes || issueTypes.length === 0 || issueTypes.some(i => ticketIssues.includes(i));
+      
+      return enterpriseMatch && trunkMatch && destMatch && issueMatch;
+    });
   };
 
   const filterAndSortTickets = () => {
@@ -338,6 +371,24 @@ export default function VoiceTicketsPage() {
         return;
       }
     }
+    
+        // Check for same-day identical tickets (Enterprise, Trunk, Destination, Issue)
+    if (!editingTicket) {
+      const sameDayIdentical = findSameDayIdenticalTickets(
+        formData.customer_id,
+        formData.customer_trunk,
+        formData.destination,
+        formData.issue_types
+      );
+
+      if (sameDayIdentical.length > 0) {
+        const ticketNumbers = sameDayIdentical.map(t => t.ticket_number).join(', ');
+        setSameDayTickets(sameDayIdentical);
+        setPendingFormData(formData);
+        setSameDayDialogOpen(true);
+        return; // Stop here, wait for user confirmation
+      }
+    }
 
     try {
       const token = localStorage.getItem("token");
@@ -369,6 +420,24 @@ export default function VoiceTicketsPage() {
       fetchData();
     } catch (error) {
       toast.error(error.response?.data?.detail || "Failed to delete ticket");
+    }
+  };
+
+    const handleConfirmedSubmit = async () => {
+    if (!pendingFormData) return;
+    
+    try {
+      const token = localStorage.getItem("token");
+      const headers = { Authorization: `Bearer ${token}` };
+      await axios.post(`${API}/tickets/voice`, pendingFormData, { headers });
+      toast.success("Ticket created successfully");
+      setSameDayDialogOpen(false);
+      setSameDayTickets([]);
+      setPendingFormData(null);
+      setSheetOpen(false);
+      fetchData();
+    } catch (error) {
+      toast.error(formatApiError(error, "Failed to save ticket"));
     }
   };
 
@@ -639,6 +708,28 @@ export default function VoiceTicketsPage() {
             <AlertDialogCancel className="border-zinc-700 text-white hover:bg-zinc-800">Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleDelete} className="bg-red-500 text-white hover:bg-red-600">
               Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+        
+      {/* Same-Day Identical Ticket Confirmation Dialog */}
+      <AlertDialog open={sameDayDialogOpen} onOpenChange={setSameDayDialogOpen}>
+        <AlertDialogContent className="bg-zinc-900 border-white/10">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-white">Same-Day Identical Ticket Found</AlertDialogTitle>
+            <AlertDialogDescription className="text-zinc-400">
+              A ticket with the same Enterprise, Trunk, Destination, and Issue was created today: {sameDayTickets.map(t => t.ticket_number).join(', ')}. Do you still want to create this ticket?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="border-zinc-700 text-white hover:bg-zinc-800" onClick={() => {
+              setSameDayDialogOpen(false);
+              setSameDayTickets([]);
+              setPendingFormData(null);
+            }}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmedSubmit} className="bg-emerald-500 text-black hover:bg-emerald-600">
+              Create Anyway
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
