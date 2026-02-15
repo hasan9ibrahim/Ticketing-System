@@ -90,6 +90,8 @@ class Client(BaseModel):
     noc_emails: Optional[str] = None  # Required for new, optional for backward compat
     notes: Optional[str] = None  # Optional
     enterprise_type: Optional[str] = Field(default=None, description="sms or voice - required for new enterprises")  # Required for new
+    customer_trunks: Optional[List[str]] = Field(default_factory=list)  # List of customer trunk names
+    vendor_trunks: Optional[List[str]] = Field(default_factory=list)  # List of vendor trunk names
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class ClientCreate(BaseModel):
@@ -102,6 +104,8 @@ class ClientCreate(BaseModel):
     noc_emails: str  # Required
     notes: Optional[str] = None  # Optional
     enterprise_type: str  # Required - "sms" or "voice"
+    customer_trunks: Optional[List[str]] = Field(default_factory=list)  # List of customer trunk names
+    vendor_trunks: Optional[List[str]] = Field(default_factory=list)  # List of vendor trunk names
 
 class ClientUpdate(BaseModel):
     name: Optional[str] = None
@@ -112,7 +116,9 @@ class ClientUpdate(BaseModel):
     tier: Optional[str] = None
     noc_emails: Optional[str] = None
     notes: Optional[str] = None
-    enterprise_type: Optional[str] = None  # "sms" or "voice" - can be updated
+    enterprise_type: Optional[str] = None  # "sms" or "voice"
+    customer_trunks: Optional[List[str]] = None  # List of customer trunk names
+    vendor_trunks: Optional[List[str]] = None  # List of vendor trunk names
 
 class SMSTicket(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -138,7 +144,8 @@ class SMSTicket(BaseModel):
     # New multiple SID/Content pairs
     sms_details: Optional[List[dict]] = []  # List of {sid, content} objects
     rate: Optional[str] = None
-    vendor_trunk: Optional[str] = None
+    vendor_trunk: Optional[str] = None  # Legacy field
+    vendor_trunks: Optional[List[dict]] = Field(default_factory=list)  # List of {trunk, percentage, position} objects
     cost: Optional[str] = None
     is_lcr: Optional[str] = None
     root_cause: Optional[str] = None
@@ -176,7 +183,8 @@ class SMSTicketCreate(BaseModel):
     # New multiple SID/Content pairs
     sms_details: Optional[List[dict]] = []
     rate: Optional[str] = None
-    vendor_trunk: Optional[str] = None
+    vendor_trunk: Optional[str] = None  # Legacy field
+    vendor_trunks: Optional[List[dict]] = Field(default_factory=list)  # List of {trunk, percentage, position} objects
     cost: Optional[str] = None
     is_lcr: Optional[str] = None
     root_cause: Optional[str] = None
@@ -200,7 +208,8 @@ class SMSTicketUpdate(BaseModel):
     # New multiple SID/Content pairs
     sms_details: Optional[List[dict]] = None
     rate: Optional[str] = None
-    vendor_trunk: Optional[str] = None
+    vendor_trunk: Optional[str] = None  # Legacy field
+    vendor_trunks: Optional[List[dict]] = None  # List of {trunk, percentage, position} objects
     cost: Optional[str] = None
     is_lcr: Optional[str] = None
     root_cause: Optional[str] = None
@@ -227,7 +236,8 @@ class VoiceTicket(BaseModel):
     assigned_to: Optional[str] = None
     status: str
     rate: Optional[str] = None
-    vendor_trunk: Optional[str] = None
+    vendor_trunk: Optional[str] = None  # Legacy field
+    vendor_trunks: Optional[List[dict]] = Field(default_factory=list)  # List of {trunk, percentage, position} objects
     cost: Optional[str] = None
     is_lcr: Optional[str] = None
     root_cause: Optional[str] = None
@@ -252,7 +262,8 @@ class VoiceTicketCreate(BaseModel):
     assigned_to: Optional[str] = None
     status: str = "Unassigned"
     rate: Optional[str] = None
-    vendor_trunk: Optional[str] = None
+    vendor_trunk: Optional[str] = None  # Legacy field
+    vendor_trunks: Optional[List[dict]] = Field(default_factory=list)  # List of {trunk, percentage, position} objects
     cost: Optional[str] = None
     is_lcr: Optional[str] = None
     root_cause: Optional[str] = None
@@ -272,7 +283,8 @@ class VoiceTicketUpdate(BaseModel):
     assigned_to: Optional[str] = None
     status: Optional[str] = None
     rate: Optional[str] = None
-    vendor_trunk: Optional[str] = None
+    vendor_trunk: Optional[str] = None  # Legacy field
+    vendor_trunks: Optional[List[dict]] = None  # List of {trunk, percentage, position} objects
     cost: Optional[str] = None
     is_lcr: Optional[str] = None
     root_cause: Optional[str] = None
@@ -461,6 +473,33 @@ async def delete_client(client_id: str, current_admin: dict = Depends(get_curren
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Client not found")
     return {"message": "Client deleted successfully"}
+
+@api_router.get("/trunks/{enterprise_type}")
+async def get_trunks_by_type(enterprise_type: str, current_user: dict = Depends(get_current_user)):
+    """Get all customer and vendor trunks for a specific enterprise type (sms or voice)"""
+    query = {"enterprise_type": enterprise_type}
+    if current_user["role"] == "am":
+        query["assigned_am_id"] = current_user["id"]
+    
+    clients = await db.clients.find(query, {"_id": 0, "customer_trunks": 1, "vendor_trunks": 1, "name": 1, "id": 1}).to_list(1000)
+    
+    customer_trunks = []
+    vendor_trunks = []
+    
+    for client in clients:
+        if client.get("customer_trunks"):
+            for trunk in client["customer_trunks"]:
+                if trunk not in customer_trunks:
+                    customer_trunks.append(trunk)
+        if client.get("vendor_trunks"):
+            for trunk in client["vendor_trunks"]:
+                if trunk not in vendor_trunks:
+                    vendor_trunks.append(trunk)
+    
+    return {
+        "customer_trunks": customer_trunks,
+        "vendor_trunks": vendor_trunks
+    }
 
 # ==================== SMS TICKET ROUTES ====================
 
