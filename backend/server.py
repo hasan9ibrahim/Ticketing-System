@@ -140,6 +140,16 @@ class SMSTicket(BaseModel):
     internal_notes: Optional[str] = None
     created_by: str
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+        actions: List[dict] = Field(default_factory=list)  # Array of action objects
+
+
+class TicketAction(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    text: str
+    created_by: str
+    created_by_username: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
 
 class SMSTicketCreate(BaseModel):
     priority: str
@@ -213,6 +223,7 @@ class VoiceTicket(BaseModel):
     internal_notes: Optional[str] = None
     created_by: str
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    actions: List[dict] = Field(default_factory=list)  # Array of action objects
 
 class VoiceTicketCreate(BaseModel):
     priority: str
@@ -680,6 +691,78 @@ async def delete_voice_ticket(ticket_id: str, current_user: dict = Depends(get_c
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Ticket not found")
     return {"message": "Ticket deleted successfully"}
+
+
+# ==================== TICKET ACTIONS ROUTES ====================
+
+class AddTicketAction(BaseModel):
+    text: str
+
+
+@api_router.post("/tickets/sms/{ticket_id}/actions")
+async def add_sms_ticket_action(
+    ticket_id: str,
+    action_data: AddTicketAction,
+    current_user: dict = Depends(get_current_user)
+):
+    # Get user info
+    user = await db.users.find_one({"id": current_user["id"]})
+    username = user.get("username", "Unknown") if user else "Unknown"
+    
+    action_obj = {
+        "id": str(uuid.uuid4()),
+        "text": action_data.text,
+        "created_by": current_user["id"],
+        "created_by_username": username,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    result = await db.sms_tickets.find_one_and_update(
+        {"id": ticket_id},
+        {
+            "$push": {"actions": action_obj},
+            "$set": {"updated_at": datetime.now(timezone.utc).isoformat()}
+        },
+        projection={"_id": 0}
+    )
+    
+    if not result:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    
+    return {"message": "Action added successfully", "action": action_obj}
+
+
+@api_router.post("/tickets/voice/{ticket_id}/actions")
+async def add_voice_ticket_action(
+    ticket_id: str,
+    action_data: AddTicketAction,
+    current_user: dict = Depends(get_current_user)
+):
+    # Get user info
+    user = await db.users.find_one({"id": current_user["id"]})
+    username = user.get("username", "Unknown") if user else "Unknown"
+    
+    action_obj = {
+        "id": str(uuid.uuid4()),
+        "text": action_data.text,
+        "created_by": current_user["id"],
+        "created_by_username": username,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    result = await db.voice_tickets.find_one_and_update(
+        {"id": ticket_id},
+        {
+            "$push": {"actions": action_obj},
+            "$set": {"updated_at": datetime.now(timezone.utc).isoformat()}
+        },
+        projection={"_id": 0}
+    )
+    
+    if not result:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    
+    return {"message": "Action added successfully", "action": action_obj}
 
 # ==================== DASHBOARD ROUTES ====================
 
