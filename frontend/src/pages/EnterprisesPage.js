@@ -44,7 +44,7 @@ export default function EnterprisesPage() {
       const [enterprisesRes, usersRes, userRes] = await Promise.all([
         axios.get(`${API}/clients`, { headers }),
         axios.get(`${API}/users`, { headers }),
-        axios.get(`${API}/me`, { headers }),
+        axios.get(`${API}/auth/me`, { headers }),
       ]);
       setEnterprises(enterprisesRes.data);
       setFilteredEnterprises(enterprisesRes.data);
