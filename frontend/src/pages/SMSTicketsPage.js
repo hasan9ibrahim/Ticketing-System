@@ -59,6 +59,7 @@ export default function SMSTicketsPage() {
   const [customerTrunkOptions, setCustomerTrunkOptions] = useState([]);
   const [vendorTrunkOptions, setVendorTrunkOptions] = useState([]);
   const [vendorTrunksOpen, setVendorTrunksOpen] = useState(false);
+  const [vendorTrunkSearch, setVendorTrunkSearch] = useState("");
 
   // Fetch trunks for SMS enterprises
   const fetchTrunks = async () => {
@@ -1070,41 +1071,50 @@ export default function SMSTicketsPage() {
                     </PopoverTrigger>
                     <PopoverContent className="w-80 p-0 bg-zinc-800 border-zinc-700" align="start">
                       <div className="p-2 border-b border-zinc-700">
-                        <span className="text-xs text-zinc-400">Select vendor trunks (check 2+ for % and position)</span>
+                        <Input
+                          placeholder="Search vendor trunks..."
+                          value={vendorTrunkSearch}
+                          onChange={(e) => setVendorTrunkSearch(e.target.value)}
+                          className="bg-zinc-700 border-zinc-600 text-white text-sm"
+                        />
                       </div>
                       <div className="max-h-64 overflow-y-auto p-2">
-                        {vendorTrunkOptions.length === 0 ? (
-                          <p className="text-sm text-zinc-500 p-2">No vendor trunks available</p>
+                        {vendorTrunkOptions
+                          .filter(trunk => trunk.toLowerCase().includes(vendorTrunkSearch.toLowerCase()))
+                          .length === 0 ? (
+                          <p className="text-sm text-zinc-500 p-2">No vendor trunks found</p>
                         ) : (
-                          vendorTrunkOptions.map((trunk) => {
-                            const isSelected = (formData.vendor_trunks || []).find(v => v.trunk === trunk);
-                            return (
-                              <div
-                                key={trunk}
-                                className="flex items-center space-x-2 p-2 rounded hover:bg-zinc-700 cursor-pointer"
-                                onClick={() => {
-                                  if (isSelected) {
-                                    // Remove trunk
-                                    const updatedTrunks = (formData.vendor_trunks || []).filter(v => v.trunk !== trunk);
-                                    setFormData({ ...formData, vendor_trunks: updatedTrunks });
-                                  } else {
-                                    // Add trunk
-                                    setFormData({
-                                      ...formData,
-                                      vendor_trunks: [...(formData.vendor_trunks || []), { trunk: trunk, percentage: "", position: "" }]
-                                    });
-                                  }
-                                }}
-                              >
-                                <Checkbox
-                                  checked={!!isSelected}
-                                  className="border-zinc-500"
-                                  onCheckedChange={() => {}}
-                                />
-                                <Label className="text-white text-sm cursor-pointer flex-1">{trunk}</Label>
-                              </div>
-                            );
-                          })
+                          vendorTrunkOptions
+                            .filter(trunk => trunk.toLowerCase().includes(vendorTrunkSearch.toLowerCase()))
+                            .map((trunk) => {
+                              const isSelected = (formData.vendor_trunks || []).find(v => v.trunk === trunk);
+                              return (
+                                <div
+                                  key={trunk}
+                                  className="flex items-center space-x-2 p-2 rounded hover:bg-zinc-700 cursor-pointer"
+                                  onClick={() => {
+                                    if (isSelected) {
+                                      // Remove trunk
+                                      const updatedTrunks = (formData.vendor_trunks || []).filter(v => v.trunk !== trunk);
+                                      setFormData({ ...formData, vendor_trunks: updatedTrunks });
+                                    } else {
+                                      // Add trunk
+                                      setFormData({
+                                        ...formData,
+                                        vendor_trunks: [...(formData.vendor_trunks || []), { trunk: trunk, percentage: "", position: "" }]
+                                      });
+                                    }
+                                  }}
+                                >
+                                  <Checkbox
+                                    checked={!!isSelected}
+                                    className="border-zinc-500"
+                                    onCheckedChange={() => {}}
+                                  />
+                                  <Label className="text-white text-sm cursor-pointer flex-1">{trunk}</Label>
+                                </div>
+                              );
+                            })
                         )}
                       </div>
                     </PopoverContent>
