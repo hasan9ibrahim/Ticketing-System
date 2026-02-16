@@ -139,13 +139,9 @@ export default function DashboardLayout({ user, setUser }) {
       const reminders = response.data || [];
       setAssignedReminders(reminders);
       
-      // Show reminders if there are any
+      // Show reminders if there are any (always show when we have data)
       if (reminders.length > 0) {
         setShowReminders(true);
-        // Auto-hide after 30 seconds
-        setTimeout(() => {
-          setShowReminders(false);
-        }, 30000);
       }
     } catch (error) {
       console.error("Failed to fetch assigned ticket reminders:", error);
@@ -249,7 +245,7 @@ export default function DashboardLayout({ user, setUser }) {
 
       {/* Assigned Ticket Reminders - Top Left (Below Unassigned Alerts) */}
       {showReminders && assignedReminders.length > 0 && (
-        <div className="fixed top-4 left-4 z-40 max-w-md mt-[350px]">
+        <div className="fixed top-4 left-4 z-40 max-w-md">
           <div className="bg-amber-950/95 border border-amber-500/50 rounded-lg shadow-lg p-4 backdrop-blur-sm">
             <div className="flex items-center gap-2 mb-3">
               <AlertTriangle className="h-5 w-5 text-amber-400" />
