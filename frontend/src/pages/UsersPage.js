@@ -25,6 +25,7 @@ const API = `${BACKEND_URL}/api`;
 export default function UsersPage() {
   const [users, setUsers] = useState([]);
   const [filteredUsers, setFilteredUsers] = useState([]);
+  const [departments, setDepartments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -34,6 +35,7 @@ export default function UsersPage() {
 
   useEffect(() => {
     fetchUsers();
+    fetchDepartments();
   }, []);
 
   useEffect(() => {
@@ -52,6 +54,18 @@ export default function UsersPage() {
       toast.error("Failed to load users");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchDepartments = async () => {
+    try {
+      const token = localStorage.getItem("token");
+      const response = await axios.get(`${API}/departments`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setDepartments(response.data);
+    } catch (error) {
+      console.error("Failed to load departments:", error);
     }
   };
 
@@ -152,8 +166,7 @@ export default function UsersPage() {
               <TableHead className="text-zinc-400">Username</TableHead>
               <TableHead className="text-zinc-400">Email</TableHead>
               <TableHead className="text-zinc-400">Phone</TableHead>
-              <TableHead className="text-zinc-400">Role</TableHead>
-              <TableHead className="text-zinc-400">Assignment</TableHead>
+              <TableHead className="text-zinc-400">Department</TableHead>
               <TableHead className="text-zinc-400">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -166,17 +179,13 @@ export default function UsersPage() {
                   <TableCell className="text-zinc-300">{user.email || "-"}</TableCell>
                   <TableCell className="text-zinc-300">{user.phone || "-"}</TableCell>
                   <TableCell>
-                    <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-emerald-500/20 text-emerald-500 border border-emerald-500/30 capitalize">
-                      {user.role}
-                    </span>
-                  </TableCell>
-                  <TableCell>
-                    {user.role === "am" && user.am_type && (
-                      <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-blue-500/20 text-blue-500 border border-blue-500/30 uppercase">
-                        {user.am_type}
+                    {user.department_id ? (
+                      <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-purple-500/20 text-purple-500 border border-purple-500/30">
+                        {departments.find(d => d.id === user.department_id)?.name || user.department_id}
                       </span>
+                    ) : (
+                      <span className="text-zinc-500">-</span>
                     )}
-                    {user.role !== "am" && <span className="text-zinc-500">-</span>}
                   </TableCell>
                   <TableCell>
                     <Button
@@ -268,13 +277,33 @@ export default function UsersPage() {
             </div>
 
             <div className="space-y-2">
-              <Label>Role *</Label>
+              <Label>Department *</Label>
               <Select
-                value={formData.role}
-                onValueChange={(value) => setFormData({ ...formData, role: value })}
+                value={formData.department_id}
+                onValueChange={(value) => setFormData({ ...formData, department_id: value })}
                 required
               >
-                <SelectTrigger className="bg-zinc-800 border-zinc-700" data-testid="role-select">
+                <SelectTrigger className="bg-zinc-800 border-zinc-700" data-testid="department-select">
+                  <SelectValue placeholder="Select department" />
+                </SelectTrigger>
+                <SelectContent className="bg-zinc-800 border-zinc-700">
+                  {departments.map((dept) => (
+                    <SelectItem key={dept.id} value={dept.id}>
+                      {dept.name} ({dept.department_type || 'all'})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Legacy role field - kept for backward compatibility */}
+            <div className="space-y-2">
+              <Label>Role (Legacy)</Label>
+              <Select
+                value={formData.role || "noc"}
+                onValueChange={(value) => setFormData({ ...formData, role: value })}
+              >
+                <SelectTrigger className="bg-zinc-800 border-zinc-700">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent className="bg-zinc-800 border-zinc-700">
@@ -284,25 +313,6 @@ export default function UsersPage() {
                 </SelectContent>
               </Select>
             </div>
-
-            {formData.role === "am" && (
-              <div className="space-y-2">
-                <Label>AM Assignment *</Label>
-                <Select
-                  value={formData.am_type}
-                  onValueChange={(value) => setFormData({ ...formData, am_type: value })}
-                  required
-                >
-                  <SelectTrigger className="bg-zinc-800 border-zinc-700" data-testid="am-type-select">
-                    <SelectValue placeholder="Select SMS or Voice" />
-                  </SelectTrigger>
-                  <SelectContent className="bg-zinc-800 border-zinc-700">
-                    <SelectItem value="sms">SMS Tickets</SelectItem>
-                    <SelectItem value="voice">Voice Tickets</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
 
             <div className="flex space-x-3 pt-4">
               <Button type="submit" className="bg-emerald-500 text-black hover:bg-emerald-400" data-testid="save-user-button">
