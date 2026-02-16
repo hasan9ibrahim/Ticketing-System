@@ -1606,6 +1606,86 @@ async def mark_notification_as_read(notification_id: str, current_user: dict = D
     return {"message": "Notification marked as read"}
 
 
+@api_router.get("/dashboard/assigned-ticket-reminders")
+async def get_assigned_ticket_reminders(current_user: dict = Depends(get_current_user)):
+    """Get tickets assigned to current user that have been in 'Assigned' status too long based on priority:
+    - Urgent: 10 minutes
+    - High: 15 minutes
+    - Medium: 25 minutes
+    - Low: 30 minutes
+    """
+    from datetime import timedelta
+    
+    current_user_id = current_user.get("id")
+    
+    # Define reminder intervals in minutes based on priority
+    priority_intervals = {
+        "Urgent": 10,
+        "High": 15,
+        "Medium": 25,
+        "Low": 30
+    }
+    
+    now = datetime.now(timezone.utc)
+    reminders = []
+    
+    # Check SMS tickets assigned to current user
+    sms_tickets = await db.sms_tickets.find({
+        "assigned_to": current_user_id,
+        "status": "Assigned"
+    }).to_list(1000)
+    
+    for ticket in sms_tickets:
+        priority = ticket.get("priority", "Medium")
+        interval = priority_intervals.get(priority, 25)  # Default to 25 minutes
+        threshold_time = now - timedelta(minutes=interval)
+        
+        ticket_date = ticket.get("date")
+        if isinstance(ticket_date, str):
+            ticket_date = datetime.fromisoformat(ticket_date)
+        
+        if ticket_date and ticket_date <= threshold_time:
+            reminders.append({
+                "id": ticket["id"],
+                "ticket_number": ticket["ticket_number"],
+                "type": "sms",
+                "priority": priority,
+                "interval_minutes": interval,
+                "assigned_since": ticket_date.isoformat() if ticket_date else None,
+                "customer": ticket.get("customer", "Unknown"),
+                "issue": ticket.get("issue", ticket.get("issue_types", []))
+            })
+    
+    # Check Voice tickets assigned to current user
+    voice_tickets = await db.voice_tickets.find({
+        "assigned_to": current_user_id,
+        "status": "Assigned"
+    }).to_list(1000)
+    
+    for ticket in voice_tickets:
+        priority = ticket.get("priority", "Medium")
+        interval = priority_intervals.get(priority, 25)  # Default to 25 minutes
+        threshold_time = now - timedelta(minutes=interval)
+        
+        ticket_date = ticket.get("date")
+        if isinstance(ticket_date, str):
+            ticket_date = datetime.fromisoformat(ticket_date)
+        
+        if ticket_date and ticket_date <= threshold_time:
+            reminders.append({
+                "id": ticket["id"],
+                "ticket_number": ticket["ticket_number"],
+                "type": "voice",
+                "priority": priority,
+                "interval_minutes": interval,
+                "assigned_since": ticket_date.isoformat() if ticket_date else None,
+                "customer": ticket.get("customer", "Unknown"),
+                "issue": ticket.get("issue", ticket.get("issue_types", []))
+            })
+    
+    return reminders
+
+
 @api_router.get("/dashboard/stats", response_model=DashboardStats)
 async def get_dashboard_stats(
     current_user: dict = Depends(get_current_user),
