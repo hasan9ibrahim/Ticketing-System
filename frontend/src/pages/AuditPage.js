@@ -77,14 +77,23 @@ const formatFieldName = (field) => {
   return fieldMap[field] || field.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
 };
 
-const formatChangeValue = (value) => {
-  if (value === null || value === undefined) return "empty";
+const formatChangeValue = (value, getUsernameById) => {
+  if (value === null || value === undefined) return "None";
   if (typeof value === "boolean") return value ? "Yes" : "No";
   if (typeof value === "object") return JSON.stringify(value);
+  // Check if it looks like a UUID (user ID)
+  if (typeof value === "string" && value.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)) {
+    // This might be a user ID - try to resolve it
+    const userId = value;
+    if (getUsernameById) {
+      const username = getUsernameById(userId);
+      return username !== userId ? username : value;
+    }
+  }
   return String(value);
 };
 
-const formatChanges = (changes) => {
+const formatChanges = (changes, getUsernameById) => {
   if (!changes) return null;
   
   if (changes.before && changes.after) {
@@ -93,20 +102,27 @@ const formatChanges = (changes) => {
     const before = changes.before;
     const after = changes.after;
     
-    Object.keys(after).forEach((key) => {
+    // Get all unique keys from both objects
+    const allKeys = new Set([...Object.keys(before || {}), ...Object.keys(after || {})]);
+    
+    allKeys.forEach((key) => {
       // Skip internal fields
-      if (key === "updated_at" || key === "_id" || key === "password_hash") return;
+      if (key === "updated_at" || key === "_id" || key === "password_hash" || key === "date" || key === "created_at") return;
       
-      const oldValue = before[key];
-      const newValue = after[key];
+      const oldValue = before?.[key];
+      const newValue = after?.[key];
       
-      if (oldValue !== newValue) {
+      // Compare values properly
+      const oldStr = JSON.stringify(oldValue);
+      const newStr = JSON.stringify(newValue);
+      
+      if (oldStr !== newStr) {
         changedFields.push(
           <div key={key} className="text-xs">
             <span className="text-zinc-400">{formatFieldName(key)}:</span>{" "}
-            <span className="text-red-400">{formatChangeValue(oldValue)}</span>
+            <span className="text-red-400">{formatChangeValue(oldValue, getUsernameById)}</span>
             {" → "}
-            <span className="text-emerald-400">{formatChangeValue(newValue)}</span>
+            <span className="text-emerald-400">{formatChangeValue(newValue, getUsernameById)}</span>
           </div>
         );
       }
@@ -115,7 +131,6 @@ const formatChanges = (changes) => {
     return changedFields.length > 0 ? changedFields : <span className="text-zinc-500 text-xs">No significant changes</span>;
   } else if (changes.deleted_user || changes.deleted_department || changes.deleted_client || changes.deleted_ticket) {
     // This is a delete operation
-    const deleted = changes.deleted_user || changes.deleted_department || changes.deleted_client || changes.deleted_ticket;
     return (
       <div className="text-xs text-red-400">
         Record deleted
@@ -129,7 +144,7 @@ const formatChanges = (changes) => {
       createdFields.push(
         <div key={key} className="text-xs">
           <span className="text-zinc-400">{formatFieldName(key)}:</span>{" "}
-          <span className="text-emerald-400">{formatChangeValue(changes[key])}</span>
+          <span className="text-emerald-400">{formatChangeValue(changes[key], getUsernameById)}</span>
         </div>
       );
     });
@@ -144,6 +159,7 @@ export default function AuditPage() {
   const [entityType, setEntityType] = useState("all");
   const [actionType, setActionType] = useState("all");
   const [dateRange, setDateRange] = useState(null);
+  const [users, setUsers] = useState([]);
   const [pagination, setPagination] = useState({
     limit: 20,
     offset: 0,
@@ -151,8 +167,30 @@ export default function AuditPage() {
   });
 
   useEffect(() => {
+    fetchUsers();
+  }, []);
+
+  useEffect(() => {
     fetchAuditLogs();
   }, [entityType, actionType, dateRange, pagination.offset, pagination.limit]);
+
+  const fetchUsers = async () => {
+    try {
+      const token = localStorage.getItem("token");
+      const response = await axios.get(`${API}/users`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setUsers(response.data);
+    } catch (error) {
+      console.error("Failed to fetch users:", error);
+    }
+  };
+
+  const getUsernameById = (userId) => {
+    if (!userId) return "None";
+    const user = users.find(u => u.id === userId);
+    return user ? user.username : userId;
+  };
 
   const fetchAuditLogs = async () => {
     try {
@@ -395,7 +433,7 @@ export default function AuditPage() {
                       {log.entity_name}
                     </TableCell>
                     <TableCell className="text-zinc-400 text-sm max-w-xs">
-                      {formatChanges(log.changes)}
+                      {formatChanges(log.changes, getUsernameById)}
                     </TableCell>
                   </TableRow>
                 ))
