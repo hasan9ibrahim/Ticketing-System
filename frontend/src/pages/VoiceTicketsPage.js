@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import axios from "axios";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, Search, Phone, Calendar, Trash2, MessageSquare, X, ListChecks } from "lucide-react";
+import { Plus, Search, Phone, Calendar, Trash2, MessageSquare, X, ListChecks, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -54,6 +54,8 @@ export default function VoiceTicketsPage() {
   const [selectedTicket, setSelectedTicket] = useState(null);
   const [ticketActions, setTicketActions] = useState([]);
   const [newActionText, setNewActionText] = useState("");
+  const [editingAction, setEditingAction] = useState(null);
+  const [editActionText, setEditActionText] = useState("");
   const [customerTrunkOptions, setCustomerTrunkOptions] = useState([]);
   const [vendorTrunkOptions, setVendorTrunkOptions] = useState([]);
   const [vendorTrunksOpen, setVendorTrunksOpen] = useState(false);
@@ -534,6 +536,67 @@ export default function VoiceTicketsPage() {
       fetchData();
     } catch (error) {
       toast.error("Failed to add action");
+    }
+  };
+
+  // Handle editing an action
+  const handleEditAction = (action) => {
+    setEditingAction(action.id);
+    setEditActionText(action.text);
+  };
+
+  // Save edited action
+  const handleSaveEdit = async (actionId) => {
+    if (!editActionText.trim() || !selectedTicket) return;
+    
+    try {
+      const token = localStorage.getItem("token");
+      const headers = { Authorization: `Bearer ${token}` };
+      await axios.put(
+        `${API}/tickets/voice/${selectedTicket.id}/actions/${actionId}`,
+        { text: editActionText },
+        { headers }
+      );
+      
+      setEditingAction(null);
+      setEditActionText("");
+      toast.success("Action updated successfully");
+      fetchData();
+      
+      // Refresh the ticket to get updated actions in the dialog
+      const ticketResponse = await axios.get(`${API}/tickets/voice/${selectedTicket.id}`, { headers });
+      setTicketActions(ticketResponse.data.actions || []);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Failed to update action");
+    }
+  };
+
+  // Cancel editing
+  const handleCancelEdit = () => {
+    setEditingAction(null);
+    setEditActionText("");
+  };
+
+  // Handle deleting an action
+  const handleDeleteAction = async (actionId) => {
+    if (!selectedTicket) return;
+    
+    try {
+      const token = localStorage.getItem("token");
+      const headers = { Authorization: `Bearer ${token}` };
+      await axios.delete(
+        `${API}/tickets/voice/${selectedTicket.id}/actions/${actionId}`,
+        { headers }
+      );
+      
+      toast.success("Action deleted successfully");
+      fetchData();
+      
+      // Refresh the ticket to get updated actions in the dialog
+      const ticketResponse = await axios.get(`${API}/tickets/voice/${selectedTicket.id}`, { headers });
+      setTicketActions(ticketResponse.data.actions || []);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Failed to delete action");
     }
   };
 
@@ -1083,12 +1146,71 @@ export default function VoiceTicketsPage() {
               ticketActions.map((action) => (
                 <div key={action.id} className="bg-zinc-800/50 rounded-lg p-3 border border-white/5">
                   <div className="flex justify-between items-start mb-2">
-                    <span className="text-emerald-500 font-medium text-sm">{action.created_by_username}</span>
-                    <span className="text-zinc-500 text-xs">
-                      {new Date(action.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-emerald-500 font-medium text-sm">{action.created_by_username}</span>
+                      {action.edited && (
+                        <span className="text-xs bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded">Edited</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-zinc-500 text-xs">
+                        {action.edited && action.edited_at 
+                          ? `Edited: ${new Date(action.edited_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}`
+                          : new Date(action.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                      {/* Show edit/delete buttons only for own actions */}
+                      {currentUser && action.created_by === currentUser.id && (
+                        <div className="flex gap-1">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleEditAction(action)}
+                            className="h-6 w-6 p-0 text-zinc-400 hover:text-white"
+                          >
+                            <Pencil className="h-3 w-3" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleDeleteAction(action.id)}
+                            className="h-6 w-6 p-0 text-zinc-400 hover:text-red-400"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  <p className="text-zinc-300 text-sm whitespace-pre-wrap">{action.text}</p>
+                  {editingAction === action.id ? (
+                    <div className="space-y-2">
+                      <Textarea
+                        value={editActionText}
+                        onChange={(e) => setEditActionText(e.target.value)}
+                        className="bg-zinc-700 border-zinc-600 text-white text-sm"
+                        rows={3}
+                      />
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          onClick={() => handleSaveEdit(action.id)}
+                          disabled={!editActionText.trim()}
+                          className="bg-emerald-500 text-black hover:bg-emerald-400"
+                        >
+                          Save
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={handleCancelEdit}
+                          className="border-zinc-600 text-zinc-300 hover:bg-zinc-700"
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-zinc-300 text-sm whitespace-pre-wrap">{action.text}</p>
+                  )}
                 </div>
               ))
             )}
