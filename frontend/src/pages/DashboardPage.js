@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { MessageSquare, Phone, TrendingUp, Activity } from "lucide-react";
+import { MessageSquare, Phone, TrendingUp, Activity, Users } from "lucide-react";
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from "recharts";
 import { toast } from "sonner";
 import StatusBadge from "@/components/custom/StatusBadge";
@@ -15,10 +15,27 @@ export default function DashboardPage() {
   const [stats, setStats] = useState(null);
   const [dateRange, setDateRange] = useState({ from: new Date(), to: new Date() });
   const [loading, setLoading] = useState(true);
+  const [onlineUsers, setOnlineUsers] = useState([]);
 
   useEffect(() => {
     fetchStats();
+    fetchOnlineUsers();
+    // Refresh online users every 30 seconds
+    const interval = setInterval(fetchOnlineUsers, 30000);
+    return () => clearInterval(interval);
   }, [dateRange]);
+
+  const fetchOnlineUsers = async () => {
+    try {
+      const token = localStorage.getItem("token");
+      const response = await axios.get(`${API}/dashboard/online-users`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setOnlineUsers(response.data || []);
+    } catch (error) {
+      console.error("Failed to fetch online users:", error);
+    }
+  };
 
   const fetchStats = async () => {
     try {
@@ -109,6 +126,39 @@ export default function DashboardPage() {
           )}
         </div>
       </div>
+
+      {/* Online Users Widget */}
+      <Card className="bg-zinc-900/50 border-white/10">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-medium text-zinc-400 flex items-center gap-2">
+            <Users className="h-4 w-4 text-emerald-500" />
+            Online Users
+            <span className="text-xs bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full ml-2">
+              {onlineUsers.length}
+            </span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {onlineUsers.length === 0 ? (
+            <p className="text-zinc-500 text-sm">No users currently online</p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {onlineUsers.map((user) => (
+                <div
+                  key={user.id}
+                  className="flex items-center gap-2 bg-zinc-800/50 px-3 py-1.5 rounded-full border border-white/5"
+                >
+                  <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                  <span className="text-sm text-zinc-300">{user.username}</span>
+                  {user.name && (
+                    <span className="text-xs text-zinc-500">({user.name})</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
