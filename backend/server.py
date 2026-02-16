@@ -129,6 +129,15 @@ class UserResponse(BaseModel):
     am_type: Optional[str] = None  # Deprecated
     created_at: datetime
 
+class UserUpdate(BaseModel):
+    """Model for updating user - only allows updating certain fields"""
+    name: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    department_id: Optional[str] = None
+    role: Optional[str] = None  # Deprecated
+    am_type: Optional[str] = None  # Deprecated
+
 class Token(BaseModel):
     access_token: str
     token_type: str
@@ -521,6 +530,29 @@ async def get_users(current_user: dict = Depends(get_current_user)):
         if isinstance(user.get('created_at'), str):
             user['created_at'] = datetime.fromisoformat(user['created_at'])
     return [UserResponse(**user) for user in users]
+
+@api_router.put("/users/{user_id}", response_model=UserResponse)
+async def update_user(user_id: str, user_data: UserUpdate, current_admin: dict = Depends(get_current_admin)):
+    """Update user - admin only"""
+    # Build update dict with only provided fields
+    update_dict = {k: v for k, v in user_data.model_dump().items() if v is not None}
+    
+    if not update_dict:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    
+    result = await db.users.find_one_and_update(
+        {"id": user_id},
+        {"$set": update_dict},
+        return_document=True,
+        projection={"_id": 0, "password_hash": 0}
+    )
+    
+    if not result:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    if isinstance(result.get('created_at'), str):
+        result['created_at'] = datetime.fromisoformat(result['created_at'])
+    return UserResponse(**result)
 
 @api_router.delete("/users/{user_id}")
 async def delete_user(user_id: str, current_admin: dict = Depends(get_current_admin)):
