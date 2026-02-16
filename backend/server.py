@@ -367,6 +367,40 @@ class DashboardStats(BaseModel):
     voice_by_priority: dict
     recent_tickets: List[dict]
 
+class AuditLog(BaseModel):
+    """Audit log model for tracking all changes in the system"""
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: str  # ID of the user who made the change
+    username: str  # Username of the user who made the change
+    action: str  # Type of action: "create", "update", "delete"
+    entity_type: str  # Type of entity: "user", "department", "client", "ticket", etc.
+    entity_id: str  # ID of the affected entity
+    entity_name: str  # Name/identifier of the affected entity (for display)
+    changes: Optional[dict] = None  # Details of what changed (for updates)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class AuditLogCreate(BaseModel):
+    """Model for creating an audit log entry"""
+    action: str
+    entity_type: str
+    entity_id: str
+    entity_name: str
+    changes: Optional[dict] = None
+
+class AuditLogResponse(BaseModel):
+    """Model for audit log response"""
+    model_config = ConfigDict(extra="ignore")
+    id: str
+    user_id: str
+    username: str
+    action: str
+    entity_type: str
+    entity_id: str
+    entity_name: str
+    changes: Optional[dict] = None
+    timestamp: datetime
+
 # ==================== AUTH HELPERS ====================
 
 def verify_password(plain_password, hashed_password):
@@ -490,6 +524,19 @@ async def register(user_data: UserCreate, current_admin: dict = Depends(get_curr
     doc['created_at'] = doc['created_at'].isoformat()
     
     await db.users.insert_one(doc)
+    
+    # Create audit log for user creation
+    await create_audit_log(
+        db=db,
+        user_id=current_admin["id"],
+        username=current_admin.get("username", "admin"),
+        action="create",
+        entity_type="user",
+        entity_id=user_obj.id,
+        entity_name=user_data.username,
+        changes={"username": user_data.username, "email": user_data.email, "name": user_data.name}
+    )
+    
     return UserResponse(**user_obj.model_dump())
 
 @api_router.post("/auth/login", response_model=Token)
@@ -542,6 +589,9 @@ async def update_user(user_id: str, user_data: UserUpdate, current_admin: dict =
     if not update_dict:
         raise HTTPException(status_code=400, detail="No fields to update")
     
+    # Get user info before update for audit
+    user_before = await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})
+    
     result = await db.users.find_one_and_update(
         {"id": user_id},
         {"$set": update_dict},
@@ -552,15 +602,43 @@ async def update_user(user_id: str, user_data: UserUpdate, current_admin: dict =
     if not result:
         raise HTTPException(status_code=404, detail="User not found")
     
+    # Create audit log for user update
+    await create_audit_log(
+        db=db,
+        user_id=current_admin["id"],
+        username=current_admin.get("username", "admin"),
+        action="update",
+        entity_type="user",
+        entity_id=user_id,
+        entity_name=user_before.get("username", user_id),
+        changes={"before": user_before, "after": update_dict}
+    )
+    
     if isinstance(result.get('created_at'), str):
         result['created_at'] = datetime.fromisoformat(result['created_at'])
     return UserResponse(**result)
 
 @api_router.delete("/users/{user_id}")
 async def delete_user(user_id: str, current_admin: dict = Depends(get_current_admin)):
+    # Get user info before delete for audit
+    user_before = await db.users.find_one({"id": user_id}, {"_id": 0})
+    
     result = await db.users.delete_one({"id": user_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="User not found")
+    
+    # Create audit log for user deletion
+    await create_audit_log(
+        db=db,
+        user_id=current_admin["id"],
+        username=current_admin.get("username", "admin"),
+        action="delete",
+        entity_type="user",
+        entity_id=user_id,
+        entity_name=user_before.get("username", user_id) if user_before else user_id,
+        changes={"deleted_user": user_before}
+    )
+    
     return {"message": "User deleted successfully"}
 
 # ==================== DEPARTMENT ROUTES ====================
@@ -693,12 +771,28 @@ async def create_department(dept_data: DepartmentCreate, current_admin: dict = D
     doc['created_at'] = doc['created_at'].isoformat()
     
     await db.departments.insert_one(doc)
+    
+    # Create audit log for department creation
+    await create_audit_log(
+        db=db,
+        user_id=current_admin["id"],
+        username=current_admin.get("username", "admin"),
+        action="create",
+        entity_type="department",
+        entity_id=dept_obj.id,
+        entity_name=dept_data.name,
+        changes={"name": dept_data.name, "department_type": dept_data.department_type}
+    )
+    
     return dept_obj
 
 @api_router.put("/departments/{dept_id}", response_model=Department)
 async def update_department(dept_id: str, dept_data: DepartmentUpdate, current_admin: dict = Depends(get_current_admin)):
     """Update a department - admin only"""
     update_dict = {k: v for k, v in dept_data.model_dump().items() if v is not None}
+    
+    # Get department info before update for audit
+    dept_before = await db.departments.find_one({"id": dept_id}, {"_id": 0})
     
     result = await db.departments.find_one_and_update(
         {"id": dept_id},
@@ -709,6 +803,18 @@ async def update_department(dept_id: str, dept_data: DepartmentUpdate, current_a
     
     if not result:
         raise HTTPException(status_code=404, detail="Department not found")
+    
+    # Create audit log for department update
+    await create_audit_log(
+        db=db,
+        user_id=current_admin["id"],
+        username=current_admin.get("username", "admin"),
+        action="update",
+        entity_type="department",
+        entity_id=dept_id,
+        entity_name=dept_before.get("name", dept_id) if dept_before else dept_id,
+        changes={"before": dept_before, "after": update_dict}
+    )
     
     if isinstance(result.get('created_at'), str):
         result['created_at'] = datetime.fromisoformat(result['created_at'])
@@ -721,9 +827,25 @@ async def delete_department(dept_id: str, current_admin: dict = Depends(get_curr
     if dept_id in ["dept_admin", "dept_sms_sales", "dept_voice_sales", "dept_noc"]:
         raise HTTPException(status_code=400, detail="Cannot delete default departments")
     
+    # Get department info before delete for audit
+    dept_before = await db.departments.find_one({"id": dept_id}, {"_id": 0})
+    
     result = await db.departments.delete_one({"id": dept_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Department not found")
+    
+    # Create audit log for department deletion
+    await create_audit_log(
+        db=db,
+        user_id=current_admin["id"],
+        username=current_admin.get("username", "admin"),
+        action="delete",
+        entity_type="department",
+        entity_id=dept_id,
+        entity_name=dept_before.get("name", dept_id) if dept_before else dept_id,
+        changes={"deleted_department": dept_before}
+    )
+    
     return {"message": "Department deleted successfully"}
 
 @api_router.get("/my-department")
@@ -753,6 +875,19 @@ async def create_client(client_data: ClientCreate, current_user: dict = Depends(
     doc['created_at'] = doc['created_at'].isoformat()
     
     await db.clients.insert_one(doc)
+    
+    # Create audit log for client creation
+    await create_audit_log(
+        db=db,
+        user_id=current_user["id"],
+        username=current_user.get("username", "user"),
+        action="create",
+        entity_type="client",
+        entity_id=client_obj.id,
+        entity_name=client_data.name,
+        changes={"name": client_data.name}
+    )
+    
     return client_obj
 
 @api_router.get("/clients", response_model=List[Client])
@@ -779,6 +914,9 @@ async def update_client(client_id: str, client_data: ClientUpdate, current_user:
         raise HTTPException(status_code=403, detail="Admin or NOC access required")
     update_dict = {k: v for k, v in client_data.model_dump().items() if v is not None}
     
+    # Get client info before update for audit
+    client_before = await db.clients.find_one({"id": client_id}, {"_id": 0})
+    
     result = await db.clients.find_one_and_update(
         {"id": client_id},
         {"$set": update_dict},
@@ -788,6 +926,18 @@ async def update_client(client_id: str, client_data: ClientUpdate, current_user:
     
     if not result:
         raise HTTPException(status_code=404, detail="Client not found")
+    
+    # Create audit log for client update
+    await create_audit_log(
+        db=db,
+        user_id=current_user["id"],
+        username=current_user.get("username", "user"),
+        action="update",
+        entity_type="client",
+        entity_id=client_id,
+        entity_name=client_before.get("name", client_id) if client_before else client_id,
+        changes={"before": client_before, "after": update_dict}
+    )
     
     if isinstance(result['created_at'], str):
         result['created_at'] = datetime.fromisoformat(result['created_at'])
@@ -812,6 +962,9 @@ async def update_client_contact(client_id: str, contact_data: ClientContactUpdat
     if not client:
         raise HTTPException(status_code=404, detail="Client not found or not assigned to you")
     
+    # Get client info before update for audit
+    client_before = await db.clients.find_one({"id": client_id}, {"_id": 0})
+    
     update_dict = {k: v for k, v in contact_data.model_dump().items() if v is not None}
     
     result = await db.clients.find_one_and_update(
@@ -821,15 +974,43 @@ async def update_client_contact(client_id: str, contact_data: ClientContactUpdat
         projection={"_id": 0}
     )
     
+    # Create audit log for client contact update
+    await create_audit_log(
+        db=db,
+        user_id=current_user["id"],
+        username=current_user.get("username", "user"),
+        action="update",
+        entity_type="client_contact",
+        entity_id=client_id,
+        entity_name=client_before.get("name", client_id) if client_before else client_id,
+        changes={"before": client_before, "after": update_dict}
+    )
+    
     if isinstance(result['created_at'], str):
         result['created_at'] = datetime.fromisoformat(result['created_at'])
     return Client(**result)
 
 @api_router.delete("/clients/{client_id}")
 async def delete_client(client_id: str, current_admin: dict = Depends(get_current_admin)):
+    # Get client info before delete for audit
+    client_before = await db.clients.find_one({"id": client_id}, {"_id": 0})
+    
     result = await db.clients.delete_one({"id": client_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Client not found")
+    
+    # Create audit log for client deletion
+    await create_audit_log(
+        db=db,
+        user_id=current_admin["id"],
+        username=current_admin.get("username", "admin"),
+        action="delete",
+        entity_type="client",
+        entity_id=client_id,
+        entity_name=client_before.get("name", client_id) if client_before else client_id,
+        changes={"deleted_client": client_before}
+    )
+    
     return {"message": "Client deleted successfully"}
 
 @api_router.get("/trunks/{enterprise_type}")
@@ -912,6 +1093,19 @@ async def create_sms_ticket(ticket_data: SMSTicketCreate, current_user: dict = D
     doc['updated_at'] = doc['updated_at'].isoformat()
     
     await db.sms_tickets.insert_one(doc)
+    
+    # Create audit log for ticket creation
+    await create_audit_log(
+        db=db,
+        user_id=current_user["id"],
+        username=current_user.get("username", "user"),
+        action="create",
+        entity_type="ticket_sms",
+        entity_id=ticket_id,
+        entity_name=ticket_dict["ticket_number"],
+        changes={"customer": client["name"], "priority": ticket_data.priority, "status": ticket_data.status}
+    )
+    
     return ticket_obj
 
 @api_router.get("/tickets/sms", response_model=List[SMSTicket])
@@ -1001,6 +1195,18 @@ async def update_sms_ticket(ticket_id: str, ticket_data: SMSTicketUpdate, curren
     if not result:
         raise HTTPException(status_code=404, detail="Ticket not found")
     
+    # Create audit log for ticket update
+    await create_audit_log(
+        db=db,
+        user_id=current_user["id"],
+        username=current_user.get("username", "user"),
+        action="update",
+        entity_type="ticket_sms",
+        entity_id=ticket_id,
+        entity_name=existing_ticket.get("ticket_number", ticket_id),
+        changes={"before": existing_ticket, "after": update_dict}
+    )
+    
     if isinstance(result['date'], str):
         result['date'] = datetime.fromisoformat(result['date'])
     if isinstance(result['updated_at'], str):
@@ -1011,9 +1217,25 @@ async def update_sms_ticket(ticket_id: str, ticket_data: SMSTicketUpdate, curren
 
 @api_router.delete("/tickets/sms/{ticket_id}")
 async def delete_sms_ticket(ticket_id: str, current_user: dict = Depends(get_current_admin_or_noc)):
+    # Get ticket info before delete for audit
+    ticket_before = await db.sms_tickets.find_one({"id": ticket_id}, {"_id": 0})
+    
     result = await db.sms_tickets.delete_one({"id": ticket_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Ticket not found")
+    
+    # Create audit log for ticket deletion
+    await create_audit_log(
+        db=db,
+        user_id=current_user["id"],
+        username=current_user.get("username", "user"),
+        action="delete",
+        entity_type="ticket_sms",
+        entity_id=ticket_id,
+        entity_name=ticket_before.get("ticket_number", ticket_id) if ticket_before else ticket_id,
+        changes={"deleted_ticket": ticket_before}
+    )
+    
     return {"message": "Ticket deleted successfully"}
 
 # ==================== VOICE TICKET ROUTES ====================
@@ -1050,6 +1272,19 @@ async def create_voice_ticket(ticket_data: VoiceTicketCreate, current_user: dict
     doc['updated_at'] = doc['updated_at'].isoformat()
     
     await db.voice_tickets.insert_one(doc)
+    
+    # Create audit log for ticket creation
+    await create_audit_log(
+        db=db,
+        user_id=current_user["id"],
+        username=current_user.get("username", "user"),
+        action="create",
+        entity_type="ticket_voice",
+        entity_id=ticket_id,
+        entity_name=ticket_dict["ticket_number"],
+        changes={"customer": client["name"], "priority": ticket_data.priority, "status": ticket_data.status}
+    )
+    
     return ticket_obj
 
 @api_router.get("/tickets/voice", response_model=List[VoiceTicket])
@@ -1120,6 +1355,18 @@ async def update_voice_ticket(ticket_id: str, ticket_data: VoiceTicketUpdate, cu
     if not result:
         raise HTTPException(status_code=404, detail="Ticket not found")
     
+    # Create audit log for ticket update
+    await create_audit_log(
+        db=db,
+        user_id=current_user["id"],
+        username=current_user.get("username", "user"),
+        action="update",
+        entity_type="ticket_voice",
+        entity_id=ticket_id,
+        entity_name=existing_ticket.get("ticket_number", ticket_id),
+        changes={"before": existing_ticket, "after": update_dict}
+    )
+    
     if isinstance(result['date'], str):
         result['date'] = datetime.fromisoformat(result['date'])
     if isinstance(result['updated_at'], str):
@@ -1130,9 +1377,25 @@ async def update_voice_ticket(ticket_id: str, ticket_data: VoiceTicketUpdate, cu
 
 @api_router.delete("/tickets/voice/{ticket_id}")
 async def delete_voice_ticket(ticket_id: str, current_user: dict = Depends(get_current_admin_or_noc)):
+    # Get ticket info before delete for audit
+    ticket_before = await db.voice_tickets.find_one({"id": ticket_id}, {"_id": 0})
+    
     result = await db.voice_tickets.delete_one({"id": ticket_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Ticket not found")
+    
+    # Create audit log for ticket deletion
+    await create_audit_log(
+        db=db,
+        user_id=current_user["id"],
+        username=current_user.get("username", "user"),
+        action="delete",
+        entity_type="ticket_voice",
+        entity_id=ticket_id,
+        entity_name=ticket_before.get("ticket_number", ticket_id) if ticket_before else ticket_id,
+        changes={"deleted_ticket": ticket_before}
+    )
+    
     return {"message": "Ticket deleted successfully"}
 
 
@@ -1467,6 +1730,96 @@ async def get_dashboard_stats(
 
 # Include router
 app.include_router(api_router)
+
+# ==================== AUDIT LOG HELPERS ====================
+
+async def create_audit_log(db, user_id: str, username: str, action: str, entity_type: str, entity_id: str, entity_name: str, changes: Optional[dict] = None):
+    """Helper function to create an audit log entry"""
+    audit_log = {
+        "id": str(uuid.uuid4()),
+        "user_id": user_id,
+        "username": username,
+        "action": action,
+        "entity_type": entity_type,
+        "entity_id": entity_id,
+        "entity_name": entity_name,
+        "changes": changes,
+        "timestamp": datetime.now(timezone.utc)
+    }
+    await db.audit_logs.insert_one(audit_log)
+    return audit_log
+
+# ==================== AUDIT LOG ENDPOINTS ====================
+
+@api_router.get("/audit-logs", response_model=List[AuditLogResponse])
+async def get_audit_logs(
+    current_admin: dict = Depends(get_current_admin),
+    limit: Optional[int] = 100,
+    offset: Optional[int] = 0,
+    entity_type: Optional[str] = None,
+    user_id: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None
+):
+    """Get all audit logs - admin only"""
+    query = {}
+    
+    # Filter by entity type
+    if entity_type:
+        query["entity_type"] = entity_type
+    
+    # Filter by user
+    if user_id:
+        query["user_id"] = user_id
+    
+    # Filter by date range
+    if date_from or date_to:
+        query["timestamp"] = {}
+        if date_from:
+            query["timestamp"]["$gte"] = datetime.fromisoformat(date_from)
+        if date_to:
+            query["timestamp"]["$lte"] = datetime.fromisoformat(date_to)
+    
+    # Get total count
+    total_count = await db.audit_logs.count_documents(query)
+    
+    # Get paginated results, sorted by timestamp descending (most recent first)
+    cursor = db.audit_logs.find(query, {"_id": 0}).sort("timestamp", -1).skip(offset).limit(limit)
+    logs = await cursor.to_list(length=limit)
+    
+    # Convert datetime to ISO string for serialization
+    for log in logs:
+        if isinstance(log.get("timestamp"), datetime):
+            log["timestamp"] = log["timestamp"].isoformat()
+    
+    return logs
+
+@api_router.get("/audit-logs/count")
+async def get_audit_logs_count(
+    current_admin: dict = Depends(get_current_admin),
+    entity_type: Optional[str] = None,
+    user_id: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None
+):
+    """Get total count of audit logs with filters - admin only"""
+    query = {}
+    
+    if entity_type:
+        query["entity_type"] = entity_type
+    
+    if user_id:
+        query["user_id"] = user_id
+    
+    if date_from or date_to:
+        query["timestamp"] = {}
+        if date_from:
+            query["timestamp"]["$gte"] = datetime.fromisoformat(date_from)
+        if date_to:
+            query["timestamp"]["$lte"] = datetime.fromisoformat(date_to)
+    
+    count = await db.audit_logs.count_documents(query)
+    return {"total": count}
 
 app.add_middleware(
     CORSMiddleware,
