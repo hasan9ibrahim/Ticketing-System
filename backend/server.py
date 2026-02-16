@@ -558,6 +558,23 @@ async def login(login_data: UserLogin):
         {"$set": {"last_active": datetime.now(timezone.utc)}}
     )
     
+    # Create a session record to track online time
+    session_id = str(uuid.uuid4())
+    await db.user_sessions.insert_one({
+        "id": session_id,
+        "user_id": user["id"],
+        "username": user["username"],
+        "login_time": datetime.now(timezone.utc),
+        "logout_time": None,
+        "created_at": datetime.now(timezone.utc)
+    })
+    
+    # Store session_id in user document for reference
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$set": {"current_session_id": session_id}}
+    )
+    
     # Convert ISO string timestamp back to datetime
     if isinstance(user['created_at'], str):
         user['created_at'] = datetime.fromisoformat(user['created_at'])
@@ -566,6 +583,30 @@ async def login(login_data: UserLogin):
     user_response = UserResponse(**user)
     
     return Token(access_token=access_token, token_type="bearer", user=user_response)
+
+@api_router.post("/auth/logout")
+async def logout(current_user: dict = Depends(get_current_user)):
+    """Logout - marks user as offline by setting last_active to a very old timestamp and closes session"""
+    # Set last_active to a time far in the past so user immediately shows as offline
+    await db.users.update_one(
+        {"id": current_user["id"]},
+        {"$set": {"last_active": datetime(1970, 1, 1, tzinfo=timezone.utc)}}
+    )
+    
+    # Close the current session record
+    current_session_id = current_user.get("current_session_id")
+    if current_session_id:
+        await db.user_sessions.find_one_and_update(
+            {"id": current_session_id},
+            {"$set": {"logout_time": datetime.now(timezone.utc)}}
+        )
+        # Clear the current_session_id from user document
+        await db.users.update_one(
+            {"id": current_user["id"]},
+            {"$unset": {"current_session_id": ""}}
+        )
+    
+    return {"message": "Logged out successfully"}
 
 @api_router.get("/auth/me", response_model=UserResponse)
 async def get_me(current_user: dict = Depends(get_current_user)):
@@ -1497,6 +1538,74 @@ async def get_online_users(current_user: dict = Depends(get_current_user)):
     # Also include users who logged in recently (last_active not set but logged in recently)
     # For now, just return users with last_active
     return online_users
+
+
+@api_router.get("/dashboard/user-online-time")
+async def get_user_online_time(current_user: dict = Depends(get_current_user)):
+    """Get online time statistics for all users in the last 24 hours"""
+    from datetime import timedelta
+    
+    now = datetime.now(timezone.utc)
+    twenty_four_hours_ago = now - timedelta(hours=24)
+    
+    # Get all sessions in the last 24 hours
+    sessions = await db.user_sessions.find({
+        "login_time": {"$gte": twenty_four_hours_ago}
+    }).to_list(1000)
+    
+    # Calculate total online time per user
+    user_online_time = {}
+    for session in sessions:
+        user_id = session.get("user_id")
+        username = session.get("username", "Unknown")
+        
+        login_time = session.get("login_time")
+        if isinstance(login_time, str):
+            login_time = datetime.fromisoformat(login_time)
+        
+        # For ongoing sessions (no logout_time), use current time
+        logout_time = session.get("logout_time")
+        if logout_time is None:
+            # Session is still active - include time until now
+            logout_time = now
+        elif isinstance(logout_time, str):
+            logout_time = datetime.fromisoformat(logout_time)
+        
+        if login_time and logout_time:
+            duration = (logout_time - login_time).total_seconds()
+            
+            if user_id not in user_online_time:
+                user_online_time[user_id] = {
+                    "user_id": user_id,
+                    "username": username,
+                    "total_seconds": 0,
+                    "session_count": 0
+                }
+            
+            user_online_time[user_id]["total_seconds"] += duration
+            user_online_time[user_id]["session_count"] += 1
+    
+    # Convert to list and format duration
+    result = []
+    for user_id, data in user_online_time.items():
+        total_seconds = data["total_seconds"]
+        hours = int(total_seconds // 3600)
+        minutes = int((total_seconds % 3600) // 60)
+        
+        # Only include users who have been online for at least 1 minute
+        if total_seconds >= 60:
+            result.append({
+                "user_id": data["user_id"],
+                "username": data["username"],
+                "total_time_formatted": f"{hours}h {minutes}m",
+                "total_seconds": total_seconds,
+                "session_count": data["session_count"]
+            })
+    
+    # Sort by total time (descending)
+    result.sort(key=lambda x: x["total_seconds"], reverse=True)
+    
+    return result
 
 
 @api_router.get("/dashboard/unassigned-alerts")
