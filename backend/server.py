@@ -45,9 +45,9 @@ class User(BaseModel):
     email: str  # Email - required
     phone: str  # Phone - required
     password_hash: str
-    role: str  # admin, am, noc
+    role: Optional[str] = None  # Deprecated: use department instead
     department_id: Optional[str] = None  # Link to department
-    am_type: Optional[str] = None  # "sms" or "voice" for AMs
+    am_type: Optional[str] = None  # Deprecated: use department.department_type instead
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class Department(BaseModel):
@@ -56,6 +56,7 @@ class Department(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     name: str  # Department name (e.g., "Admin", "SMS Sales", "Voice Sales", "NOC")
     description: Optional[str] = None
+    department_type: str = "all"  # "sms", "voice", or "all" - limits access to ticket types
     # Permissions
     can_view_enterprises: bool = True
     can_edit_enterprises: bool = False
@@ -73,6 +74,7 @@ class Department(BaseModel):
 class DepartmentCreate(BaseModel):
     name: str
     description: Optional[str] = None
+    department_type: str = "all"  # "sms", "voice", or "all"
     can_view_enterprises: bool = True
     can_edit_enterprises: bool = False
     can_create_enterprises: bool = False
@@ -88,6 +90,7 @@ class DepartmentCreate(BaseModel):
 class DepartmentUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
+    department_type: Optional[str] = None
     can_view_enterprises: Optional[bool] = None
     can_edit_enterprises: Optional[bool] = None
     can_create_enterprises: Optional[bool] = None
@@ -106,8 +109,9 @@ class UserCreate(BaseModel):
     email: str  # Email - required
     phone: str  # Phone - required
     password: str
-    role: str
-    am_type: Optional[str] = None
+    department_id: Optional[str] = None  # Link to department (preferred)
+    role: Optional[str] = None  # Deprecated: use department_id instead
+    am_type: Optional[str] = None  # Deprecated: use department.department_type instead
 
 class UserLogin(BaseModel):
     identifier: str  # username, email, or phone
@@ -120,8 +124,9 @@ class UserResponse(BaseModel):
     name: Optional[str] = None  # Optional for backward compatibility with existing users
     email: Optional[str] = None
     phone: Optional[str] = None
-    role: str
-    am_type: Optional[str] = None
+    department_id: Optional[str] = None
+    role: Optional[str] = None  # Deprecated
+    am_type: Optional[str] = None  # Deprecated
     created_at: datetime
 
 class Token(BaseModel):
@@ -379,16 +384,63 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     user = await db.users.find_one({"id": user_id}, {"_id": 0})
     if user is None:
         raise HTTPException(status_code=401, detail="User not found")
+    
+    # Attach department info to user for easy access
+    if user.get("department_id"):
+        dept = await db.departments.find_one({"id": user["department_id"]}, {"_id": 0})
+        if dept:
+            user["department"] = dept
+    
     return user
 
+async def get_user_department(current_user: dict) -> Optional[dict]:
+    """Get the user's department with all its permissions"""
+    if current_user.get("department"):
+        return current_user["department"]
+    
+    if current_user.get("department_id"):
+        return await db.departments.find_one({"id": current_user["department_id"]}, {"_id": 0})
+    
+    return None
+
+def get_user_role_from_department(dept: Optional[dict]) -> str:
+    """Get the effective role based on department permissions"""
+    if not dept:
+        return "unknown"
+    
+    # If user can edit users, they're admin
+    if dept.get("can_edit_users"):
+        return "admin"
+    
+    # If user can create tickets but not edit enterprises, they're AM
+    if dept.get("can_create_tickets") and not dept.get("can_edit_enterprises"):
+        return "am"
+    
+    # If user can edit tickets, they're NOC
+    if dept.get("can_edit_tickets"):
+        return "noc"
+    
+    return "unknown"
+
+def get_user_ticket_type(dept: Optional[dict]) -> str:
+    """Get the ticket type the user has access to based on department"""
+    if not dept:
+        return "all"
+    return dept.get("department_type", "all")
+
 async def get_current_admin(current_user: dict = Depends(get_current_user)):
-    if current_user["role"] != "admin":
+    """Check if user is admin based on department permissions"""
+    dept = await get_user_department(current_user)
+    role = get_user_role_from_department(dept)
+    if role != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
     return current_user
 
 async def get_current_admin_or_noc(current_user: dict = Depends(get_current_user)):
-    """Allow both admin and NOC users to perform ticket operations."""
-    if current_user["role"] not in ["admin", "noc"]:
+    """Allow both admin and NOC users to perform ticket operations based on department"""
+    dept = await get_user_department(current_user)
+    role = get_user_role_from_department(dept)
+    if role not in ["admin", "noc"]:
         raise HTTPException(status_code=403, detail="Admin or NOC access required")
     return current_user
 
@@ -486,6 +538,7 @@ async def init_default_departments():
             "id": "dept_admin",
             "name": "Admin",
             "description": "Administrator Department with full access",
+            "department_type": "all",
             "can_view_enterprises": True,
             "can_edit_enterprises": True,
             "can_create_enterprises": True,
@@ -502,6 +555,7 @@ async def init_default_departments():
             "id": "dept_sms_sales",
             "name": "SMS Sales",
             "description": "SMS Account Managers Department",
+            "department_type": "sms",
             "can_view_enterprises": True,
             "can_edit_enterprises": False,
             "can_create_enterprises": False,
@@ -518,6 +572,7 @@ async def init_default_departments():
             "id": "dept_voice_sales",
             "name": "Voice Sales",
             "description": "Voice Account Managers Department",
+            "department_type": "voice",
             "can_view_enterprises": True,
             "can_edit_enterprises": False,
             "can_create_enterprises": False,
@@ -534,6 +589,7 @@ async def init_default_departments():
             "id": "dept_noc",
             "name": "NOC",
             "description": "Network Operations Center Department",
+            "department_type": "all",
             "can_view_enterprises": True,
             "can_edit_enterprises": True,
             "can_create_enterprises": True,
@@ -556,7 +612,9 @@ async def init_default_departments():
 @api_router.get("/departments", response_model=List[Department])
 async def get_departments(current_user: dict = Depends(get_current_user)):
     """Get all departments - accessible by admin only"""
-    if current_user["role"] != "admin":
+    dept = await get_user_department(current_user)
+    role = get_user_role_from_department(dept)
+    if role != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
     
     departments = await db.departments.find({}, {"_id": 0}).to_list(1000)
@@ -624,7 +682,9 @@ async def get_my_department(current_user: dict = Depends(get_current_user)):
 
 @api_router.post("/clients", response_model=Client)
 async def create_client(client_data: ClientCreate, current_user: dict = Depends(get_current_user)):
-    if current_user["role"] not in ["admin", "noc"]:
+    """Create a new client - requires can_create_enterprises permission"""
+    dept = await get_user_department(current_user)
+    if not dept or not dept.get("can_create_enterprises"):
         raise HTTPException(status_code=403, detail="Admin or NOC access required")
     client_obj = Client(**client_data.model_dump())
     doc = client_obj.model_dump()
@@ -635,8 +695,12 @@ async def create_client(client_data: ClientCreate, current_user: dict = Depends(
 
 @api_router.get("/clients", response_model=List[Client])
 async def get_clients(current_user: dict = Depends(get_current_user)):
+    """Get all clients - filtered by AM if user is AM"""
+    dept = await get_user_department(current_user)
+    role = get_user_role_from_department(dept)
+    
     query = {}
-    if current_user["role"] == "am":
+    if role == "am":
         query["assigned_am_id"] = current_user["id"]
     
     clients = await db.clients.find(query, {"_id": 0}).to_list(1000)
@@ -647,7 +711,9 @@ async def get_clients(current_user: dict = Depends(get_current_user)):
 
 @api_router.put("/clients/{client_id}", response_model=Client)
 async def update_client(client_id: str, client_data: ClientUpdate, current_user: dict = Depends(get_current_user)):
-    if current_user["role"] not in ["admin", "noc"]:
+    """Update client - requires can_edit_enterprises permission"""
+    dept = await get_user_department(current_user)
+    if not dept or not dept.get("can_edit_enterprises"):
         raise HTTPException(status_code=403, detail="Admin or NOC access required")
     update_dict = {k: v for k, v in client_data.model_dump().items() if v is not None}
     
@@ -707,8 +773,16 @@ async def delete_client(client_id: str, current_admin: dict = Depends(get_curren
 @api_router.get("/trunks/{enterprise_type}")
 async def get_trunks_by_type(enterprise_type: str, current_user: dict = Depends(get_current_user)):
     """Get all customer and vendor trunks for a specific enterprise type (sms or voice)"""
+    # Check department type access
+    dept = await get_user_department(current_user)
+    ticket_type = get_user_ticket_type(dept)
+    if ticket_type != "all" and ticket_type != enterprise_type:
+        raise HTTPException(status_code=403, detail=f"You don't have access to {enterprise_type} tickets")
+    
     query = {"enterprise_type": enterprise_type}
-    if current_user["role"] == "am":
+    dept = await get_user_department(current_user)
+    role = get_user_role_from_department(dept)
+    if role == "am":
         query["assigned_am_id"] = current_user["id"]
     
     clients = await db.clients.find(query, {"_id": 0, "customer_trunks": 1, "vendor_trunks": 1, "name": 1, "id": 1}).to_list(1000)
@@ -739,8 +813,15 @@ def generate_ticket_number(date: datetime, ticket_id: str) -> str:
 
 @api_router.post("/tickets/sms", response_model=SMSTicket)
 async def create_sms_ticket(ticket_data: SMSTicketCreate, current_user: dict = Depends(get_current_user)):
-    # AMs cannot create tickets
-    if current_user["role"] == "am":
+    """Create SMS ticket - requires can_create_tickets permission and SMS type access"""
+    # Check department type access
+    dept = await get_user_department(current_user)
+    ticket_type = get_user_ticket_type(dept)
+    if ticket_type != "all" and ticket_type != "sms":
+        raise HTTPException(status_code=403, detail="You don't have access to SMS tickets")
+    
+    # Check permission
+    if not dept or not dept.get("can_create_tickets"):
         raise HTTPException(status_code=403, detail="Account Managers cannot create tickets")
     
     # Validate status requirements
@@ -773,13 +854,18 @@ async def create_sms_ticket(ticket_data: SMSTicketCreate, current_user: dict = D
 
 @api_router.get("/tickets/sms", response_model=List[SMSTicket])
 async def get_sms_tickets(current_user: dict = Depends(get_current_user)):
+    """Get SMS tickets - filtered by department type and permissions"""
+    # Check department type access
+    dept = await get_user_department(current_user)
+    ticket_type = get_user_ticket_type(dept)
+    if ticket_type != "all" and ticket_type != "sms":
+        raise HTTPException(status_code=403, detail="You don't have access to SMS tickets")
+    
     query = {}
     
-    if current_user["role"] == "am":
-        # Check if AM is assigned to SMS
-        if current_user.get("am_type") != "sms":
-            raise HTTPException(status_code=403, detail="You are not assigned to SMS tickets")
-        
+    role = get_user_role_from_department(dept)
+    
+    if role == "am":
         clients = await db.clients.find({"assigned_am_id": current_user["id"]}, {"_id": 0}).to_list(1000)
         client_ids = [c["id"] for c in clients]
         query["customer_id"] = {"$in": client_ids}
@@ -797,6 +883,13 @@ async def get_sms_tickets(current_user: dict = Depends(get_current_user)):
 
 @api_router.get("/tickets/sms/{ticket_id}", response_model=SMSTicket)
 async def get_sms_ticket(ticket_id: str, current_user: dict = Depends(get_current_user)):
+    """Get a single SMS ticket"""
+    # Check department type access
+    dept = await get_user_department(current_user)
+    ticket_type = get_user_ticket_type(dept)
+    if ticket_type != "all" and ticket_type != "sms":
+        raise HTTPException(status_code=403, detail="You don't have access to SMS tickets")
+    
     ticket = await db.sms_tickets.find_one({"id": ticket_id}, {"_id": 0})
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
@@ -811,8 +904,15 @@ async def get_sms_ticket(ticket_id: str, current_user: dict = Depends(get_curren
 
 @api_router.put("/tickets/sms/{ticket_id}", response_model=SMSTicket)
 async def update_sms_ticket(ticket_id: str, ticket_data: SMSTicketUpdate, current_user: dict = Depends(get_current_user)):
-    # AMs cannot update tickets
-    if current_user["role"] == "am":
+    """Update SMS ticket - requires can_edit_tickets permission and SMS type access"""
+    # Check department type access
+    dept = await get_user_department(current_user)
+    ticket_type = get_user_ticket_type(dept)
+    if ticket_type != "all" and ticket_type != "sms":
+        raise HTTPException(status_code=403, detail="You don't have access to SMS tickets")
+    
+    # Check permission
+    if not dept or not dept.get("can_edit_tickets"):
         raise HTTPException(status_code=403, detail="Account Managers cannot modify tickets")
     
     # Get the existing ticket to check status validation
