@@ -227,6 +227,8 @@ class TicketAction(BaseModel):
     created_by: str
     created_by_username: str
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    edited: bool = False  # Whether this action has been edited
+    edited_at: Optional[datetime] = None  # When it was last edited
 
 
 class SMSTicketCreate(BaseModel):
@@ -1140,6 +1142,10 @@ class AddTicketAction(BaseModel):
     text: str
 
 
+class UpdateTicketAction(BaseModel):
+    text: str
+
+
 @api_router.post("/tickets/sms/{ticket_id}/actions")
 async def add_sms_ticket_action(
     ticket_id: str,
@@ -1204,6 +1210,170 @@ async def add_voice_ticket_action(
         raise HTTPException(status_code=404, detail="Ticket not found")
     
     return {"message": "Action added successfully", "action": action_obj}
+
+
+# Edit and Delete SMS Ticket Actions
+@api_router.put("/tickets/sms/{ticket_id}/actions/{action_id}")
+async def update_sms_ticket_action(
+    ticket_id: str,
+    action_id: str,
+    action_data: UpdateTicketAction,
+    current_user: dict = Depends(get_current_user)
+):
+    # First get the ticket to find the action
+    ticket = await db.sms_tickets.find_one({"id": ticket_id})
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    
+    # Find the action
+    action = None
+    for a in ticket.get("actions", []):
+        if a.get("id") == action_id:
+            action = a
+            break
+    
+    if not action:
+        raise HTTPException(status_code=404, detail="Action not found")
+    
+    # Check if user owns this action
+    if action.get("created_by") != current_user["id"]:
+        raise HTTPException(status_code=403, detail="You can only edit your own actions")
+    
+    # Update the action
+    result = await db.sms_tickets.find_one_and_update(
+        {"id": ticket_id, "actions.id": action_id},
+        {
+            "$set": {
+                "actions.$.text": action_data.text,
+                "actions.$.edited": True,
+                "actions.$.edited_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }
+        },
+        projection={"_id": 0}
+    )
+    
+    return {"message": "Action updated successfully"}
+
+
+@api_router.delete("/tickets/sms/{ticket_id}/actions/{action_id}")
+async def delete_sms_ticket_action(
+    ticket_id: str,
+    action_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    # First get the ticket to find the action
+    ticket = await db.sms_tickets.find_one({"id": ticket_id})
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    
+    # Find the action
+    action = None
+    for a in ticket.get("actions", []):
+        if a.get("id") == action_id:
+            action = a
+            break
+    
+    if not action:
+        raise HTTPException(status_code=404, detail="Action not found")
+    
+    # Check if user owns this action
+    if action.get("created_by") != current_user["id"]:
+        raise HTTPException(status_code=403, detail="You can only delete your own actions")
+    
+    # Delete the action using pull
+    result = await db.sms_tickets.find_one_and_update(
+        {"id": ticket_id},
+        {
+            "$pull": {"actions": {"id": action_id}},
+            "$set": {"updated_at": datetime.now(timezone.utc).isoformat()}
+        },
+        projection={"_id": 0}
+    )
+    
+    return {"message": "Action deleted successfully"}
+
+
+# Edit and Delete Voice Ticket Actions
+@api_router.put("/tickets/voice/{ticket_id}/actions/{action_id}")
+async def update_voice_ticket_action(
+    ticket_id: str,
+    action_id: str,
+    action_data: UpdateTicketAction,
+    current_user: dict = Depends(get_current_user)
+):
+    # First get the ticket to find the action
+    ticket = await db.voice_tickets.find_one({"id": ticket_id})
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    
+    # Find the action
+    action = None
+    for a in ticket.get("actions", []):
+        if a.get("id") == action_id:
+            action = a
+            break
+    
+    if not action:
+        raise HTTPException(status_code=404, detail="Action not found")
+    
+    # Check if user owns this action
+    if action.get("created_by") != current_user["id"]:
+        raise HTTPException(status_code=403, detail="You can only edit your own actions")
+    
+    # Update the action
+    result = await db.voice_tickets.find_one_and_update(
+        {"id": ticket_id, "actions.id": action_id},
+        {
+            "$set": {
+                "actions.$.text": action_data.text,
+                "actions.$.edited": True,
+                "actions.$.edited_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }
+        },
+        projection={"_id": 0}
+    )
+    
+    return {"message": "Action updated successfully"}
+
+
+@api_router.delete("/tickets/voice/{ticket_id}/actions/{action_id}")
+async def delete_voice_ticket_action(
+    ticket_id: str,
+    action_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    # First get the ticket to find the action
+    ticket = await db.voice_tickets.find_one({"id": ticket_id})
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    
+    # Find the action
+    action = None
+    for a in ticket.get("actions", []):
+        if a.get("id") == action_id:
+            action = a
+            break
+    
+    if not action:
+        raise HTTPException(status_code=404, detail="Action not found")
+    
+    # Check if user owns this action
+    if action.get("created_by") != current_user["id"]:
+        raise HTTPException(status_code=403, detail="You can only delete your own actions")
+    
+    # Delete the action using pull
+    result = await db.voice_tickets.find_one_and_update(
+        {"id": ticket_id},
+        {
+            "$pull": {"actions": {"id": action_id}},
+            "$set": {"updated_at": datetime.now(timezone.utc).isoformat()}
+        },
+        projection={"_id": 0}
+    )
+    
+    return {"message": "Action deleted successfully"}
 
 # ==================== DASHBOARD ROUTES ====================
 
