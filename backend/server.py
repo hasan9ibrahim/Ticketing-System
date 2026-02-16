@@ -611,12 +611,7 @@ async def init_default_departments():
 
 @api_router.get("/departments", response_model=List[Department])
 async def get_departments(current_user: dict = Depends(get_current_user)):
-    """Get all departments - accessible by admin only"""
-    dept = await get_user_department(current_user)
-    role = get_user_role_from_department(dept)
-    if role != "admin":
-        raise HTTPException(status_code=403, detail="Admin access required")
-    
+    """Get all departments - accessible by all authenticated users (for selection)"""
     departments = await db.departments.find({}, {"_id": 0}).to_list(1000)
     for dept in departments:
         if isinstance(dept.get('created_at'), str):
