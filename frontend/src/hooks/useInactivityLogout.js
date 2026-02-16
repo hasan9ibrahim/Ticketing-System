@@ -1,10 +1,8 @@
 import { useEffect, useRef, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
 
 const INACTIVITY_TIMEOUT = 5 * 60 * 1000; // 5 minutes in milliseconds
 
 export default function useInactivityLogout(isAuthenticated, setUser) {
-  const navigate = useNavigate();
   const timeoutRef = useRef(null);
 
   const handleLogout = useCallback(() => {
@@ -14,9 +12,10 @@ export default function useInactivityLogout(isAuthenticated, setUser) {
       if (setUser) {
         setUser(null);
       }
-      navigate("/login");
+      // Use window.location for navigation
+      window.location.href = "/login";
     }
-  }, [isAuthenticated, setUser, navigate]);
+  }, [isAuthenticated, setUser]);
 
   const resetTimer = useCallback(() => {
     if (timeoutRef.current) {
