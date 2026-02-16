@@ -16,8 +16,15 @@ export default function DashboardPage() {
   const [dateRange, setDateRange] = useState({ from: new Date(), to: new Date() });
   const [loading, setLoading] = useState(true);
   const [onlineUsers, setOnlineUsers] = useState([]);
+  const [currentUser, setCurrentUser] = useState(null);
 
   useEffect(() => {
+    // Get current user
+    const userData = localStorage.getItem("user");
+    if (userData) {
+      setCurrentUser(JSON.parse(userData));
+    }
+    
     fetchStats();
     fetchOnlineUsers();
     // Refresh online users every 30 seconds
