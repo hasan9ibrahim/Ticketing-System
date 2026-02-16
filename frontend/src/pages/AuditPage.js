@@ -102,15 +102,13 @@ const formatChanges = (changes, getUsernameById) => {
     const before = changes.before;
     const after = changes.after;
     
-    // Get all unique keys from both objects
-    const allKeys = new Set([...Object.keys(before || {}), ...Object.keys(after || {})]);
-    
-    allKeys.forEach((key) => {
+    // Only iterate over keys in the "after" object (these are the fields that were changed)
+    Object.keys(after).forEach((key) => {
       // Skip internal fields
-      if (key === "updated_at" || key === "_id" || key === "password_hash" || key === "date" || key === "created_at") return;
+      if (key === "updated_at" || key === "_id" || key === "password_hash") return;
       
       const oldValue = before?.[key];
-      const newValue = after?.[key];
+      const newValue = after[key];
       
       // Compare values properly
       const oldStr = JSON.stringify(oldValue);
