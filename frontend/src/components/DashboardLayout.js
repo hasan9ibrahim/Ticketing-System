@@ -30,8 +30,8 @@ export default function DashboardLayout({ user, setUser }) {
 
   const navItems = [
     { path: "/", label: "Dashboard", icon: LayoutDashboard, roles: ["admin", "am", "noc"] },
-    { path: "/sms-tickets", label: "SMS Tickets", icon: MessageSquare, roles: ["admin", "am", "noc"], amTypes: ["sms"] },
-    { path: "/voice-tickets", label: "Voice Tickets", icon: Phone, roles: ["admin", "am", "noc"], amTypes: ["voice"] },
+    { path: "/sms-tickets", label: "SMS Tickets", icon: MessageSquare, roles: ["admin", "am", "noc"], ticketType: "sms" },
+    { path: "/voice-tickets", label: "Voice Tickets", icon: Phone, roles: ["admin", "am", "noc"], ticketType: "voice" },
     { path: "/enterprises", label: "Enterprises", icon: Building2, roles: ["admin", "noc"] },
     { path: "/my-enterprises", label: "My Enterprises", icon: Briefcase, roles: ["am"] },
     { path: "/users", label: "Users", icon: Users, roles: ["admin"] },
@@ -41,8 +41,16 @@ export default function DashboardLayout({ user, setUser }) {
   const filteredNavItems = navItems.filter((item) => {
     if (!item.roles.includes(user.role)) return false;
     
-    // For AMs with amTypes restriction, check if they match
-    if (user.role === "am" && item.amTypes) {
+    // Check department_type if available (new system)
+    if (user.department_type && user.department_type !== "all") {
+      // If user has a specific ticket type restriction, only show matching pages
+      if (item.ticketType && item.ticketType !== user.department_type) {
+        return false;
+      }
+    }
+    
+    // Legacy: For AMs with amTypes restriction, check if they match (backward compatibility)
+    if (user.role === "am" && user.am_type && item.amTypes) {
       return item.amTypes.includes(user.am_type);
     }
     
