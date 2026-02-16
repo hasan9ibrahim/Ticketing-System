@@ -206,10 +206,18 @@ export default function AuditPage() {
         params.append("action", actionType);
       }
       if (dateRange?.from) {
-        params.append("date_from", dateRange.from.toISOString().split('T')[0]);
+        const fromDate = dateRange.from;
+        const year = fromDate.getFullYear();
+        const month = String(fromDate.getMonth() + 1).padStart(2, '0');
+        const day = String(fromDate.getDate()).padStart(2, '0');
+        params.append("date_from", `${year}-${month}-${day}`);
       }
       if (dateRange?.to) {
-        params.append("date_to", dateRange.to.toISOString().split('T')[0]);
+        const toDate = dateRange.to;
+        const year = toDate.getFullYear();
+        const month = String(toDate.getMonth() + 1).padStart(2, '0');
+        const day = String(toDate.getDate()).padStart(2, '0');
+        params.append("date_to", `${year}-${month}-${day}`);
       }
       
       const response = await axios.get(`${API}/audit-logs?${params.toString()}`, {
@@ -227,10 +235,18 @@ export default function AuditPage() {
         countParams.append("action", actionType);
       }
       if (dateRange?.from) {
-        countParams.append("date_from", dateRange.from.toISOString().split('T')[0]);
+        const fromDate = dateRange.from;
+        const year = fromDate.getFullYear();
+        const month = String(fromDate.getMonth() + 1).padStart(2, '0');
+        const day = String(fromDate.getDate()).padStart(2, '0');
+        countParams.append("date_from", `${year}-${month}-${day}`);
       }
       if (dateRange?.to) {
-        countParams.append("date_to", dateRange.to.toISOString().split('T')[0]);
+        const toDate = dateRange.to;
+        const year = toDate.getFullYear();
+        const month = String(toDate.getMonth() + 1).padStart(2, '0');
+        const day = String(toDate.getDate()).padStart(2, '0');
+        countParams.append("date_to", `${year}-${month}-${day}`);
       }
       
       const countResponse = await axios.get(`${API}/audit-logs/count?${countParams.toString()}`, {
