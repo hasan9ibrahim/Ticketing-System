@@ -140,6 +140,43 @@ class UserUpdate(BaseModel):
     role: Optional[str] = None  # Deprecated
     am_type: Optional[str] = None  # Deprecated
 
+class TicketModificationNotification(BaseModel):
+    """Model for ticket modification notifications"""
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    ticket_id: str
+    ticket_number: str
+    ticket_type: str  # "sms" or "voice"
+    assigned_to: str  # User ID who was assigned
+    modified_by: str  # User ID who modified the ticket
+    modified_by_username: str  # Username who modified
+    message: str  # Notification message
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    read: bool = False
+
+
+async def create_ticket_modification_notification(
+    ticket_id: str,
+    ticket_number: str,
+    ticket_type: str,
+    assigned_to: str,
+    modified_by: str,
+    modified_by_username: str
+):
+    """Create a notification when a ticket is modified by someone other than the assignee"""
+    notification = TicketModificationNotification(
+        ticket_id=ticket_id,
+        ticket_number=ticket_number,
+        ticket_type=ticket_type,
+        assigned_to=assigned_to,
+        modified_by=modified_by,
+        modified_by_username=modified_by_username,
+        message=f"Ticket {ticket_number} was modified by {modified_by_username}"
+    )
+    doc = notification.model_dump()
+    doc['created_at'] = doc['created_at'].isoformat()
+    await db.ticket_notifications.insert_one(doc)
+
 class Token(BaseModel):
     access_token: str
     token_type: str
@@ -1005,6 +1042,21 @@ async def update_sms_ticket(ticket_id: str, ticket_data: SMSTicketUpdate, curren
     
     update_dict["updated_at"] = datetime.now(timezone.utc).isoformat()
     
+    # Check if we need to create a notification for ticket modification
+    # Only notify if:
+    # 1. Ticket has an assigned user
+    # 2. Ticket status is "Assigned" 
+    # 3. The user modifying the ticket is different from the assigned user
+    existing_assigned_to = existing_ticket.get("assigned_to")
+    existing_status = existing_ticket.get("status")
+    current_user_id = current_user.get("id")
+    
+    should_notify = (
+        existing_assigned_to and 
+        existing_status == "Assigned" and 
+        existing_assigned_to != current_user_id
+    )
+    
     result = await db.sms_tickets.find_one_and_update(
         {"id": ticket_id},
         {"$set": update_dict},
@@ -1014,6 +1066,17 @@ async def update_sms_ticket(ticket_id: str, ticket_data: SMSTicketUpdate, curren
     
     if not result:
         raise HTTPException(status_code=404, detail="Ticket not found")
+    
+    # Create notification after successful update
+    if should_notify:
+        await create_ticket_modification_notification(
+            ticket_id=ticket_id,
+            ticket_number=existing_ticket.get("ticket_number", ""),
+            ticket_type="sms",
+            assigned_to=existing_assigned_to,
+            modified_by=current_user_id,
+            modified_by_username=current_user.get("username", "Unknown")
+        )
     
     if isinstance(result['date'], str):
         result['date'] = datetime.fromisoformat(result['date'])
@@ -1124,6 +1187,21 @@ async def update_voice_ticket(ticket_id: str, ticket_data: VoiceTicketUpdate, cu
     
     update_dict["updated_at"] = datetime.now(timezone.utc).isoformat()
     
+    # Check if we need to create a notification for ticket modification
+    # Only notify if:
+    # 1. Ticket has an assigned user
+    # 2. Ticket status is "Assigned" 
+    # 3. The user modifying the ticket is different from the assigned user
+    existing_assigned_to = existing_ticket.get("assigned_to")
+    existing_status = existing_ticket.get("status")
+    current_user_id = current_user.get("id")
+    
+    should_notify = (
+        existing_assigned_to and 
+        existing_status == "Assigned" and 
+        existing_assigned_to != current_user_id
+    )
+    
     result = await db.voice_tickets.find_one_and_update(
         {"id": ticket_id},
         {"$set": update_dict},
@@ -1133,6 +1211,17 @@ async def update_voice_ticket(ticket_id: str, ticket_data: VoiceTicketUpdate, cu
     
     if not result:
         raise HTTPException(status_code=404, detail="Ticket not found")
+    
+    # Create notification after successful update
+    if should_notify:
+        await create_ticket_modification_notification(
+            ticket_id=ticket_id,
+            ticket_number=existing_ticket.get("ticket_number", ""),
+            ticket_type="voice",
+            assigned_to=existing_assigned_to,
+            modified_by=current_user_id,
+            modified_by_username=current_user.get("username", "Unknown")
+        )
     
     if isinstance(result['date'], str):
         result['date'] = datetime.fromisoformat(result['date'])
@@ -1479,6 +1568,42 @@ async def get_unassigned_alerts(current_user: dict = Depends(get_current_user)):
             })
     
     return alerts
+
+
+@api_router.get("/dashboard/ticket-modifications")
+async def get_ticket_modification_notifications(current_user: dict = Depends(get_current_user)):
+    """Get notifications for tickets that were modified by another user while still assigned to the current user"""
+    current_user_id = current_user.get("id")
+    
+    # Get unread notifications for the current user
+    notifications = await db.ticket_notifications.find({
+        "assigned_to": current_user_id,
+        "read": False
+    }).sort("created_at", -1).limit(20).to_list(20)
+    
+    # Convert datetime fields to ISO format strings for JSON serialization
+    for notification in notifications:
+        if "created_at" in notification and hasattr(notification["created_at"], "isoformat"):
+            notification["created_at"] = notification["created_at"].isoformat()
+    
+    return notifications
+
+
+@api_router.post("/dashboard/ticket-modifications/{notification_id}/read")
+async def mark_notification_as_read(notification_id: str, current_user: dict = Depends(get_current_user)):
+    """Mark a ticket modification notification as read"""
+    current_user_id = current_user.get("id")
+    
+    result = await db.ticket_notifications.find_one_and_update(
+        {"id": notification_id, "assigned_to": current_user_id},
+        {"$set": {"read": True}},
+        return_document=True
+    )
+    
+    if not result:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    
+    return {"message": "Notification marked as read"}
 
 
 @api_router.get("/dashboard/stats", response_model=DashboardStats)
