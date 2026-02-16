@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import axios from "axios";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, Search, Trash2 } from "lucide-react";
+import { Plus, Search, Trash2, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -32,6 +32,7 @@ export default function UsersPage() {
   const [formData, setFormData] = useState({});
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [userToDelete, setUserToDelete] = useState(null);
+  const [editingUser, setEditingUser] = useState(null);
 
   useEffect(() => {
     fetchUsers();
@@ -85,7 +86,21 @@ export default function UsersPage() {
   };
 
   const openCreateSheet = () => {
+    setEditingUser(null);
     setFormData({ role: "noc" });
+    setSheetOpen(true);
+  };
+
+  const openEditSheet = (user) => {
+    setEditingUser(user);
+    setFormData({
+      name: user.name || "",
+      email: user.email || "",
+      phone: user.phone || "",
+      department_id: user.department_id || "",
+      role: user.role || "noc",
+      am_type: user.am_type || "",
+    });
     setSheetOpen(true);
   };
 
@@ -94,14 +109,26 @@ export default function UsersPage() {
 
     try {
       const token = localStorage.getItem("token");
-      await axios.post(`${API}/auth/register`, formData, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      toast.success("User created successfully");
+      
+      if (editingUser) {
+        // Update existing user
+        await axios.put(`${API}/users/${editingUser.id}`, formData, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        toast.success("User updated successfully");
+      } else {
+        // Create new user
+        await axios.post(`${API}/auth/register`, formData, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        toast.success("User created successfully");
+      }
+      
       setSheetOpen(false);
+      setEditingUser(null);
       fetchUsers();
     } catch (error) {
-      toast.error(error.response?.data?.detail || "Failed to create user");
+      toast.error(error.response?.data?.detail || (editingUser ? "Failed to update user" : "Failed to create user"));
     }
   };
 
@@ -188,18 +215,29 @@ export default function UsersPage() {
                     )}
                   </TableCell>
                   <TableCell>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => {
-                        setUserToDelete(user);
-                        setDeleteDialogOpen(true);
-                      }}
-                      className="text-red-500 hover:text-red-400 hover:bg-red-500/10"
-                      data-testid="delete-user-button"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => openEditSheet(user)}
+                        className="text-blue-500 hover:text-blue-400 hover:bg-blue-500/10"
+                        data-testid="edit-user-button"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          setUserToDelete(user);
+                          setDeleteDialogOpen(true);
+                        }}
+                        className="text-red-500 hover:text-red-400 hover:bg-red-500/10"
+                        data-testid="delete-user-button"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))
@@ -218,7 +256,7 @@ export default function UsersPage() {
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
         <SheetContent className="bg-zinc-900 border-white/10 text-white sm:max-w-lg overflow-y-auto" data-testid="user-sheet">
           <SheetHeader>
-            <SheetTitle className="text-white">Create User</SheetTitle>
+            <SheetTitle className="text-white">{editingUser ? "Edit User" : "Create User"}</SheetTitle>
           </SheetHeader>
           <form onSubmit={handleSubmit} className="space-y-4 mt-6">
             <div className="space-y-2">
@@ -265,14 +303,14 @@ export default function UsersPage() {
             </div>
 
             <div className="space-y-2">
-              <Label>Password *</Label>
+              <Label>Password {editingUser ? "" : "*"}</Label>
               <Input
                 type="password"
                 value={formData.password || ""}
                 onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                 className="bg-zinc-800 border-zinc-700 text-white"
                 data-testid="password-input"
-                required
+                required={!editingUser}
               />
             </div>
 
@@ -316,7 +354,7 @@ export default function UsersPage() {
 
             <div className="flex space-x-3 pt-4">
               <Button type="submit" className="bg-emerald-500 text-black hover:bg-emerald-400" data-testid="save-user-button">
-                Create User
+                {editingUser ? "Update User" : "Create User"}
               </Button>
               <Button type="button" variant="outline" onClick={() => setSheetOpen(false)} className="border-zinc-700 text-white hover:bg-zinc-800">
                 Cancel
