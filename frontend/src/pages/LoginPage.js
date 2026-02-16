@@ -29,9 +29,28 @@ export default function LoginPage({ setUser }) {
         password,
       });
 
-      localStorage.setItem("token", response.data.access_token);
-      localStorage.setItem("user", JSON.stringify(response.data.user));
-      setUser(response.data.user);
+      const token = response.data.access_token;
+      localStorage.setItem("token", token);
+      
+      // Fetch department info
+      let user = response.data.user;
+      try {
+        const deptResponse = await axios.get(`${API}/my-department`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (deptResponse.data) {
+          user = {
+            ...user,
+            department_id: deptResponse.data.id,
+            department_type: deptResponse.data.department_type,
+          };
+        }
+      } catch (deptError) {
+        console.error("Failed to fetch department:", deptError);
+      }
+      
+      localStorage.setItem("user", JSON.stringify(user));
+      setUser(user);
       toast.success("Login successful");
       navigate("/");
     } catch (error) {
