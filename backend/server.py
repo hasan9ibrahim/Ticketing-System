@@ -1410,6 +1410,77 @@ async def get_online_users(current_user: dict = Depends(get_current_user)):
     return online_users
 
 
+@api_router.get("/dashboard/unassigned-alerts")
+async def get_unassigned_alerts(current_user: dict = Depends(get_current_user)):
+    """Get unassigned tickets that have exceeded their alert threshold based on priority"""
+    from datetime import timedelta
+    
+    # Define alert intervals in minutes based on priority
+    priority_intervals = {
+        "Urgent": 5,
+        "High": 10,
+        "Medium": 15,
+        "Low": 20
+    }
+    
+    now = datetime.now(timezone.utc)
+    alerts = []
+    
+    # Check SMS tickets
+    sms_tickets = await db.sms_tickets.find({
+        "status": "Unassigned"
+    }).to_list(1000)
+    
+    for ticket in sms_tickets:
+        priority = ticket.get("priority", "Medium")
+        interval = priority_intervals.get(priority, 15)  # Default to 15 minutes
+        threshold_time = now - timedelta(minutes=interval)
+        
+        ticket_date = ticket.get("date")
+        if isinstance(ticket_date, str):
+            ticket_date = datetime.fromisoformat(ticket_date)
+        
+        if ticket_date and ticket_date <= threshold_time:
+            alerts.append({
+                "id": ticket["id"],
+                "ticket_number": ticket["ticket_number"],
+                "type": "sms",
+                "priority": priority,
+                "interval_minutes": interval,
+                "waiting_since": ticket_date.isoformat() if ticket_date else None,
+                "customer": ticket.get("customer", "Unknown"),
+                "issue": ticket.get("issue", ticket.get("issue_types", []))
+            })
+    
+    # Check Voice tickets
+    voice_tickets = await db.voice_tickets.find({
+        "status": "Unassigned"
+    }).to_list(1000)
+    
+    for ticket in voice_tickets:
+        priority = ticket.get("priority", "Medium")
+        interval = priority_intervals.get(priority, 15)  # Default to 15 minutes
+        threshold_time = now - timedelta(minutes=interval)
+        
+        ticket_date = ticket.get("date")
+        if isinstance(ticket_date, str):
+            ticket_date = datetime.fromisoformat(ticket_date)
+        
+        if ticket_date and ticket_date <= threshold_time:
+            alerts.append({
+                "id": ticket["id"],
+                "ticket_number": ticket["ticket_number"],
+                "type": "voice",
+                "priority": priority,
+                "interval_minutes": interval,
+                "waiting_since": ticket_date.isoformat() if ticket_date else None,
+                "customer": ticket.get("customer", "Unknown"),
+                "issue": ticket.get("issue", ticket.get("issue_types", []))
+            })
+    
+    return alerts
+
+
 @api_router.get("/dashboard/stats", response_model=DashboardStats)
 async def get_dashboard_stats(
     current_user: dict = Depends(get_current_user),
