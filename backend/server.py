@@ -641,6 +641,39 @@ async def init_default_departments():
         if not existing:
             await db.departments.insert_one(dept)
 
+async def migrate_users_to_departments():
+    """Assign existing users to departments based on their role"""
+    # Get all departments
+    departments = await db.departments.find({}).to_list(1000)
+    dept_map = {d["name"]: d["id"] for d in departments}
+    
+    # Get all users without department_id
+    users = await db.users.find({"department_id": None}).to_list(1000)
+    
+    for user in users:
+        new_dept_id = None
+        
+        # Assign based on role
+        if user.get("role") == "admin":
+            new_dept_id = dept_map.get("Admin")
+        elif user.get("role") == "am":
+            # Check am_type for SMS or Voice
+            if user.get("am_type") == "sms":
+                new_dept_id = dept_map.get("SMS Sales")
+            elif user.get("am_type") == "voice":
+                new_dept_id = dept_map.get("Voice Sales")
+            else:
+                new_dept_id = dept_map.get("SMS Sales")  # Default to SMS
+        elif user.get("role") == "noc":
+            new_dept_id = dept_map.get("NOC")
+        
+        if new_dept_id:
+            await db.users.update_one(
+                {"id": user["id"]},
+                {"$set": {"department_id": new_dept_id}}
+            )
+            print(f"Assigned user {user.get('username')} to department")
+
 @api_router.get("/departments", response_model=List[Department])
 async def get_departments(current_user: dict = Depends(get_current_user)):
     """Get all departments - accessible by all authenticated users (for selection)"""
@@ -1281,8 +1314,9 @@ logger = logging.getLogger(__name__)
 
 @app.on_event("startup")
 async def startup_init():
-    """Initialize default departments on startup"""
+    """Initialize default departments and migrate users on startup"""
     await init_default_departments()
+    await migrate_users_to_departments()
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
