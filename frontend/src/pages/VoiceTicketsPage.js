@@ -739,16 +739,32 @@ export default function VoiceTicketsPage() {
             {/* Enterprise */}
             <div className="space-y-2">
               <Label>Enterprise *</Label>
-              <SearchableSelect options={enterprises.filter(e => e.enterprise_type === "voice").map(e => ({ value: e.id, label: e.name }))} value={formData.customer_id} onChange={(value) => setFormData({ ...formData, customer_id: value })} placeholder="Search enterprise..." isRequired={true} isDisabled={!!editingTicket || isAM} />
+              <SearchableSelect 
+                options={enterprises.filter(e => e.enterprise_type === "voice").map(e => ({ value: e.id, label: e.name }))} 
+                value={formData.customer_id} 
+                onChange={(value) => {
+                  setFormData({ 
+                    ...formData, 
+                    customer_id: value,
+                    customer_trunk: "" // Clear trunk when enterprise changes
+                  });
+                }} 
+                placeholder="Search enterprise..." 
+                isRequired={true} 
+                isDisabled={isAM} 
+              />
             </div>
 
             {/* Enterprise Trunk */}
             <div className="space-y-2">
               <Label>Enterprise Trunk *</Label>
-              <Select value={formData.customer_trunk || ""} onValueChange={(value) => setFormData({ ...formData, customer_trunk: value })} required disabled={isAM}>
-                <SelectTrigger className="bg-zinc-800 border-zinc-700"><SelectValue placeholder="Select customer trunk" /></SelectTrigger>
+              <Select value={formData.customer_trunk || ""} onValueChange={(value) => setFormData({ ...formData, customer_trunk: value })} required disabled={isAM || !formData.customer_id}>
+                <SelectTrigger className="bg-zinc-800 border-zinc-700"><SelectValue placeholder={formData.customer_id ? "Select customer trunk" : "Select enterprise first"} /></SelectTrigger>
                 <SelectContent className="bg-zinc-800 border-zinc-700">
-                  {customerTrunkOptions.map((trunk) => (
+                  {(formData.customer_id 
+                    ? enterprises.find(e => e.id === formData.customer_id)?.customer_trunks || []
+                    : customerTrunkOptions
+                  ).map((trunk) => (
                     <SelectItem key={trunk} value={trunk}>{trunk}</SelectItem>
                   ))}
                 </SelectContent>
