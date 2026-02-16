@@ -4,6 +4,15 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import axios from "axios";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   LayoutDashboard,
   MessageSquare,
   Phone,
@@ -21,6 +30,8 @@ import {
 export default function DashboardLayout({ user, setUser }) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [alerts, setAlerts] = useState([]);
+  const [ticketModificationNotifications, setTicketModificationNotifications] = useState([]);
+  const [currentNotification, setCurrentNotification] = useState(null);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -36,6 +47,16 @@ export default function DashboardLayout({ user, setUser }) {
     }
   }, [user]);
 
+  // Fetch ticket modification notifications for all users
+  useEffect(() => {
+    if (user) {
+      fetchTicketModifications();
+      // Refresh every 10 seconds to catch notifications quickly
+      const notificationInterval = setInterval(fetchTicketModifications, 10000);
+      return () => clearInterval(notificationInterval);
+    }
+  }, [user]);
+
   const fetchAlerts = async () => {
     try {
       const token = localStorage.getItem("token");
@@ -45,6 +66,55 @@ export default function DashboardLayout({ user, setUser }) {
       setAlerts(response.data || []);
     } catch (error) {
       console.error("Failed to fetch alerts:", error);
+    }
+  };
+
+  const fetchTicketModifications = async () => {
+    try {
+      const token = localStorage.getItem("token");
+      const response = await axios.get(`${API}/dashboard/ticket-modifications`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const notifications = response.data || [];
+      setTicketModificationNotifications(notifications);
+      
+      // Show the first unread notification as an alert dialog
+      if (notifications.length > 0 && !currentNotification) {
+        setCurrentNotification(notifications[0]);
+      }
+    } catch (error) {
+      console.error("Failed to fetch ticket modifications:", error);
+    }
+  };
+
+  const handleNotificationAcknowledged = async () => {
+    if (currentNotification) {
+      try {
+        const token = localStorage.getItem("token");
+        await axios.post(
+          `${API}/dashboard/ticket-modifications/${currentNotification.id}/read`,
+          {},
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        
+        // Remove the acknowledged notification from the list
+        setTicketModificationNotifications((prev) => 
+          prev.filter((n) => n.id !== currentNotification.id)
+        );
+        
+        // Show the next notification if available
+        const remaining = ticketModificationNotifications.filter(
+          (n) => n.id !== currentNotification.id
+        );
+        if (remaining.length > 0) {
+          setCurrentNotification(remaining[0]);
+        } else {
+          setCurrentNotification(null);
+        }
+      } catch (error) {
+        console.error("Failed to mark notification as read:", error);
+        setCurrentNotification(null);
+      }
     }
   };
 
@@ -223,6 +293,33 @@ export default function DashboardLayout({ user, setUser }) {
       <main className="flex-1 overflow-auto">
         <Outlet />
       </main>
+
+      {/* Ticket Modification Alert Dialog */}
+      <AlertDialog open={!!currentNotification} onOpenChange={(open) => !open && handleNotificationAcknowledged()}>
+        <AlertDialogContent className="max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-amber-500" />
+              Ticket Modified
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-base">
+              {currentNotification && (
+                <>
+                  Your assigned ticket <strong>{currentNotification.ticket_number}</strong> ({currentNotification.ticket_type.toUpperCase()}) 
+                  was modified by <strong>{currentNotification.modified_by_username}</strong>.
+                  <br /><br />
+                  Please review the changes.
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction onClick={handleNotificationAcknowledged}>
+              Okay
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
