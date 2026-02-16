@@ -184,12 +184,12 @@ export default function DashboardPage() {
         </CardContent>
       </Card>
 
-      {/* User Online Time Widget (Last 24 Hours) */}
+      {/* User Online Time Widget (Today) */}
       <Card className="bg-zinc-900/50 border-white/10">
         <CardHeader className="pb-2">
           <CardTitle className="text-sm font-medium text-zinc-400 flex items-center gap-2">
             <Users className="h-4 w-4 text-blue-500" />
-            User Online Time (Last 24 Hours)
+            User Online Time (Today)
             <span className="text-xs bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded-full ml-2">
               {userOnlineTime.length}
             </span>
