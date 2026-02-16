@@ -30,8 +30,8 @@ export default function DashboardLayout({ user, setUser }) {
   useEffect(() => {
     if (user && (user.role === "noc" || user.role === "admin" || user?.department?.can_view_all_tickets)) {
       fetchAlerts();
-      // Refresh alerts every minute
-      const alertInterval = setInterval(fetchAlerts, 60000);
+      // Refresh alerts every 30 seconds for faster updates when tickets are assigned
+      const alertInterval = setInterval(fetchAlerts, 30000);
       return () => clearInterval(alertInterval);
     }
   }, [user]);
