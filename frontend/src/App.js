@@ -13,12 +13,16 @@ import DepartmentsPage from "./pages/DepartmentsPage";
 import AuditPage from "./pages/AuditPage";
 import { Toaster } from "@/components/ui/sonner";
 import axios from "axios";
+import useInactivityLogout from "./hooks/useInactivityLogout";
 
 const API = `${process.env.REACT_APP_API_URL}/api`;
 
 function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+
+  // Auto-logout after 5 minutes of inactivity
+  useInactivityLogout(!!user, setUser);
 
   useEffect(() => {
     const token = localStorage.getItem("token");
