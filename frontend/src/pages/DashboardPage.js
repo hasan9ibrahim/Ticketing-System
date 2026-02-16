@@ -17,6 +17,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [onlineUsers, setOnlineUsers] = useState([]);
   const [currentUser, setCurrentUser] = useState(null);
+  const [userOnlineTime, setUserOnlineTime] = useState([]);
 
   useEffect(() => {
     // Get current user
@@ -27,8 +28,12 @@ export default function DashboardPage() {
     
     fetchStats();
     fetchOnlineUsers();
+    fetchUserOnlineTime();
     // Refresh online users every 30 seconds
-    const interval = setInterval(fetchOnlineUsers, 30000);
+    const interval = setInterval(() => {
+      fetchOnlineUsers();
+      fetchUserOnlineTime();
+    }, 30000);
     return () => clearInterval(interval);
   }, [dateRange]);
 
@@ -41,6 +46,18 @@ export default function DashboardPage() {
       setOnlineUsers(response.data || []);
     } catch (error) {
       console.error("Failed to fetch online users:", error);
+    }
+  };
+
+  const fetchUserOnlineTime = async () => {
+    try {
+      const token = localStorage.getItem("token");
+      const response = await axios.get(`${API}/dashboard/user-online-time`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setUserOnlineTime(response.data || []);
+    } catch (error) {
+      console.error("Failed to fetch user online time:", error);
     }
   };
 
@@ -160,6 +177,45 @@ export default function DashboardPage() {
                   {user.name && (
                     <span className="text-xs text-zinc-500">({user.name})</span>
                   )}
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* User Online Time Widget (Last 24 Hours) */}
+      <Card className="bg-zinc-900/50 border-white/10">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-medium text-zinc-400 flex items-center gap-2">
+            <Users className="h-4 w-4 text-blue-500" />
+            User Online Time (Last 24 Hours)
+            <span className="text-xs bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded-full ml-2">
+              {userOnlineTime.length}
+            </span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {userOnlineTime.length === 0 ? (
+            <p className="text-zinc-500 text-sm">No online time data for the last 24 hours</p>
+          ) : (
+            <div className="space-y-2">
+              {userOnlineTime.slice(0, 10).map((user) => (
+                <div
+                  key={user.user_id}
+                  className="flex items-center justify-between bg-zinc-800/50 px-3 py-2 rounded border border-white/5"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-zinc-300 font-medium">{user.username}</span>
+                    <span className="text-xs text-zinc-500">
+                      ({user.session_count} session{user.session_count !== 1 ? 's' : ''})
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-emerald-400 font-medium">
+                      {user.total_time_formatted}
+                    </span>
+                  </div>
                 </div>
               ))}
             </div>
