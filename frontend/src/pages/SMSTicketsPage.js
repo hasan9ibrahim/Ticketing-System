@@ -529,6 +529,15 @@ export default function SMSTicketsPage() {
         return;
       }
     }
+
+    // ✅ Validate vendor percentage equals 100% when 2+ vendors selected
+    if ((formData.vendor_trunks || []).length >= 2) {
+      const totalPercentage = (formData.vendor_trunks || []).reduce((sum, v) => sum + (parseFloat(v.percentage) || 0), 0);
+      if (totalPercentage !== 100) {
+        toast.error(`Vendor percentages must equal 100%. Current total: ${totalPercentage}%`);
+        return;
+      }
+    }
     
         // Check for similar tickets (only for new tickets)
     if (!editingTicket) {
