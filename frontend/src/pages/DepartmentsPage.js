@@ -9,6 +9,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 const BACKEND_URL = process.env.REACT_APP_API_URL;
 const API = `${BACKEND_URL}/api`;
@@ -63,6 +64,7 @@ export default function DepartmentsPage() {
     setFormData({
       name: "",
       description: "",
+      department_type: "all",  // Default to all
       can_view_enterprises: true,
       can_edit_enterprises: false,
       can_create_enterprises: false,
@@ -157,6 +159,7 @@ export default function DepartmentsPage() {
           <TableHeader>
             <TableRow className="border-zinc-800 hover:bg-zinc-800/50">
               <TableHead className="text-zinc-400">Name</TableHead>
+              <TableHead className="text-zinc-400">Type</TableHead>
               <TableHead className="text-zinc-400">Description</TableHead>
               <TableHead className="text-zinc-400">Enterprises</TableHead>
               <TableHead className="text-zinc-400">Tickets</TableHead>
@@ -173,6 +176,9 @@ export default function DepartmentsPage() {
                     {isDefaultDepartment(dept.id) && (
                       <span className="ml-2 text-xs text-zinc-500">(Default)</span>
                     )}
+                  </TableCell>
+                  <TableCell className="text-zinc-400">
+                    {dept.department_type === "all" ? "All" : dept.department_type === "sms" ? "SMS" : "Voice"}
                   </TableCell>
                   <TableCell className="text-zinc-400">{dept.description || "-"}</TableCell>
                   <TableCell className="text-zinc-400">
@@ -260,6 +266,25 @@ export default function DepartmentsPage() {
                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                 className="bg-zinc-800 border-zinc-700 text-white"
               />
+            </div>
+
+            {/* Department Type */}
+            <div className="space-y-2">
+              <Label>Type</Label>
+              <Select
+                value={formData.department_type || "all"}
+                onValueChange={(value) => setFormData({ ...formData, department_type: value })}
+              >
+                <SelectTrigger className="bg-zinc-800 border-zinc-700 text-white">
+                  <SelectValue placeholder="Select department type" />
+                </SelectTrigger>
+                <SelectContent className="bg-zinc-800 border-zinc-700">
+                  <SelectItem value="all" className="text-zinc-300">All (SMS & Voice)</SelectItem>
+                  <SelectItem value="sms" className="text-zinc-300">SMS Only</SelectItem>
+                  <SelectItem value="voice" className="text-zinc-300">Voice Only</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-zinc-500">Determines which tickets this department can access</p>
             </div>
 
             {/* Enterprises Permissions */}
