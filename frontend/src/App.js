@@ -10,6 +10,7 @@ import EnterprisesPage from "./pages/EnterprisesPage";
 import UsersPage from "./pages/UsersPage";
 import MyEnterprisesPage from "./pages/MyEnterprisesPage";
 import DepartmentsPage from "./pages/DepartmentsPage";
+import AuditPage from "./pages/AuditPage";
 import { Toaster } from "@/components/ui/sonner";
 import axios from "axios";
 
@@ -70,6 +71,7 @@ function App() {
             <Route path="my-enterprises" element={user?.role === "am" || user?.department_type ? <MyEnterprisesPage /> : <Navigate to="/" />} />
             <Route path="users" element={user?.role === "admin" || user?.department?.can_edit_users ? <UsersPage /> : <Navigate to="/" />} />
             <Route path="departments" element={user?.role === "admin" ? <DepartmentsPage /> : <Navigate to="/" />} />
+            <Route path="audit" element={user?.role === "admin" ? <AuditPage /> : <Navigate to="/" />} />
           </Route>
         </Routes>
       </BrowserRouter>
