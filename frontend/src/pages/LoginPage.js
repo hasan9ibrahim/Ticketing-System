@@ -43,6 +43,7 @@ export default function LoginPage({ setUser }) {
             ...user,
             department_id: deptResponse.data.id,
             department_type: deptResponse.data.department_type,
+            department: deptResponse.data,  // Include full department object with permissions
           };
         }
       } catch (deptError) {
