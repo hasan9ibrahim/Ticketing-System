@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 
 const INACTIVITY_TIMEOUT = 5 * 60 * 1000; // 5 minutes in milliseconds
 
-export const useInactivityLogout = (isAuthenticated, setUser) => {
+export default function useInactivityLogout(isAuthenticated, setUser) {
   const navigate = useNavigate();
   const timeoutRef = useRef(null);
 
@@ -70,8 +70,4 @@ export const useInactivityLogout = (isAuthenticated, setUser) => {
       });
     };
   }, [isAuthenticated, resetTimer]);
-
-  return { resetTimer };
-};
-
-export default useInactivityLogout;
+}
