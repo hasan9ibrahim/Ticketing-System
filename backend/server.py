@@ -1728,9 +1728,6 @@ async def get_dashboard_stats(
         recent_tickets=recent_tickets
     )
 
-# Include router
-app.include_router(api_router)
-
 # ==================== AUDIT LOG HELPERS ====================
 
 async def create_audit_log(db, user_id: str, username: str, action: str, entity_type: str, entity_id: str, entity_name: str, changes: Optional[dict] = None):
@@ -1776,9 +1773,20 @@ async def get_audit_logs(
     if date_from or date_to:
         query["timestamp"] = {}
         if date_from:
-            query["timestamp"]["$gte"] = datetime.fromisoformat(date_from)
+            # Parse the date and add time component
+            try:
+                from_date = datetime.fromisoformat(date_from)
+                # Add start of day time
+                query["timestamp"]["$gte"] = from_date.replace(hour=0, minute=0, second=0, microsecond=0)
+            except ValueError:
+                query["timestamp"]["$gte"] = datetime.fromisoformat(date_from)
         if date_to:
-            query["timestamp"]["$lte"] = datetime.fromisoformat(date_to)
+            try:
+                to_date = datetime.fromisoformat(date_to)
+                # Add end of day time
+                query["timestamp"]["$lte"] = to_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+            except ValueError:
+                query["timestamp"]["$lte"] = datetime.fromisoformat(date_to)
     
     # Get total count
     total_count = await db.audit_logs.count_documents(query)
@@ -1814,12 +1822,23 @@ async def get_audit_logs_count(
     if date_from or date_to:
         query["timestamp"] = {}
         if date_from:
-            query["timestamp"]["$gte"] = datetime.fromisoformat(date_from)
+            try:
+                from_date = datetime.fromisoformat(date_from)
+                query["timestamp"]["$gte"] = from_date.replace(hour=0, minute=0, second=0, microsecond=0)
+            except ValueError:
+                query["timestamp"]["$gte"] = datetime.fromisoformat(date_from)
         if date_to:
-            query["timestamp"]["$lte"] = datetime.fromisoformat(date_to)
+            try:
+                to_date = datetime.fromisoformat(date_to)
+                query["timestamp"]["$lte"] = to_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+            except ValueError:
+                query["timestamp"]["$lte"] = datetime.fromisoformat(date_to)
     
     count = await db.audit_logs.count_documents(query)
     return {"total": count}
+
+# Include router
+app.include_router(api_router)
 
 app.add_middleware(
     CORSMiddleware,
