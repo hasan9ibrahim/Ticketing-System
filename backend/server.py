@@ -229,6 +229,7 @@ class SMSTicket(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     ticket_number: str
     date: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    assigned_at: Optional[datetime] = None  # When ticket was assigned
     priority: str
     volume: str = "0"
     customer: str
@@ -327,6 +328,7 @@ class VoiceTicket(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     ticket_number: str
     date: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    assigned_at: Optional[datetime] = None  # When ticket was assigned
     priority: str
     volume: str = "0"
     customer: str
@@ -1081,6 +1083,14 @@ async def update_sms_ticket(ticket_id: str, ticket_data: SMSTicketUpdate, curren
     new_assigned_to = update_dict.get("assigned_to", existing_ticket.get("assigned_to"))
     validate_ticket_status(new_status, new_assigned_to)
     
+    # Set assigned_at when ticket is assigned
+    # Only set if: assigned_to is being set/changed AND status is "Assigned"
+    if new_assigned_to and new_status == "Assigned":
+        # Check if assigned_to is new or changed
+        existing_assigned_to = existing_ticket.get("assigned_to")
+        if not existing_assigned_to or existing_assigned_to != new_assigned_to:
+            update_dict["assigned_at"] = datetime.now(timezone.utc)
+    
     update_dict["updated_at"] = datetime.now(timezone.utc).isoformat()
     
     # Check if we need to create a notification for ticket modification
@@ -1225,6 +1235,14 @@ async def update_voice_ticket(ticket_id: str, ticket_data: VoiceTicketUpdate, cu
     new_status = update_dict.get("status", existing_ticket.get("status"))
     new_assigned_to = update_dict.get("assigned_to", existing_ticket.get("assigned_to"))
     validate_ticket_status(new_status, new_assigned_to)
+    
+    # Set assigned_at when ticket is assigned
+    # Only set if: assigned_to is being set/changed AND status is "Assigned"
+    if new_assigned_to and new_status == "Assigned":
+        # Check if assigned_to is new or changed
+        existing_assigned_to = existing_ticket.get("assigned_to")
+        if not existing_assigned_to or existing_assigned_to != new_assigned_to:
+            update_dict["assigned_at"] = datetime.now(timezone.utc)
     
     update_dict["updated_at"] = datetime.now(timezone.utc).isoformat()
     
@@ -1542,18 +1560,19 @@ async def get_online_users(current_user: dict = Depends(get_current_user)):
 
 @api_router.get("/dashboard/user-online-time")
 async def get_user_online_time(current_user: dict = Depends(get_current_user)):
-    """Get online time statistics for all users in the last 24 hours"""
+    """Get online time statistics for all users today"""
     from datetime import timedelta
     
     now = datetime.now(timezone.utc)
-    twenty_four_hours_ago = now - timedelta(hours=24)
+    # Get start of today (midnight)
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     
-    # Get all sessions in the last 24 hours
+    # Get all sessions from today
     sessions = await db.user_sessions.find({
-        "login_time": {"$gte": twenty_four_hours_ago}
+        "login_time": {"$gte": today_start}
     }).to_list(1000)
     
-    # Calculate total online time per user
+    # Calculate total online time per user from sessions
     user_online_time = {}
     for session in sessions:
         user_id = session.get("user_id")
@@ -1563,6 +1582,9 @@ async def get_user_online_time(current_user: dict = Depends(get_current_user)):
         if isinstance(login_time, str):
             login_time = datetime.fromisoformat(login_time)
         
+        # Determine the effective login time (either start of today or session login)
+        effective_login = login_time if login_time and login_time >= today_start else today_start
+        
         # For ongoing sessions (no logout_time), use current time
         logout_time = session.get("logout_time")
         if logout_time is None:
@@ -1571,19 +1593,48 @@ async def get_user_online_time(current_user: dict = Depends(get_current_user)):
         elif isinstance(logout_time, str):
             logout_time = datetime.fromisoformat(logout_time)
         
-        if login_time and logout_time:
-            duration = (logout_time - login_time).total_seconds()
+        if effective_login and logout_time:
+            duration = (logout_time - effective_login).total_seconds()
             
-            if user_id not in user_online_time:
-                user_online_time[user_id] = {
-                    "user_id": user_id,
-                    "username": username,
-                    "total_seconds": 0,
-                    "session_count": 0
-                }
+            if duration > 0:
+                if user_id not in user_online_time:
+                    user_online_time[user_id] = {
+                        "user_id": user_id,
+                        "username": username,
+                        "total_seconds": 0,
+                        "session_count": 0
+                    }
+                
+                user_online_time[user_id]["total_seconds"] += duration
+                user_online_time[user_id]["session_count"] += 1
+    
+    # Also check last_active for users who don't have session records
+    # This serves as a fallback for users who logged in before session tracking was added
+    all_users = await db.users.find({}, {"_id": 0, "id": 1, "username": 1, "last_active": 1}).to_list(1000)
+    
+    for user in all_users:
+        user_id = user.get("id")
+        username = user.get("username", "Unknown")
+        last_active = user.get("last_active")
+        
+        if last_active and user_id not in user_online_time:
+            # Try to estimate online time from last_active
+            if isinstance(last_active, str):
+                last_active = datetime.fromisoformat(last_active)
             
-            user_online_time[user_id]["total_seconds"] += duration
-            user_online_time[user_id]["session_count"] += 1
+            # If last_active is today, estimate they were online for some time
+            if last_active and last_active >= today_start:
+                # Estimate: time from start of day to last_active
+                # (This is rough but provides some data)
+                duration = (last_active - today_start).total_seconds()
+                
+                if duration > 60:  # At least 1 minute
+                    user_online_time[user_id] = {
+                        "user_id": user_id,
+                        "username": username,
+                        "total_seconds": duration,
+                        "session_count": 1
+                    }
     
     # Convert to list and format duration
     result = []
@@ -1749,18 +1800,20 @@ async def get_assigned_ticket_reminders(current_user: dict = Depends(get_current
         interval = priority_intervals.get(priority, 25)  # Default to 25 minutes
         threshold_time = now - timedelta(minutes=interval)
         
-        ticket_date = ticket.get("date")
-        if isinstance(ticket_date, str):
-            ticket_date = datetime.fromisoformat(ticket_date)
+        # Use assigned_at instead of date to track when ticket was assigned
+        assigned_at = ticket.get("assigned_at")
+        if isinstance(assigned_at, str):
+            assigned_at = datetime.fromisoformat(assigned_at)
         
-        if ticket_date and ticket_date <= threshold_time:
+        # Only show reminder if ticket has been assigned longer than the threshold
+        if assigned_at and assigned_at <= threshold_time:
             reminders.append({
                 "id": ticket["id"],
                 "ticket_number": ticket["ticket_number"],
                 "type": "sms",
                 "priority": priority,
                 "interval_minutes": interval,
-                "assigned_since": ticket_date.isoformat() if ticket_date else None,
+                "assigned_since": assigned_at.isoformat() if assigned_at else None,
                 "customer": ticket.get("customer", "Unknown"),
                 "issue": ticket.get("issue", ticket.get("issue_types", []))
             })
@@ -1776,18 +1829,20 @@ async def get_assigned_ticket_reminders(current_user: dict = Depends(get_current
         interval = priority_intervals.get(priority, 25)  # Default to 25 minutes
         threshold_time = now - timedelta(minutes=interval)
         
-        ticket_date = ticket.get("date")
-        if isinstance(ticket_date, str):
-            ticket_date = datetime.fromisoformat(ticket_date)
+        # Use assigned_at instead of date to track when ticket was assigned
+        assigned_at = ticket.get("assigned_at")
+        if isinstance(assigned_at, str):
+            assigned_at = datetime.fromisoformat(assigned_at)
         
-        if ticket_date and ticket_date <= threshold_time:
+        # Only show reminder if ticket has been assigned longer than the threshold
+        if assigned_at and assigned_at <= threshold_time:
             reminders.append({
                 "id": ticket["id"],
                 "ticket_number": ticket["ticket_number"],
                 "type": "voice",
                 "priority": priority,
                 "interval_minutes": interval,
-                "assigned_since": ticket_date.isoformat() if ticket_date else None,
+                "assigned_since": assigned_at.isoformat() if assigned_at else None,
                 "customer": ticket.get("customer", "Unknown"),
                 "issue": ticket.get("issue", ticket.get("issue_types", []))
             })
