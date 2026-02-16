@@ -40,6 +40,7 @@ function App() {
           ...currentUser,
           department_id: response.data.id,
           department_type: response.data.department_type,
+          department: response.data,  // Include full department object with permissions
         };
         setUser(updatedUser);
         localStorage.setItem("user", JSON.stringify(updatedUser));
