@@ -10,7 +10,7 @@ const API = `${process.env.REACT_APP_API_URL || "http://localhost:8000"}/api`;
 export default function NotificationSettings({ user, onSettingsChange }) {
   const [settings, setSettings] = useState({
     notify_ticket_created_for_enterprise: true,
-    notify_ticket_assigned: true,
+    notify_ticket_assigned_to_noc: true,
     notify_ticket_resolved: true,
     notify_ticket_unresolved: true,
   });
@@ -30,7 +30,7 @@ export default function NotificationSettings({ user, onSettingsChange }) {
       if (response.data) {
         setSettings({
           notify_ticket_created_for_enterprise: response.data.notify_ticket_created_for_enterprise ?? true,
-          notify_ticket_assigned: response.data.notify_ticket_assigned ?? true,
+          notify_ticket_assigned_to_noc: response.data.notify_ticket_assigned_to_noc ?? true,
           notify_ticket_resolved: response.data.notify_ticket_resolved ?? true,
           notify_ticket_unresolved: response.data.notify_ticket_unresolved ?? true,
         });
@@ -109,21 +109,21 @@ export default function NotificationSettings({ user, onSettingsChange }) {
           />
         </div>
 
-        {/* Ticket Assigned */}
+        {/* Ticket Assigned to NOC */}
         <div className="flex items-center justify-between">
           <div className="space-y-1">
-            <Label htmlFor="notify_ticket_assigned" className="text-white flex items-center gap-2">
+            <Label htmlFor="notify_ticket_assigned_to_noc" className="text-white flex items-center gap-2">
               <UserCheck className="h-4 w-4 text-zinc-400" />
-              Ticket Assigned to Me
+              Ticket Assigned to NOC
             </Label>
             <p className="text-sm text-zinc-400">
-              Get notified when a ticket is assigned directly to you
+              Get notified when a ticket for your enterprise is assigned to a NOC member
             </p>
           </div>
           <Switch
-            id="notify_ticket_assigned"
-            checked={settings.notify_ticket_assigned}
-            onCheckedChange={() => handleToggle("notify_ticket_assigned")}
+            id="notify_ticket_assigned_to_noc"
+            checked={settings.notify_ticket_assigned_to_noc}
+            onCheckedChange={() => handleToggle("notify_ticket_assigned_to_noc")}
             disabled={saving}
           />
         </div>
