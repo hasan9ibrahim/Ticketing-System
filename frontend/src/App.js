@@ -92,7 +92,7 @@ function App() {
           </Route>
         </Routes>
       </BrowserRouter>
-      <Toaster position="top-right" />
+      <Toaster position="top-left" />
     </div>
   );
 }
