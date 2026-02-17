@@ -1,1230 +1,1993 @@
-import React, { useEffect, useState } from "react";
-import axios from "axios";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Plus, Search, Phone, Calendar, Trash2, MessageSquare, X, ListChecks, Pencil } from "lucide-react";
-import { toast } from "sonner";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Checkbox } from "@/components/ui/checkbox";
-import StatusBadge from "@/components/custom/StatusBadge";
-import PriorityIndicator from "@/components/custom/PriorityIndicator";
-import SearchableSelect from "@/components/custom/SearchableSelect";
-import DateRangePickerWithRange from "@/components/custom/DateRangePickerWithRange";
-import IssueTypeSelect, { VOICE_ISSUE_TYPES } from "@/components/custom/IssueTypeSelect";
-import OpenedViaSelect from "@/components/custom/OpenedViaSelect";
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from dotenv import load_dotenv
+from starlette.middleware.cors import CORSMiddleware
+from motor.motor_asyncio import AsyncIOMotorClient
+import os
+import logging
+from pathlib import Path
+from pydantic import BaseModel, Field, ConfigDict, EmailStr
+from typing import List, Optional
+import uuid
+from datetime import datetime, timezone, timedelta
+from passlib.context import CryptContext
+from jose import JWTError, jwt
+import re
 
-const BACKEND_URL = process.env.REACT_APP_API_URL;
-const API = `${BACKEND_URL}/api`;
+ROOT_DIR = Path(__file__).parent
+load_dotenv(ROOT_DIR / '.env')
 
-export default function VoiceTicketsPage() {
-  const [tickets, setTickets] = useState([]);
-  const [filteredTickets, setFilteredTickets] = useState([]);
-  const [enterprises, setEnterprises] = useState([]);
-  const [users, setUsers] = useState([]);
-  const [allUsers, setAllUsers] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [priorityFilter, setPriorityFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [enterpriseFilter, setEnterpriseFilter] = useState("all");
-  const [issueTypeFilter, setIssueTypeFilter] = useState("all");
-  const [destinationFilter, setDestinationFilter] = useState("");
-  const [assignedToFilter, setAssignedToFilter] = useState("all");
-  const [dateRange, setDateRange] = useState({ from: new Date(), to: new Date() });
-  const [activeTab, setActiveTab] = useState("unassigned");
-  const [sheetOpen, setSheetOpen] = useState(false);
-  const [editingTicket, setEditingTicket] = useState(null);
-  const [formData, setFormData] = useState({});
-  const [currentUser, setCurrentUser] = useState(null);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [ticketToDelete, setTicketToDelete] = useState(null);
-  const [sameDayDialogOpen, setSameDayDialogOpen] = useState(false);
-  const [sameDayTickets, setSameDayTickets] = useState([]);
-  const [pendingFormData, setPendingFormData] = useState(null);
-  const [actionsDialogOpen, setActionsDialogOpen] = useState(false);
-  const [selectedTicket, setSelectedTicket] = useState(null);
-  const [ticketActions, setTicketActions] = useState([]);
-  const [newActionText, setNewActionText] = useState("");
-  const [editingAction, setEditingAction] = useState(null);
-  const [editActionText, setEditActionText] = useState("");
-  const [customerTrunkOptions, setCustomerTrunkOptions] = useState([]);
-  const [vendorTrunkOptions, setVendorTrunkOptions] = useState([]);
-  const [vendorTrunksOpen, setVendorTrunksOpen] = useState(false);
-  const [vendorTrunkSearch, setVendorTrunkSearch] = useState("");
+# MongoDB connection
+mongo_url = os.environ['MONGO_URL']
+client = AsyncIOMotorClient(mongo_url)
+db = client[os.environ['DB_NAME']]
 
-  useEffect(() => {
-    const userData = localStorage.getItem("user");
-    if (userData) {
-      setCurrentUser(JSON.parse(userData));
-    }
-    fetchData();
-    fetchTrunks();
-  }, []);
+# Security
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+security = HTTPBearer()
+SECRET_KEY = os.environ.get("SECRET_KEY")
+if not SECRET_KEY:
+    raise RuntimeError("SECRET_KEY environment variable must be set")
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_DAYS = 30
 
-  useEffect(() => {
-    filterAndSortTickets();
-  }, [searchTerm, priorityFilter, statusFilter, enterpriseFilter, issueTypeFilter, destinationFilter, assignedToFilter, dateRange, activeTab, tickets]);
+# Create the main app
+app = FastAPI()
+api_router = APIRouter(prefix="/api")
 
-  // Fetch trunks for Voice enterprises
-  const fetchTrunks = async () => {
-    try {
-      const token = localStorage.getItem("token");
-      const headers = { Authorization: `Bearer ${token}` };
-      const response = await axios.get(`${API}/trunks/voice`, { headers });
-      setCustomerTrunkOptions(response.data.customer_trunks || []);
-      setVendorTrunkOptions(response.data.vendor_trunks || []);
-    } catch (error) {
-      console.error("Failed to fetch trunks:", error);
-    }
-  };
-  const getIssueDisplayText = (ticket) => {
-    const issues = ticket.issue_types || [];
-    const other = ticket.issue_other || "";
-    const fasType = ticket.fas_type || "";
-    const legacy = ticket.issue || "";
+# ==================== MODELS ====================
+
+class User(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    username: str
+    name: str  # Full name - required
+    email: str  # Email - required
+    phone: str  # Phone - required
+    password_hash: str
+    role: Optional[str] = None  # Deprecated: use department instead
+    department_id: Optional[str] = None  # Link to department
+    am_type: Optional[str] = None  # Deprecated: use department.department_type instead
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    last_active: Optional[datetime] = None  # Track when user was last active
+
+class Department(BaseModel):
+    """Department model with configurable permissions"""
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    name: str  # Department name (e.g., "Admin", "SMS Sales", "Voice Sales", "NOC")
+    description: Optional[str] = None
+    department_type: str = "all"  # "sms", "voice", or "all" - limits access to ticket types
+    # Permissions
+    can_view_enterprises: bool = True
+    can_edit_enterprises: bool = False
+    can_create_enterprises: bool = False
+    can_delete_enterprises: bool = False
+    can_view_tickets: bool = True
+    can_create_tickets: bool = False
+    can_edit_tickets: bool = False
+    can_delete_tickets: bool = False
+    can_view_users: bool = False
+    can_edit_users: bool = False
+    can_view_all_tickets: bool = True  # See all tickets or only assigned
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class DepartmentCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    department_type: str = "all"  # "sms", "voice", or "all"
+    can_view_enterprises: bool = True
+    can_edit_enterprises: bool = False
+    can_create_enterprises: bool = False
+    can_delete_enterprises: bool = False
+    can_view_tickets: bool = True
+    can_create_tickets: bool = False
+    can_edit_tickets: bool = False
+    can_delete_tickets: bool = False
+    can_view_users: bool = False
+    can_edit_users: bool = False
+    can_view_all_tickets: bool = True
+
+class DepartmentUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    department_type: Optional[str] = None
+    can_view_enterprises: Optional[bool] = None
+    can_edit_enterprises: Optional[bool] = None
+    can_create_enterprises: Optional[bool] = None
+    can_delete_enterprises: Optional[bool] = None
+    can_view_tickets: Optional[bool] = None
+    can_create_tickets: Optional[bool] = None
+    can_edit_tickets: Optional[bool] = None
+    can_delete_tickets: Optional[bool] = None
+    can_view_users: Optional[bool] = None
+    can_edit_users: Optional[bool] = None
+    can_view_all_tickets: Optional[bool] = None
+
+class UserCreate(BaseModel):
+    username: str
+    name: str  # Full name - required
+    email: str  # Email - required
+    phone: str  # Phone - required
+    password: str
+    department_id: Optional[str] = None  # Link to department (preferred)
+    role: Optional[str] = None  # Deprecated: use department_id instead
+    am_type: Optional[str] = None  # Deprecated: use department.department_type instead
+
+class UserLogin(BaseModel):
+    identifier: str  # username, email, or phone
+    password: str
+
+class UserResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str
+    username: str
+    name: Optional[str] = None  # Optional for backward compatibility with existing users
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    department_id: Optional[str] = None
+    role: Optional[str] = None  # Deprecated
+    am_type: Optional[str] = None  # Deprecated
+    created_at: datetime
+    last_active: Optional[datetime] = None
+
+class UserUpdate(BaseModel):
+    """Model for updating user - only allows updating certain fields"""
+    name: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    department_id: Optional[str] = None
+    role: Optional[str] = None  # Deprecated
+    am_type: Optional[str] = None  # Deprecated
+
+class TicketModificationNotification(BaseModel):
+    """Model for ticket modification notifications"""
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    ticket_id: str
+    ticket_number: str
+    ticket_type: str  # "sms" or "voice"
+    assigned_to: str  # User ID who was assigned
+    modified_by: str  # User ID who modified the ticket
+    modified_by_username: str  # Username who modified
+    message: str  # Notification message
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    read: bool = False
+
+
+async def create_ticket_modification_notification(
+    ticket_id: str,
+    ticket_number: str,
+    ticket_type: str,
+    assigned_to: str,
+    modified_by: str,
+    modified_by_username: str
+):
+    """Create a notification when a ticket is modified by someone other than the assignee"""
+    notification = TicketModificationNotification(
+        ticket_id=ticket_id,
+        ticket_number=ticket_number,
+        ticket_type=ticket_type,
+        assigned_to=assigned_to,
+        modified_by=modified_by,
+        modified_by_username=modified_by_username,
+        message=f"Ticket {ticket_number} was modified by {modified_by_username}"
+    )
+    doc = notification.model_dump()
+    doc['created_at'] = doc['created_at'].isoformat()
+    await db.ticket_notifications.insert_one(doc)
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+    user: UserResponse
+
+class Client(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    name: str  # Required
+    contact_person: Optional[str] = None  # Optional
+    contact_email: Optional[str] = None  # Required for new, optional for backward compat
+    contact_phone: Optional[str] = None  # Optional
+    assigned_am_id: Optional[str] = None
+    tier: Optional[str] = None  # Required for new, optional for backward compat
+    noc_emails: Optional[str] = None  # Required for new, optional for backward compat
+    notes: Optional[str] = None  # Optional
+    enterprise_type: Optional[str] = Field(default=None, description="sms or voice - required for new enterprises")  # Required for new
+    customer_trunks: Optional[List[str]] = Field(default_factory=list)  # List of customer trunk names
+    vendor_trunks: Optional[List[str]] = Field(default_factory=list)  # List of vendor trunk names
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class ClientCreate(BaseModel):
+    name: str  # Required
+    contact_person: Optional[str] = None  # Optional
+    contact_email: str  # Required
+    contact_phone: Optional[str] = None  # Optional
+    assigned_am_id: Optional[str] = None
+    tier: str  # Required
+    noc_emails: str  # Required
+    notes: Optional[str] = None  # Optional
+    enterprise_type: str  # Required - "sms" or "voice"
+    customer_trunks: Optional[List[str]] = Field(default_factory=list)  # List of customer trunk names
+    vendor_trunks: Optional[List[str]] = Field(default_factory=list)  # List of vendor trunk names
+
+class ClientUpdate(BaseModel):
+    name: Optional[str] = None
+    contact_person: Optional[str] = None
+    contact_email: Optional[str] = None
+    contact_phone: Optional[str] = None
+    assigned_am_id: Optional[str] = None
+    tier: Optional[str] = None
+    noc_emails: Optional[str] = None
+    notes: Optional[str] = None
+    enterprise_type: Optional[str] = None  # "sms" or "voice"
+    customer_trunks: Optional[List[str]] = None  # List of customer trunk names
+    vendor_trunks: Optional[List[str]] = None  # List of vendor trunk names
+
+class SMSTicket(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    ticket_number: str
+    date: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    assigned_at: Optional[datetime] = None  # When ticket was assigned
+    priority: str
+    volume: str = "0"
+    customer: str
+    customer_id: str
+    client_or_vendor: str = "client"  # "client" or "vendor"
+    customer_trunk: str = ""
+    destination: Optional[str] = None
+    issue_types: Optional[List[str]] = []  # Predefined issue types checklist
+    issue_other: Optional[str] = None  # Custom "Other" issue text
+    issue: Optional[str] = None  # Legacy field - computed from issue_types + issue_other
+    opened_via: List[str] = []  # Multi-select: Monitoring, Teams, Email, AM
+    assigned_to: Optional[str] = None
+    status: str
+    # Legacy single SID/Content fields (kept for backward compatibility)
+    sid: Optional[str] = None
+    content: Optional[str] = None
+    # New multiple SID/Content pairs
+    sms_details: Optional[List[dict]] = []  # List of {sid, content} objects
+    rate: Optional[str] = None
+    vendor_trunk: Optional[str] = None  # Legacy field
+    vendor_trunks: Optional[List[dict]] = Field(default_factory=list)  # List of {trunk, percentage, position} objects
+    cost: Optional[str] = None
+    is_lcr: Optional[str] = None
+    root_cause: Optional[str] = None
+    action_taken: Optional[str] = None
+    internal_notes: Optional[str] = None
+    created_by: str
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    actions: List[dict] = Field(default_factory=list)
+
+
+class TicketAction(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    text: str
+    created_by: str
+    created_by_username: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    edited: bool = False  # Whether this action has been edited
+    edited_at: Optional[datetime] = None  # When it was last edited
+
+
+class SMSTicketCreate(BaseModel):
+    priority: str
+    volume: str
+    customer_id: str
+    client_or_vendor: str = "client"
+    customer_trunk: str
+    destination: Optional[str] = None
+    issue_types: Optional[List[str]] = []
+    issue_other: Optional[str] = None
+    issue: Optional[str] = None  # Legacy/computed
+    opened_via: List[str] = []  # Multi-select checklist
+    assigned_to: Optional[str] = None
+    status: str = "Unassigned"
+    # Legacy single SID/Content fields (kept for backward compatibility)
+    sid: Optional[str] = None
+    content: Optional[str] = None
+    # New multiple SID/Content pairs
+    sms_details: Optional[List[dict]] = []
+    rate: Optional[str] = None
+    vendor_trunk: Optional[str] = None  # Legacy field
+    vendor_trunks: Optional[List[dict]] = Field(default_factory=list)  # List of {trunk, percentage, position} objects
+    cost: Optional[str] = None
+    is_lcr: Optional[str] = None
+    root_cause: Optional[str] = None
+    action_taken: Optional[str] = None
+    internal_notes: Optional[str] = None
+
+class SMSTicketUpdate(BaseModel):
+    priority: Optional[str] = None
+    volume: Optional[str] = None
+    customer_trunk: Optional[str] = None
+    destination: Optional[str] = None
+    issue_types: Optional[List[str]] = None
+    issue_other: Optional[str] = None
+    issue: Optional[str] = None
+    opened_via: Optional[List[str]] = None  # Multi-select checklist
+    assigned_to: Optional[str] = None
+    status: Optional[str] = None
+    # Legacy single SID/Content fields (kept for backward compatibility)
+    sid: Optional[str] = None
+    content: Optional[str] = None
+    # New multiple SID/Content pairs
+    sms_details: Optional[List[dict]] = None
+    rate: Optional[str] = None
+    vendor_trunk: Optional[str] = None  # Legacy field
+    vendor_trunks: Optional[List[dict]] = None  # List of {trunk, percentage, position} objects
+    cost: Optional[str] = None
+    is_lcr: Optional[str] = None
+    root_cause: Optional[str] = None
+    action_taken: Optional[str] = None
+    internal_notes: Optional[str] = None
+
+class VoiceTicket(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    ticket_number: str
+    date: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    assigned_at: Optional[datetime] = None  # When ticket was assigned
+    priority: str
+    volume: str = "0"
+    customer: str
+    customer_id: str
+    client_or_vendor: str = "client"
+    customer_trunk: str = ""
+    destination: Optional[str] = None
+    issue_types: Optional[List[str]] = []  # Predefined issue types checklist
+    issue_other: Optional[str] = None  # Custom "Other" issue text
+    fas_type: Optional[str] = None  # FAS type specification for Voice tickets
+    issue: Optional[str] = None  # Legacy field
+    opened_via: List[str] = []  # Multi-select: Monitoring, Teams, Email, AM
+    assigned_to: Optional[str] = None
+    status: str
+    rate: Optional[str] = None
+    vendor_trunk: Optional[str] = None  # Legacy field
+    vendor_trunks: Optional[List[dict]] = Field(default_factory=list)  # List of {trunk, percentage, position} objects
+    cost: Optional[str] = None
+    is_lcr: Optional[str] = None
+    root_cause: Optional[str] = None
+    action_taken: Optional[str] = None
+    internal_notes: Optional[str] = None
+    created_by: str
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    actions: List[dict] = Field(default_factory=list)  # Array of action objects
+
+class VoiceTicketCreate(BaseModel):
+    priority: str
+    volume: str
+    customer_id: str
+    client_or_vendor: str = "client"
+    customer_trunk: str
+    destination: Optional[str] = None
+    issue_types: Optional[List[str]] = []
+    issue_other: Optional[str] = None
+    fas_type: Optional[str] = None
+    issue: Optional[str] = None
+    opened_via: List[str] = []  # Multi-select checklist
+    assigned_to: Optional[str] = None
+    status: str = "Unassigned"
+    rate: Optional[str] = None
+    vendor_trunk: Optional[str] = None  # Legacy field
+    vendor_trunks: Optional[List[dict]] = Field(default_factory=list)  # List of {trunk, percentage, position} objects
+    cost: Optional[str] = None
+    is_lcr: Optional[str] = None
+    root_cause: Optional[str] = None
+    action_taken: Optional[str] = None
+    internal_notes: Optional[str] = None
+
+class VoiceTicketUpdate(BaseModel):
+    priority: Optional[str] = None
+    volume: Optional[str] = None
+    customer_trunk: Optional[str] = None
+    destination: Optional[str] = None
+    issue_types: Optional[List[str]] = None
+    issue_other: Optional[str] = None
+    fas_type: Optional[str] = None
+    issue: Optional[str] = None
+    opened_via: Optional[List[str]] = None  # Multi-select checklist
+    assigned_to: Optional[str] = None
+    status: Optional[str] = None
+    rate: Optional[str] = None
+    vendor_trunk: Optional[str] = None  # Legacy field
+    vendor_trunks: Optional[List[dict]] = None  # List of {trunk, percentage, position} objects
+    cost: Optional[str] = None
+    is_lcr: Optional[str] = None
+    root_cause: Optional[str] = None
+    action_taken: Optional[str] = None
+    internal_notes: Optional[str] = None
+
+class DashboardStats(BaseModel):
+    total_sms_tickets: int
+    total_voice_tickets: int
+    sms_by_status: dict
+    voice_by_status: dict
+    sms_by_priority: dict
+    voice_by_priority: dict
+    recent_tickets: List[dict]
+
+# ==================== AUTH HELPERS ====================
+
+def verify_password(plain_password, hashed_password):
+    return pwd_context.verify(plain_password, hashed_password)
+
+def get_password_hash(password):
+    return pwd_context.hash(password)
+
+def create_access_token(data: dict):
+    to_encode = data.copy()
+    expire = datetime.now(timezone.utc) + timedelta(days=ACCESS_TOKEN_EXPIRE_DAYS)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    try:
+        token = credentials.credentials
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id: str = payload.get("sub")
+        if user_id is None:
+            raise HTTPException(status_code=401, detail="Invalid authentication credentials")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid authentication credentials")
     
-    if (issues.length > 0 || other) {
-      const parts = issues.map(issue => {
-        // If it's FAS and there's a fas_type, show "FAS: <type>"
-        if (issue === "FAS" && fasType) {
-          return `FAS: ${fasType}`;
+    user = await db.users.find_one({"id": user_id}, {"_id": 0})
+    if user is None:
+        raise HTTPException(status_code=401, detail="User not found")
+    
+    # Update last_active timestamp
+    await db.users.update_one(
+        {"id": user_id},
+        {"$set": {"last_active": datetime.now(timezone.utc)}}
+    )
+    
+    # Attach department info to user for easy access
+    if user.get("department_id"):
+        dept = await db.departments.find_one({"id": user["department_id"]}, {"_id": 0})
+        if dept:
+            user["department"] = dept
+    
+    return user
+
+async def get_user_department(current_user: dict) -> Optional[dict]:
+    """Get the user's department with all its permissions"""
+    if current_user.get("department"):
+        return current_user["department"]
+    
+    if current_user.get("department_id"):
+        return await db.departments.find_one({"id": current_user["department_id"]}, {"_id": 0})
+    
+    return None
+
+def get_user_role_from_department(dept: Optional[dict]) -> str:
+    """Get the effective role based on department permissions"""
+    if not dept:
+        return "unknown"
+    
+    # If user can edit users, they're admin
+    if dept.get("can_edit_users"):
+        return "admin"
+    
+    # If user can create tickets but not edit enterprises, they're AM
+    if dept.get("can_create_tickets") and not dept.get("can_edit_enterprises"):
+        return "am"
+    
+    # If user can edit tickets, they're NOC
+    if dept.get("can_edit_tickets"):
+        return "noc"
+    
+    return "unknown"
+
+def get_user_ticket_type(dept: Optional[dict]) -> str:
+    """Get the ticket type the user has access to based on department"""
+    if not dept:
+        return "all"
+    return dept.get("department_type", "all")
+
+async def get_current_admin(current_user: dict = Depends(get_current_user)):
+    """Check if user is admin based on department permissions"""
+    dept = await get_user_department(current_user)
+    role = get_user_role_from_department(dept)
+    if role != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return current_user
+
+async def get_current_admin_or_noc(current_user: dict = Depends(get_current_user)):
+    """Allow both admin and NOC users to perform ticket operations based on department"""
+    dept = await get_user_department(current_user)
+    role = get_user_role_from_department(dept)
+    if role not in ["admin", "noc"]:
+        raise HTTPException(status_code=403, detail="Admin or NOC access required")
+    return current_user
+
+def validate_ticket_status(status: str, assigned_to: Optional[str]):
+    """Validate that 'Assigned' status requires a NOC member to be assigned."""
+    if status == "Assigned" and not assigned_to:
+        raise HTTPException(
+            status_code=400, 
+            detail="Status cannot be 'Assigned' unless a NOC member is assigned"
+        )
+
+def normalize_opened_via(opened_via):
+    """Convert opened_via to list format for backward compatibility."""
+    if opened_via is None:
+        return []
+    if isinstance(opened_via, str):
+        # Convert old string format to list
+        return [v.strip() for v in opened_via.split(",") if v.strip()]
+    return opened_via
+
+# ==================== AUTH ROUTES ====================
+
+@api_router.post("/auth/register", response_model=UserResponse)
+async def register(user_data: UserCreate, current_admin: dict = Depends(get_current_admin)):
+    # Check if username exists
+    existing = await db.users.find_one({"username": user_data.username}, {"_id": 0})
+    if existing:
+        raise HTTPException(status_code=400, detail="Username already exists")
+    
+    user_dict = user_data.model_dump()
+    password = user_dict.pop("password")
+    user_dict["password_hash"] = get_password_hash(password)
+    
+    user_obj = User(**user_dict)
+    doc = user_obj.model_dump()
+    doc['created_at'] = doc['created_at'].isoformat()
+    
+    await db.users.insert_one(doc)
+    return UserResponse(**user_obj.model_dump())
+
+@api_router.post("/auth/login", response_model=Token)
+async def login(login_data: UserLogin):
+    identifier = login_data.identifier
+    
+    # Search by username, email, or phone
+    query = {"$or": [
+        {"username": identifier},
+        {"email": identifier},
+        {"phone": identifier}
+    ]}
+    
+    user = await db.users.find_one(query, {"_id": 0})
+    if not user or not verify_password(login_data.password, user["password_hash"]):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    
+    # Update last_active on login
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$set": {"last_active": datetime.now(timezone.utc)}}
+    )
+    
+    # Create a session record to track online time
+    session_id = str(uuid.uuid4())
+    await db.user_sessions.insert_one({
+        "id": session_id,
+        "user_id": user["id"],
+        "username": user["username"],
+        "login_time": datetime.now(timezone.utc),
+        "logout_time": None,
+        "created_at": datetime.now(timezone.utc)
+    })
+    
+    # Store session_id in user document for reference
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$set": {"current_session_id": session_id}}
+    )
+    
+    # Convert ISO string timestamp back to datetime
+    if isinstance(user['created_at'], str):
+        user['created_at'] = datetime.fromisoformat(user['created_at'])
+    
+    access_token = create_access_token(data={"sub": user["id"]})
+    user_response = UserResponse(**user)
+    
+    return Token(access_token=access_token, token_type="bearer", user=user_response)
+
+@api_router.post("/auth/logout")
+async def logout(current_user: dict = Depends(get_current_user)):
+    """Logout - marks user as offline by setting last_active to a very old timestamp and closes session"""
+    # Set last_active to a time far in the past so user immediately shows as offline
+    await db.users.update_one(
+        {"id": current_user["id"]},
+        {"$set": {"last_active": datetime(1970, 1, 1, tzinfo=timezone.utc)}}
+    )
+    
+    # Close the current session record
+    current_session_id = current_user.get("current_session_id")
+    if current_session_id:
+        await db.user_sessions.find_one_and_update(
+            {"id": current_session_id},
+            {"$set": {"logout_time": datetime.now(timezone.utc)}}
+        )
+        # Clear the current_session_id from user document
+        await db.users.update_one(
+            {"id": current_user["id"]},
+            {"$unset": {"current_session_id": ""}}
+        )
+    
+    return {"message": "Logged out successfully"}
+
+@api_router.get("/auth/me", response_model=UserResponse)
+async def get_me(current_user: dict = Depends(get_current_user)):
+    if isinstance(current_user['created_at'], str):
+        current_user['created_at'] = datetime.fromisoformat(current_user['created_at'])
+    return UserResponse(**current_user)
+
+# ==================== USER ROUTES ====================
+
+@api_router.get("/users", response_model=List[UserResponse])
+async def get_users(current_user: dict = Depends(get_current_user)):
+    # Exclude password_hash at query level for efficiency
+    users = await db.users.find({}, {"_id": 0, "password_hash": 0}).to_list(1000)
+    for user in users:
+        if isinstance(user.get('created_at'), str):
+            user['created_at'] = datetime.fromisoformat(user['created_at'])
+    return [UserResponse(**user) for user in users]
+
+@api_router.put("/users/{user_id}", response_model=UserResponse)
+async def update_user(user_id: str, user_data: UserUpdate, current_admin: dict = Depends(get_current_admin)):
+    """Update user - admin only"""
+    # Build update dict with only provided fields
+    update_dict = {k: v for k, v in user_data.model_dump().items() if v is not None}
+    
+    if not update_dict:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    
+    result = await db.users.find_one_and_update(
+        {"id": user_id},
+        {"$set": update_dict},
+        return_document=True,
+        projection={"_id": 0, "password_hash": 0}
+    )
+    
+    if not result:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    if isinstance(result.get('created_at'), str):
+        result['created_at'] = datetime.fromisoformat(result['created_at'])
+    return UserResponse(**result)
+
+@api_router.delete("/users/{user_id}")
+async def delete_user(user_id: str, current_admin: dict = Depends(get_current_admin)):
+    result = await db.users.delete_one({"id": user_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {"message": "User deleted successfully"}
+
+# ==================== DEPARTMENT ROUTES ====================
+
+async def init_default_departments():
+    """Initialize default departments if they don't exist"""
+    default_departments = [
+        {
+            "id": "dept_admin",
+            "name": "Admin",
+            "description": "Administrator Department with full access",
+            "department_type": "all",
+            "can_view_enterprises": True,
+            "can_edit_enterprises": True,
+            "can_create_enterprises": True,
+            "can_delete_enterprises": True,
+            "can_view_tickets": True,
+            "can_create_tickets": True,
+            "can_edit_tickets": True,
+            "can_delete_tickets": True,
+            "can_view_users": True,
+            "can_edit_users": True,
+            "can_view_all_tickets": True
+        },
+        {
+            "id": "dept_sms_sales",
+            "name": "SMS Sales",
+            "description": "SMS Account Managers Department",
+            "department_type": "sms",
+            "can_view_enterprises": True,
+            "can_edit_enterprises": False,
+            "can_create_enterprises": False,
+            "can_delete_enterprises": False,
+            "can_view_tickets": True,
+            "can_create_tickets": False,
+            "can_edit_tickets": False,
+            "can_delete_tickets": False,
+            "can_view_users": False,
+            "can_edit_users": False,
+            "can_view_all_tickets": False
+        },
+        {
+            "id": "dept_voice_sales",
+            "name": "Voice Sales",
+            "description": "Voice Account Managers Department",
+            "department_type": "voice",
+            "can_view_enterprises": True,
+            "can_edit_enterprises": False,
+            "can_create_enterprises": False,
+            "can_delete_enterprises": False,
+            "can_view_tickets": True,
+            "can_create_tickets": False,
+            "can_edit_tickets": False,
+            "can_delete_tickets": False,
+            "can_view_users": False,
+            "can_edit_users": False,
+            "can_view_all_tickets": False
+        },
+        {
+            "id": "dept_noc",
+            "name": "NOC",
+            "description": "Network Operations Center Department",
+            "department_type": "all",
+            "can_view_enterprises": True,
+            "can_edit_enterprises": True,
+            "can_create_enterprises": True,
+            "can_delete_enterprises": False,
+            "can_view_tickets": True,
+            "can_create_tickets": True,
+            "can_edit_tickets": True,
+            "can_delete_tickets": False,
+            "can_view_users": False,
+            "can_edit_users": False,
+            "can_view_all_tickets": True
         }
-        return issue;
-      });
-      if (other) parts.push(`Other: ${other}`);
-      return parts.join(", ");
-    }
-    return legacy;
-  };
-
-  const fetchData = async () => {
-    try {
-      const token = localStorage.getItem("token");
-      const headers = { Authorization: `Bearer ${token}` };
-
-      const [ticketsRes, enterprisesRes, usersRes] = await Promise.all([
-        axios.get(`${API}/tickets/voice`, { headers }),
-        axios.get(`${API}/clients`, { headers }),
-        axios.get(`${API}/users`, { headers }),
-      ]);
-
-      setTickets(ticketsRes.data);
-      setEnterprises(enterprisesRes.data);
-      setAllUsers(usersRes.data);
-      setUsers(usersRes.data.filter((u) => u.role === "noc"));
-    } catch (error) {
-      toast.error("Failed to load data");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const getOpenedViaPriority = (openedVia) => {
-    if (!openedVia) return 999;
-    // Handle array format - order: Monitoring > AM > Teams > Email
-    const values = Array.isArray(openedVia) ? openedVia : [openedVia];
-    let minPriority = 999;
-    for (const val of values) {
-      const lower = val.toLowerCase();
-      if (lower.includes("monitoring")) minPriority = Math.min(minPriority, 0);
-      else if (lower.includes("am")) minPriority = Math.min(minPriority, 1);
-      else if (lower.includes("teams")) minPriority = Math.min(minPriority, 2);
-      else if (lower.includes("email")) minPriority = Math.min(minPriority, 3);
-    }
-    return minPriority;
-  };
-
-    // Helper to get display text for opened via
-  const getOpenedViaDisplayText = (ticket) => {
-    const openedVia = ticket.opened_via;
-    if (Array.isArray(openedVia)) {
-      return openedVia.join(", ");
-    }
-    return openedVia || "";
-  };
-
-    // Check for same-day identical tickets (Enterprise, Trunk, Destination, Issue)
-  const findSameDayIdenticalTickets = (customerId, customerTrunk, destination, issueTypes) => {
-    if (!customerId) return [];
+    ]
     
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
+    for dept in default_departments:
+        existing = await db.departments.find_one({"id": dept["id"]})
+        if not existing:
+            await db.departments.insert_one(dept)
+
+async def migrate_users_to_departments():
+    """Assign existing users to departments based on their role"""
+    # Get all departments
+    departments = await db.departments.find({}).to_list(1000)
+    dept_map = {d["name"]: d["id"] for d in departments}
     
-    return tickets.filter(ticket => {
-      // Skip if it's the same ticket being edited
-      if (editingTicket && ticket.id === editingTicket.id) return false;
-      
-      const ticketDate = new Date(ticket.date);
-      if (ticketDate < today || ticketDate >= tomorrow) return false;
-      
-      // Check for Enterprise match
-      const enterpriseMatch = ticket.customer_id === customerId;
-      // Check for Trunk match
-      const trunkMatch = !customerTrunk || (ticket.customer_trunk && customerTrunk.toLowerCase() === ticket.customer_trunk.toLowerCase());
-      // Check for Destination match
-      const destMatch = !destination || (ticket.destination && destination.toLowerCase() === ticket.destination.toLowerCase());
-      // Check for Issue match (check if any issue types overlap)
-      const ticketIssues = ticket.issue_types || [];
-      const issueMatch = !issueTypes || issueTypes.length === 0 || issueTypes.some(i => ticketIssues.includes(i));
-      
-      return enterpriseMatch && trunkMatch && destMatch && issueMatch;
-    });
-  };
-
-  const filterAndSortTickets = () => {
-    let filtered = tickets;
-
-    if (activeTab === "unassigned") {
-      filtered = filtered.filter((t) => t.status === "Unassigned");
-    } else if (activeTab === "assigned") {
-      filtered = filtered.filter((t) => t.status === "Assigned");
-    } else if (activeTab === "other") {
-      filtered = filtered.filter((t) => !["Unassigned", "Assigned"].includes(t.status));
-    }
-
-    if (searchTerm) {
-      const term = searchTerm.toLowerCase();
-      filtered = filtered.filter((ticket) => {
-        const issueText = getIssueDisplayText(ticket).toLowerCase();
-        return (
-          ticket.ticket_number.toLowerCase().includes(term) ||
-          ticket.customer.toLowerCase().includes(term) ||
-          issueText.includes(term)
-        );
-      });
-    }
-
-    if (priorityFilter !== "all") {
-      filtered = filtered.filter((ticket) => ticket.priority === priorityFilter);
-    }
-
-    if (statusFilter !== "all") {
-      filtered = filtered.filter((ticket) => ticket.status === statusFilter);
-    }
-
-    if (enterpriseFilter !== "all") {
-      filtered = filtered.filter((ticket) => ticket.customer_id === enterpriseFilter);
-    }
-
-    if (issueTypeFilter !== "all") {
-      filtered = filtered.filter((ticket) => {
-        const types = ticket.issue_types || [];
-        return types.includes(issueTypeFilter);
-      });
-    }
-
-    // Destination filter
-    if (destinationFilter) {
-      const term = destinationFilter.toLowerCase();
-      filtered = filtered.filter((ticket) => 
-        ticket.destination?.toLowerCase().includes(term)
-      );
-    }
-
-    // Assigned To filter
-    if (assignedToFilter !== "all") {
-      if (assignedToFilter === "unassigned") {
-        filtered = filtered.filter((ticket) => !ticket.assigned_to);
-      } else {
-        filtered = filtered.filter((ticket) => ticket.assigned_to === assignedToFilter);
-      }
-    }
-
-    if (dateRange?.from) {
-      const fromDay = new Date(dateRange.from.getFullYear(), dateRange.from.getMonth(), dateRange.from.getDate());
-      const toDay = dateRange.to ? new Date(dateRange.to.getFullYear(), dateRange.to.getMonth(), dateRange.to.getDate()) : fromDay;
-      
-      filtered = filtered.filter((ticket) => {
-        const ticketDate = new Date(ticket.date);
-        const ticketDay = new Date(ticketDate.getFullYear(), ticketDate.getMonth(), ticketDate.getDate());
-        return ticketDay >= fromDay && ticketDay <= toDay;
-      });
-    }
-
-    // Multi-level sorting: Date (newest first) > Priority > Volume > Opened Via
-    filtered.sort((a, b) => {
-                // First by date only (not time) - newest to oldest
-      const aDateObj = new Date(a.date);
-      const bDateObj = new Date(b.date);
-      const aDateOnly = new Date(aDateObj.getFullYear(), aDateObj.getMonth(), aDateObj.getDate()).getTime();
-      const bDateOnly = new Date(bDateObj.getFullYear(), bDateObj.getMonth(), bDateObj.getDate()).getTime();
-      if (aDateOnly !== bDateOnly) {
-        return bDateOnly - aDateOnly; // Descending (newest first)
-      }
-
-      // Then by priority (highest to lowest: Urgent > High > Medium > Low)
-      const priorityOrder = { "Urgent": 0, "High": 1, "Medium": 2, "Low": 3 };
-      const aPriority = priorityOrder[a.priority] ?? 999;
-      const bPriority = priorityOrder[b.priority] ?? 999;
-      if (aPriority !== bPriority) return aPriority - bPriority;
-      
-      // Then by volume (highest to lowest)
-      const aVolume = parseInt(a.volume) || 0;
-      const bVolume = parseInt(b.volume) || 0;
-      if (aVolume !== bVolume) return bVolume - aVolume;
-      
-      // Then by opened via (Monitoring > AM > Teams > Email)
-      return getOpenedViaPriority(a.opened_via) - getOpenedViaPriority(b.opened_via);
-    });
-
-    setFilteredTickets(filtered);
-  };
-
-  const groupTicketsByDate = () => {
-    const grouped = {};
-    filteredTickets.forEach((ticket) => {
-      const date = new Date(ticket.date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
-      if (!grouped[date]) grouped[date] = [];
-      grouped[date].push(ticket);
-    });
-            // Sort entries by date (newest first)
-    const sortedEntries = Object.entries(grouped).sort((a, b) => {
-      const aDate = new Date(a[0]).getTime();
-      const bDate = new Date(b[0]).getTime();
-      return bDate - aDate; // Descending (newest first)
-    });
-    // Also sort tickets within each date group by priority > volume > opened_via
-    // IMPORTANT: Create a copy of each tickets array before sorting to avoid mutating state
-    sortedEntries.forEach(([date, tickets]) => {
-      const ticketsCopy = [...tickets];
-      ticketsCopy.sort((a, b) => {
-        // By priority (urgent to low)
-        const priorityOrder = { "Urgent": 0, "High": 1, "Medium": 2, "Low": 3 };
-        const aPriority = priorityOrder[a.priority] ?? 999;
-        const bPriority = priorityOrder[b.priority] ?? 999;
-        if (aPriority !== bPriority) return aPriority - bPriority;
+    # Get all users without department_id
+    users = await db.users.find({"department_id": None}).to_list(1000)
+    
+    for user in users:
+        new_dept_id = None
         
-        // Then by volume (highest to lowest)
-        const aVolume = parseInt(a.volume) || 0;
-        const bVolume = parseInt(b.volume) || 0;
-        if (aVolume !== bVolume) return bVolume - aVolume;
+        # Assign based on role
+        if user.get("role") == "admin":
+            new_dept_id = dept_map.get("Admin")
+        elif user.get("role") == "am":
+            # Check am_type for SMS or Voice
+            if user.get("am_type") == "sms":
+                new_dept_id = dept_map.get("SMS Sales")
+            elif user.get("am_type") == "voice":
+                new_dept_id = dept_map.get("Voice Sales")
+            else:
+                new_dept_id = dept_map.get("SMS Sales")  # Default to SMS
+        elif user.get("role") == "noc":
+            new_dept_id = dept_map.get("NOC")
         
-        // Then by opened via (Monitoring > AM > Teams > Email)
-        return getOpenedViaPriority(a.opened_via) - getOpenedViaPriority(b.opened_via);
-      });
-            // Replace the original array with the sorted copy
-      const index = sortedEntries.findIndex(entry => entry[0] === date);
-      if (index !== -1) {
-        sortedEntries[index][1] = ticketsCopy;
-      }
-    });
-    return { entries: sortedEntries, grouped };
-  };
+        if new_dept_id:
+            await db.users.update_one(
+                {"id": user["id"]},
+                {"$set": {"department_id": new_dept_id}}
+            )
+            print(f"Assigned user {user.get('username')} to department")
 
-  const openCreateSheet = () => {
-    setEditingTicket(null);
-    setFormData({ priority: "Medium", status: "Unassigned", opened_via: ["Monitoring"], is_lcr: "no", volume: "0", customer_trunk: "", issue_types: [], issue_other: "", fas_type: "", vendor_trunks: [] });
-    setSheetOpen(true);
-  };
+@api_router.get("/departments", response_model=List[Department])
+async def get_departments(current_user: dict = Depends(get_current_user)):
+    """Get all departments - accessible by all authenticated users (for selection)"""
+    departments = await db.departments.find({}, {"_id": 0}).to_list(1000)
+    for dept in departments:
+        if isinstance(dept.get('created_at'), str):
+            dept['created_at'] = datetime.fromisoformat(dept['created_at'])
+    return [Department(**dept) for dept in departments]
 
-  const copyAutoReplyTemplate = async (ticketNumber) => {
-    const template = `Hello team, We have received your request with ticket #: ${ticketNumber}. Rest assured we are working on your request and we will update you as soon as possible. Thank you for your patience!`;
-    try {
-      await navigator.clipboard.writeText(template);
-      toast.success("Auto-reply template copied to clipboard!");
-    } catch (err) {
-      toast.error("Failed to copy to clipboard");
-    }
-  };
-
-  const openEditSheet = (ticket) => {
-    setEditingTicket(ticket);
-    // Normalize opened_via to array
-    const openedVia = Array.isArray(ticket.opened_via) 
-      ? ticket.opened_via 
-      : ticket.opened_via ? ticket.opened_via.split(",").map(v => v.trim()) : [];
-    setFormData({
-      ...ticket,
-      opened_via: openedVia,
-      issue_types: ticket.issue_types || [],
-      issue_other: ticket.issue_other || "",
-      fas_type: ticket.fas_type || ""
-    });
-    setSheetOpen(true);
-  };
-
-  const isAM = currentUser?.role === "am";
-  const canModify = !isAM;
-
-  const formatApiError = (error, fallback = "Request failed") => {
-  const detail = error?.response?.data?.detail;
-
-  if (typeof detail === "string") return detail;
-
-  if (Array.isArray(detail)) {
-    const msg = detail
-      .map((d) => d?.msg)
-      .filter(Boolean)
-      .join(", ");
-    return msg || fallback;
-  }
-  return fallback;
-};
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-
-    // ✅ Priority required
-    if (!formData.priority) {
-      toast.error("Priority is required");
-      return;
-    }
-
-    // ✅ Status required
-    if (!formData.status) {
-      toast.error("Status is required");
-      return;
-    }
-
-    // ✅ Volume required
-    if (!formData.volume) {
-      toast.error("Volume is required");
-      return;
-    }
-
-    // ✅ Enterprise required
-    if (!formData.customer_id) {
-      toast.error("Enterprise is required");
-      return;
-    }
-
-    // ✅ Enterprise Trunk required
-    if (!formData.customer_trunk) {
-      toast.error("Enterprise Trunk is required");
-      return;
-    }
-
-    // ✅ Destination required
-    if (!formData.destination) {
-      toast.error("Destination is required");
-      return;
-    }
-
-    // ✅ Issue Type required
-    if (!formData.issue_types || formData.issue_types.length === 0) {
-      toast.error("Issue Type is required");
-      return;
-    }
-
-    // Validate opened_via
-    if (!formData.opened_via || formData.opened_via.length === 0) {
-      toast.error("Please select at least one 'Opened Via' option");
-      return;
-    }
-
-    // Validate status - can't be "Assigned" without assigned_to
-    if (formData.status === "Assigned" && !formData.assigned_to) {
-      toast.error("Status cannot be 'Assigned' unless a NOC member is assigned");
-      return;
-    }
+@api_router.post("/departments", response_model=Department)
+async def create_department(dept_data: DepartmentCreate, current_admin: dict = Depends(get_current_admin)):
+    """Create a new department - admin only"""
+    dept_obj = Department(**dept_data.model_dump())
+    doc = dept_obj.model_dump()
+    doc['created_at'] = doc['created_at'].isoformat()
     
-        // Validate max 3 assigned tickets per member
-    if (formData.status === "Assigned" && formData.assigned_to) {
-      const assignedToId = formData.assigned_to;
-      const currentAssignedCount = tickets.filter(
-        t => t.assigned_to === assignedToId && t.status === "Assigned" && t.id !== editingTicket?.id
-      ).length;
-      
-      if (currentAssignedCount >= 3) {
-        const user = users.find(u => u.id === assignedToId);
-        toast.error(`${user?.username || 'This member'} already has 3 assigned tickets. Maximum is 3.`);
-        return;
-      }
-    }
+    await db.departments.insert_one(doc)
+    return dept_obj
+
+@api_router.put("/departments/{dept_id}", response_model=Department)
+async def update_department(dept_id: str, dept_data: DepartmentUpdate, current_admin: dict = Depends(get_current_admin)):
+    """Update a department - admin only"""
+    update_dict = {k: v for k, v in dept_data.model_dump().items() if v is not None}
     
-        // Check for same-day identical tickets (Enterprise, Trunk, Destination, Issue)
-    if (!editingTicket) {
-      const sameDayIdentical = findSameDayIdenticalTickets(
-        formData.customer_id,
-        formData.customer_trunk,
-        formData.destination,
-        formData.issue_types
-      );
-
-      if (sameDayIdentical.length > 0) {
-        const ticketNumbers = sameDayIdentical.map(t => t.ticket_number).join(', ');
-        setSameDayTickets(sameDayIdentical);
-        setPendingFormData(formData);
-        setSameDayDialogOpen(true);
-        return; // Stop here, wait for user confirmation
-      }
-    }
-
-    try {
-      const token = localStorage.getItem("token");
-      const headers = { Authorization: `Bearer ${token}` };
-      if (editingTicket) {
-        await axios.put(`${API}/tickets/voice/${editingTicket.id}`, formData, { headers });
-        toast.success("Ticket updated successfully");
-      } else {
-        await axios.post(`${API}/tickets/voice`, formData, { headers });
-        toast.success("Ticket created successfully");
-      }
-      setSheetOpen(false);
-      fetchData();
-    } catch (error) {
-      // ✅ Never pass array/object to toast
-    toast.error(formatApiError(error, "Failed to save ticket"));
-    }
-  };
-
-  const handleDelete = async () => {
-    try {
-      const token = localStorage.getItem("token");
-      await axios.delete(`${API}/tickets/voice/${ticketToDelete.id}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      toast.success("Ticket deleted successfully");
-      setDeleteDialogOpen(false);
-      setTicketToDelete(null);
-      fetchData();
-    } catch (error) {
-      toast.error(error.response?.data?.detail || "Failed to delete ticket");
-    }
-  };
-
-    const handleConfirmedSubmit = async () => {
-    if (!pendingFormData) return;
+    result = await db.departments.find_one_and_update(
+        {"id": dept_id},
+        {"$set": update_dict},
+        return_document=True,
+        projection={"_id": 0}
+    )
     
-    try {
-      const token = localStorage.getItem("token");
-      const headers = { Authorization: `Bearer ${token}` };
-      await axios.post(`${API}/tickets/voice`, pendingFormData, { headers });
-      toast.success("Ticket created successfully");
-      setSameDayDialogOpen(false);
-      setSameDayTickets([]);
-      setPendingFormData(null);
-      setSheetOpen(false);
-      fetchData();
-    } catch (error) {
-      toast.error(formatApiError(error, "Failed to save ticket"));
-    }
-  };
-
-    const openActionsDialog = async (ticket) => {
-    setSelectedTicket(ticket);
-    setTicketActions(ticket.actions || []);
-    setActionsDialogOpen(true);
-  };
-
-  const handleAddAction = async () => {
-    if (!newActionText.trim() || !selectedTicket) return;
+    if not result:
+        raise HTTPException(status_code=404, detail="Department not found")
     
-    try {
-      const token = localStorage.getItem("token");
-      const headers = { Authorization: `Bearer ${token}` };
-      const response = await axios.post(
-        `${API}/tickets/voice/${selectedTicket.id}/actions`,
-        { text: newActionText },
-        { headers }
-      );
-      
-      setTicketActions([...ticketActions, response.data.action]);
-      setNewActionText("");
-      toast.success("Action added successfully");
-      fetchData();
-    } catch (error) {
-      toast.error("Failed to add action");
-    }
-  };
+    if isinstance(result.get('created_at'), str):
+        result['created_at'] = datetime.fromisoformat(result['created_at'])
+    return Department(**result)
 
-  // Handle editing an action
-  const handleEditAction = (action) => {
-    setEditingAction(action.id);
-    setEditActionText(action.text);
-  };
-
-  // Save edited action
-  const handleSaveEdit = async (actionId) => {
-    if (!editActionText.trim() || !selectedTicket) return;
+@api_router.delete("/departments/{dept_id}")
+async def delete_department(dept_id: str, current_admin: dict = Depends(get_current_admin)):
+    """Delete a department - admin only"""
+    # Prevent deletion of default departments
+    if dept_id in ["dept_admin", "dept_sms_sales", "dept_voice_sales", "dept_noc"]:
+        raise HTTPException(status_code=400, detail="Cannot delete default departments")
     
-    try {
-      const token = localStorage.getItem("token");
-      const headers = { Authorization: `Bearer ${token}` };
-      await axios.put(
-        `${API}/tickets/voice/${selectedTicket.id}/actions/${actionId}`,
-        { text: editActionText },
-        { headers }
-      );
-      
-      setEditingAction(null);
-      setEditActionText("");
-      toast.success("Action updated successfully");
-      fetchData();
-      
-      // Refresh the ticket to get updated actions in the dialog
-      const ticketResponse = await axios.get(`${API}/tickets/voice/${selectedTicket.id}`, { headers });
-      setTicketActions(ticketResponse.data.actions || []);
-    } catch (error) {
-      toast.error(error.response?.data?.detail || "Failed to update action");
-    }
-  };
+    result = await db.departments.delete_one({"id": dept_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Department not found")
+    return {"message": "Department deleted successfully"}
 
-  // Cancel editing
-  const handleCancelEdit = () => {
-    setEditingAction(null);
-    setEditActionText("");
-  };
-
-  // Handle deleting an action
-  const handleDeleteAction = async (actionId) => {
-    if (!selectedTicket) return;
+@api_router.get("/my-department")
+async def get_my_department(current_user: dict = Depends(get_current_user)):
+    """Get current user's department"""
+    if not current_user.get("department_id"):
+        return None
     
-    try {
-      const token = localStorage.getItem("token");
-      const headers = { Authorization: `Bearer ${token}` };
-      await axios.delete(
-        `${API}/tickets/voice/${selectedTicket.id}/actions/${actionId}`,
-        { headers }
-      );
-      
-      toast.success("Action deleted successfully");
-      fetchData();
-      
-      // Refresh the ticket to get updated actions in the dialog
-      const ticketResponse = await axios.get(`${API}/tickets/voice/${selectedTicket.id}`, { headers });
-      setTicketActions(ticketResponse.data.actions || []);
-    } catch (error) {
-      toast.error(error.response?.data?.detail || "Failed to delete action");
+    dept = await db.departments.find_one({"id": current_user["department_id"]}, {"_id": 0})
+    if not dept:
+        return None
+    
+    if isinstance(dept.get('created_at'), str):
+        dept['created_at'] = datetime.fromisoformat(dept['created_at'])
+    return Department(**dept)
+
+# ==================== CLIENT ROUTES ====================
+
+@api_router.post("/clients", response_model=Client)
+async def create_client(client_data: ClientCreate, current_user: dict = Depends(get_current_user)):
+    """Create a new client - requires can_create_enterprises permission"""
+    dept = await get_user_department(current_user)
+    if not dept or not dept.get("can_create_enterprises"):
+        raise HTTPException(status_code=403, detail="Admin or NOC access required")
+    client_obj = Client(**client_data.model_dump())
+    doc = client_obj.model_dump()
+    doc['created_at'] = doc['created_at'].isoformat()
+    
+    await db.clients.insert_one(doc)
+    return client_obj
+
+@api_router.get("/clients", response_model=List[Client])
+async def get_clients(current_user: dict = Depends(get_current_user)):
+    """Get all clients - filtered by AM if user is AM"""
+    dept = await get_user_department(current_user)
+    role = get_user_role_from_department(dept)
+    
+    query = {}
+    if role == "am":
+        query["assigned_am_id"] = current_user["id"]
+    
+    clients = await db.clients.find(query, {"_id": 0}).to_list(1000)
+    for client in clients:
+        if isinstance(client['created_at'], str):
+            client['created_at'] = datetime.fromisoformat(client['created_at'])
+    return [Client(**client) for client in clients]
+
+@api_router.put("/clients/{client_id}", response_model=Client)
+async def update_client(client_id: str, client_data: ClientUpdate, current_user: dict = Depends(get_current_user)):
+    """Update client - requires can_edit_enterprises permission"""
+    dept = await get_user_department(current_user)
+    if not dept or not dept.get("can_edit_enterprises"):
+        raise HTTPException(status_code=403, detail="Admin or NOC access required")
+    update_dict = {k: v for k, v in client_data.model_dump().items() if v is not None}
+    
+    result = await db.clients.find_one_and_update(
+        {"id": client_id},
+        {"$set": update_dict},
+        return_document=True,
+        projection={"_id": 0}
+    )
+    
+    if not result:
+        raise HTTPException(status_code=404, detail="Client not found")
+    
+    if isinstance(result['created_at'], str):
+        result['created_at'] = datetime.fromisoformat(result['created_at'])
+    return Client(**result)
+
+# AM-specific endpoint to update contact fields only
+class ClientContactUpdate(BaseModel):
+    contact_person: Optional[str] = None
+    contact_email: Optional[str] = None
+    contact_phone: Optional[str] = None
+    noc_emails: Optional[str] = None
+    notes: Optional[str] = None
+
+@api_router.put("/clients/{client_id}/contact", response_model=Client)
+async def update_client_contact(client_id: str, contact_data: ClientContactUpdate, current_user: dict = Depends(get_current_user)):
+    """Allow AMs to update contact fields for their assigned enterprises"""
+    if current_user["role"] != "am":
+        raise HTTPException(status_code=403, detail="Only AMs can use this endpoint")
+    
+    # Verify the client is assigned to this AM
+    client = await db.clients.find_one({"id": client_id, "assigned_am_id": current_user["id"]})
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found or not assigned to you")
+    
+    update_dict = {k: v for k, v in contact_data.model_dump().items() if v is not None}
+    
+    result = await db.clients.find_one_and_update(
+        {"id": client_id},
+        {"$set": update_dict},
+        return_document=True,
+        projection={"_id": 0}
+    )
+    
+    if isinstance(result['created_at'], str):
+        result['created_at'] = datetime.fromisoformat(result['created_at'])
+    return Client(**result)
+
+@api_router.delete("/clients/{client_id}")
+async def delete_client(client_id: str, current_admin: dict = Depends(get_current_admin)):
+    result = await db.clients.delete_one({"id": client_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Client not found")
+    return {"message": "Client deleted successfully"}
+
+@api_router.get("/trunks/{enterprise_type}")
+async def get_trunks_by_type(enterprise_type: str, current_user: dict = Depends(get_current_user)):
+    """Get all customer and vendor trunks for a specific enterprise type (sms or voice)"""
+    # Check department type access
+    dept = await get_user_department(current_user)
+    ticket_type = get_user_ticket_type(dept)
+    if ticket_type != "all" and ticket_type != enterprise_type:
+        raise HTTPException(status_code=403, detail=f"You don't have access to {enterprise_type} tickets")
+    
+    query = {"enterprise_type": enterprise_type}
+    dept = await get_user_department(current_user)
+    role = get_user_role_from_department(dept)
+    if role == "am":
+        query["assigned_am_id"] = current_user["id"]
+    
+    clients = await db.clients.find(query, {"_id": 0, "customer_trunks": 1, "vendor_trunks": 1, "name": 1, "id": 1}).to_list(1000)
+    
+    customer_trunks = []
+    vendor_trunks = []
+    
+    for client in clients:
+        if client.get("customer_trunks"):
+            for trunk in client["customer_trunks"]:
+                if trunk not in customer_trunks:
+                    customer_trunks.append(trunk)
+        if client.get("vendor_trunks"):
+            for trunk in client["vendor_trunks"]:
+                if trunk not in vendor_trunks:
+                    vendor_trunks.append(trunk)
+    
+    return {
+        "customer_trunks": customer_trunks,
+        "vendor_trunks": vendor_trunks
     }
-  };
 
-  if (loading) return <div className="flex items-center justify-center h-full"><div className="text-emerald-500">Loading voice tickets...</div></div>;
+# ==================== SMS TICKET ROUTES ====================
 
-  const unassignedCount = tickets.filter(t => t.status === "Unassigned").length;
-  const assignedCount = tickets.filter(t => t.status === "Assigned").length;
-  const otherCount = tickets.filter(t => !["Unassigned", "Assigned"].includes(t.status)).length;
+def generate_ticket_number(date: datetime, ticket_id: str) -> str:
+    date_str = date.strftime("%Y%m%d")
+    return f"#{date_str}{ticket_id[:8]}"
 
-  return (
-    <div className="p-6 lg:p-8 space-y-6 max-w-[1920px] mx-auto" data-testid="voice-tickets-page">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-4xl font-bold text-white">Voice Tickets</h1>
-          <p className="text-zinc-400 mt-1">Manage and track Voice trouble tickets</p>
-        </div>
-        {canModify && (
-          <Button onClick={openCreateSheet} data-testid="create-voice-ticket-button" className="bg-emerald-500 text-black hover:bg-emerald-400 h-9">
-            <Plus className="h-4 w-4 mr-2" />New Ticket
-          </Button>
-        )}
-      </div>
+@api_router.post("/tickets/sms", response_model=SMSTicket)
+async def create_sms_ticket(ticket_data: SMSTicketCreate, current_user: dict = Depends(get_current_user)):
+    """Create SMS ticket - requires can_create_tickets permission and SMS type access"""
+    # Check department type access
+    dept = await get_user_department(current_user)
+    ticket_type = get_user_ticket_type(dept)
+    if ticket_type != "all" and ticket_type != "sms":
+        raise HTTPException(status_code=403, detail="You don't have access to SMS tickets")
+    
+    # Check permission
+    if not dept or not dept.get("can_create_tickets"):
+        raise HTTPException(status_code=403, detail="Account Managers cannot create tickets")
+    
+    # Validate status requirements
+    validate_ticket_status(ticket_data.status, ticket_data.assigned_to)
+    
+    # Get customer name
+    client = await db.clients.find_one({"id": ticket_data.customer_id}, {"_id": 0})
+    if not client:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    
+    ticket_dict = ticket_data.model_dump()
+    ticket_dict["created_by"] = current_user["id"]
+    ticket_dict["customer"] = client["name"]
+    
+    # Generate ID and ticket number before creating object
+    ticket_id = str(uuid.uuid4())
+    ticket_date = datetime.now(timezone.utc)
+    ticket_dict["id"] = ticket_id
+    ticket_dict["date"] = ticket_date
+    ticket_dict["ticket_number"] = generate_ticket_number(ticket_date, ticket_id)
+    
+    ticket_obj = SMSTicket(**ticket_dict)
+    
+    doc = ticket_obj.model_dump()
+    doc['date'] = doc['date'].isoformat()
+    doc['updated_at'] = doc['updated_at'].isoformat()
+    
+    await db.sms_tickets.insert_one(doc)
+    return ticket_obj
 
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-        <div className="md:col-span-2 relative">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-zinc-500" />
-          <Input placeholder="Search tickets..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-10 bg-zinc-900 border-zinc-700 text-white placeholder:text-zinc-500" />
-        </div>
-        <DateRangePickerWithRange dateRange={dateRange} onDateRangeChange={setDateRange} />
-        <Select value={priorityFilter} onValueChange={setPriorityFilter}>
-          <SelectTrigger className="bg-zinc-900 border-zinc-700 text-white"><SelectValue placeholder="Priority" /></SelectTrigger>
-          <SelectContent className="bg-zinc-800 border-zinc-700">
-            <SelectItem value="all">All Priorities</SelectItem><SelectItem value="Low">Low</SelectItem><SelectItem value="Medium">Medium</SelectItem><SelectItem value="High">High</SelectItem><SelectItem value="Urgent">Urgent</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="bg-zinc-900 border-zinc-700 text-white"><SelectValue placeholder="Status" /></SelectTrigger>
-          <SelectContent className="bg-zinc-800 border-zinc-700">
-            <SelectItem value="all">All Statuses</SelectItem><SelectItem value="Unassigned">Unassigned</SelectItem><SelectItem value="Assigned">Assigned</SelectItem><SelectItem value="Awaiting Vendor">Awaiting Vendor</SelectItem><SelectItem value="Awaiting Client">Awaiting Client</SelectItem><SelectItem value="Awaiting AM">Awaiting AM</SelectItem><SelectItem value="Resolved">Resolved</SelectItem><SelectItem value="Unresolved">Unresolved</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
+@api_router.get("/tickets/sms", response_model=List[SMSTicket])
+async def get_sms_tickets(current_user: dict = Depends(get_current_user)):
+    """Get SMS tickets - filtered by department type and permissions"""
+    # Check department type access
+    dept = await get_user_department(current_user)
+    ticket_type = get_user_ticket_type(dept)
+    if ticket_type != "all" and ticket_type != "sms":
+        raise HTTPException(status_code=403, detail="You don't have access to SMS tickets")
+    
+    query = {}
+    
+    role = get_user_role_from_department(dept)
+    
+    if role == "am":
+        clients = await db.clients.find({"assigned_am_id": current_user["id"]}, {"_id": 0}).to_list(1000)
+        client_ids = [c["id"] for c in clients]
+        query["customer_id"] = {"$in": client_ids}
+    
+    # Limit to 500 most recent tickets for performance
+    tickets = await db.sms_tickets.find(query, {"_id": 0}).sort("date", -1).limit(500).to_list(500)
+    for ticket in tickets:
+        if isinstance(ticket.get('date'), str):
+            ticket['date'] = datetime.fromisoformat(ticket['date'])
+        if isinstance(ticket.get('updated_at'), str):
+            ticket['updated_at'] = datetime.fromisoformat(ticket['updated_at'])
+        # Normalize opened_via for backward compatibility
+        ticket['opened_via'] = normalize_opened_via(ticket.get('opened_via'))
+    return [SMSTicket(**ticket) for ticket in tickets]
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Select value={enterpriseFilter} onValueChange={setEnterpriseFilter}>
-          <SelectTrigger className="bg-zinc-900 border-zinc-700 text-white"><SelectValue placeholder="Enterprise" /></SelectTrigger>
-          <SelectContent className="bg-zinc-800 border-zinc-700">
-            <SelectItem value="all">All Enterprises</SelectItem>
-            {enterprises.map((e) => <SelectItem key={e.id} value={e.id}>{e.name}</SelectItem>)}
-          </SelectContent>
-        </Select>
-        <Select value={issueTypeFilter} onValueChange={setIssueTypeFilter}>
-          <SelectTrigger className="bg-zinc-900 border-zinc-700 text-white"><SelectValue placeholder="Issue Type" /></SelectTrigger>
-          <SelectContent className="bg-zinc-800 border-zinc-700">
-            <SelectItem value="all">All Issue Types</SelectItem>
-            {VOICE_ISSUE_TYPES.map((type) => <SelectItem key={type} value={type}>{type}</SelectItem>)}
-          </SelectContent>
-        </Select>
-        <Input
-          placeholder="Filter by Destination..."
-          data-testid="filter-destination"
-          value={destinationFilter}
-          onChange={(e) => setDestinationFilter(e.target.value)}
-          className="bg-zinc-900 border-zinc-700 text-white placeholder:text-zinc-500"
-        />
-        <Select value={assignedToFilter} onValueChange={setAssignedToFilter}>
-          <SelectTrigger className="bg-zinc-900 border-zinc-700 text-white" data-testid="filter-assigned-to">
-            <SelectValue placeholder="Filter by Assigned To" />
-          </SelectTrigger>
-          <SelectContent className="bg-zinc-800 border-zinc-700">
-            <SelectItem value="all">All Assignees</SelectItem>
-            <SelectItem value="unassigned">Unassigned</SelectItem>
-            {users.map((user) => (
-              <SelectItem key={user.id} value={user.id}>{user.username}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+@api_router.get("/tickets/sms/{ticket_id}", response_model=SMSTicket)
+async def get_sms_ticket(ticket_id: str, current_user: dict = Depends(get_current_user)):
+    """Get a single SMS ticket"""
+    # Check department type access
+    dept = await get_user_department(current_user)
+    ticket_type = get_user_ticket_type(dept)
+    if ticket_type != "all" and ticket_type != "sms":
+        raise HTTPException(status_code=403, detail="You don't have access to SMS tickets")
+    
+    ticket = await db.sms_tickets.find_one({"id": ticket_id}, {"_id": 0})
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    
+    if isinstance(ticket['date'], str):
+        ticket['date'] = datetime.fromisoformat(ticket['date'])
+    if isinstance(ticket['updated_at'], str):
+        ticket['updated_at'] = datetime.fromisoformat(ticket['updated_at'])
+    # Normalize opened_via for backward compatibility
+    ticket['opened_via'] = normalize_opened_via(ticket.get('opened_via'))
+    return SMSTicket(**ticket)
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="text-zinc-400 text-sm flex items-center">Sorted by: Date → Priority → Volume → Opened Via</div>
-                <Button variant="outline" onClick={() => { setSearchTerm(""); setPriorityFilter("all"); setStatusFilter("all"); setEnterpriseFilter("all"); setIssueTypeFilter("all"); setDestinationFilter(""); setAssignedToFilter("all"); setDateRange({ from: new Date(), to: new Date() }); }} className="border-zinc-700 text-zinc-400 hover:text-white hover:bg-zinc-800">Reset to Today</Button>
-      </div>
+@api_router.put("/tickets/sms/{ticket_id}", response_model=SMSTicket)
+async def update_sms_ticket(ticket_id: str, ticket_data: SMSTicketUpdate, current_user: dict = Depends(get_current_user)):
+    """Update SMS ticket - requires can_edit_tickets permission and SMS type access"""
+    # Check department type access
+    dept = await get_user_department(current_user)
+    ticket_type = get_user_ticket_type(dept)
+    if ticket_type != "all" and ticket_type != "sms":
+        raise HTTPException(status_code=403, detail="You don't have access to SMS tickets")
+    
+    # Check permission
+    if not dept or not dept.get("can_edit_tickets"):
+        raise HTTPException(status_code=403, detail="Account Managers cannot modify tickets")
+    
+    # Get the existing ticket to check status validation
+    existing_ticket = await db.sms_tickets.find_one({"id": ticket_id}, {"_id": 0})
+    if not existing_ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    
+    update_dict = {k: v for k, v in ticket_data.model_dump().items() if v is not None}
+    
+    # Validate status requirements
+    new_status = update_dict.get("status", existing_ticket.get("status"))
+    new_assigned_to = update_dict.get("assigned_to", existing_ticket.get("assigned_to"))
+    validate_ticket_status(new_status, new_assigned_to)
+    
+    # Set assigned_at when ticket is assigned
+    # Only set if: assigned_to is being set/changed AND status is "Assigned"
+    if new_assigned_to and new_status == "Assigned":
+        # Check if assigned_to is new or changed
+        existing_assigned_to = existing_ticket.get("assigned_to")
+        if not existing_assigned_to or existing_assigned_to != new_assigned_to:
+            update_dict["assigned_at"] = datetime.now(timezone.utc)
+    
+    update_dict["updated_at"] = datetime.now(timezone.utc).isoformat()
+    
+    # Check if we need to create a notification for ticket modification
+    # Only notify if:
+    # 1. Ticket has an assigned user
+    # 2. Ticket status is "Assigned" 
+    # 3. The user modifying the ticket is different from the assigned user
+    existing_assigned_to = existing_ticket.get("assigned_to")
+    existing_status = existing_ticket.get("status")
+    current_user_id = current_user.get("id")
+    
+    should_notify = (
+        existing_assigned_to and 
+        existing_status == "Assigned" and 
+        existing_assigned_to != current_user_id
+    )
+    
+    result = await db.sms_tickets.find_one_and_update(
+        {"id": ticket_id},
+        {"$set": update_dict},
+        return_document=True,
+        projection={"_id": 0}
+    )
+    
+    if not result:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    
+    # Create notification after successful update
+    if should_notify:
+        await create_ticket_modification_notification(
+            ticket_id=ticket_id,
+            ticket_number=existing_ticket.get("ticket_number", ""),
+            ticket_type="sms",
+            assigned_to=existing_assigned_to,
+            modified_by=current_user_id,
+            modified_by_username=current_user.get("username", "Unknown")
+        )
+    
+    if isinstance(result['date'], str):
+        result['date'] = datetime.fromisoformat(result['date'])
+    if isinstance(result['updated_at'], str):
+        result['updated_at'] = datetime.fromisoformat(result['updated_at'])
+    # Normalize opened_via for backward compatibility
+    result['opened_via'] = normalize_opened_via(result.get('opened_via'))
+    return SMSTicket(**result)
 
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full max-w-md grid-cols-3 bg-zinc-900 border border-white/10">
-          <TabsTrigger value="unassigned" className="data-[state=active]:bg-emerald-500 data-[state=active]:text-black">Unassigned ({unassignedCount})</TabsTrigger>
-          <TabsTrigger value="assigned" className="data-[state=active]:bg-emerald-500 data-[state=active]:text-black">Assigned ({assignedCount})</TabsTrigger>
-          <TabsTrigger value="other" className="data-[state=active]:bg-emerald-500 data-[state=active]:text-black">Other ({otherCount})</TabsTrigger>
-        </TabsList>
+@api_router.delete("/tickets/sms/{ticket_id}")
+async def delete_sms_ticket(ticket_id: str, current_user: dict = Depends(get_current_admin_or_noc)):
+    result = await db.sms_tickets.delete_one({"id": ticket_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    return {"message": "Ticket deleted successfully"}
 
-        <TabsContent value={activeTab} className="mt-4">
-          <div className="bg-zinc-900/50 border border-white/10 rounded-lg overflow-hidden">
-            <Table>
-              <TableHeader>
-                <TableRow className="border-white/5 hover:bg-transparent">
-                  <TableHead className="text-zinc-400">Priority</TableHead>
-                  <TableHead className="text-zinc-400">Volume</TableHead>
-                  <TableHead className="text-zinc-400">Ticket#</TableHead>
-                  <TableHead className="text-zinc-400">Enterprise Trunk</TableHead>
-                  <TableHead className="text-zinc-400">Destination</TableHead>
-                  <TableHead className="text-zinc-400">Issue</TableHead>
-                  <TableHead className="text-zinc-400">Opened Via</TableHead>
-                  <TableHead className="text-zinc-400">Status</TableHead>
-                  <TableHead className="text-zinc-400">Assigned To</TableHead>
-                  <TableHead className="text-zinc-400">Date Created</TableHead>
-                  <TableHead className="text-zinc-400">Date Modified</TableHead>
-                  <TableHead className="text-zinc-400">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                  {filteredTickets.length > 0 ? (() => {
-                  const { entries: sortedEntries } = groupTicketsByDate();
-                  return sortedEntries.map(([date, tickets]) => (
-                  <React.Fragment key={date}>
-                    <TableRow className="bg-zinc-800/30 border-white/10">
-                      <TableCell colSpan={11} className="py-2 px-4">
-                        <div className="flex items-center space-x-3">
-                          <Calendar className="h-4 w-4 text-emerald-500" />
-                          <span className="text-sm font-semibold text-emerald-500">{date}</span>
-                          <div className="flex-1 h-px bg-white/10"></div>
-                          <span className="text-xs text-zinc-500">{tickets.length} ticket{tickets.length !== 1 ? 's' : ''}</span>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                    {tickets.map((ticket) => {
-                      const assignedUser = users.find((u) => u.id === ticket.assigned_to);
-                      return (
-                        <TableRow key={ticket.id} onClick={() => openEditSheet(ticket)} className="border-white/5 hover:bg-zinc-800/50 cursor-pointer">
-                          <TableCell className="p-3"><PriorityIndicator priority={ticket.priority} /></TableCell>
-                          <TableCell className="text-zinc-300 tabular-nums">{ticket.volume || "0"}</TableCell>
-                          <TableCell 
-                            className="text-white font-medium tabular-nums cursor-pointer hover:text-blue-400 transition-colors"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              copyAutoReplyTemplate(ticket.ticket_number);
-                            }}
-                            title="Click to copy auto-reply template"
-                          >
-                            {ticket.ticket_number}
-                          </TableCell>
-                          <TableCell className="text-zinc-300">{ticket.customer_trunk || "-"}</TableCell>
-                          <TableCell className="text-zinc-300">{ticket.destination || "-"}</TableCell>
-                          <TableCell className="text-zinc-300 max-w-xs truncate">{getIssueDisplayText(ticket)}</TableCell>
-                          <TableCell className="text-zinc-300">{getOpenedViaDisplayText(ticket) || "-"}</TableCell>
-                          <TableCell><StatusBadge status={ticket.status} /></TableCell>
-                          <TableCell className="text-zinc-300">{assignedUser?.username || "Unassigned"}</TableCell>
-                          <TableCell className="text-zinc-400 tabular-nums">
-                            {new Date(ticket.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} {new Date(ticket.date).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
-                          </TableCell>
-                          <TableCell className="text-zinc-400 tabular-nums">
-                            {ticket.updated_at ? `${new Date(ticket.updated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} ${new Date(ticket.updated_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}` : "-"}
-                          </TableCell>
-                            <TableCell className="text-zinc-400">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                openActionsDialog(ticket);
-                              }}
-                              className="text-zinc-400 hover:text-white"
-                            >
-                              <MessageSquare className="h-4 w-4 mr-1" />
-                              {ticket.actions?.length || 0}
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </React.Fragment>
-                ))})() : <TableRow><TableCell colSpan={11} className="text-center py-8 text-zinc-500">No tickets found</TableCell></TableRow>}
-              </TableBody>
-            </Table>
-          </div>
-        </TabsContent>
-      </Tabs>
+# ==================== VOICE TICKET ROUTES ====================
 
-      <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-        <SheetContent className="bg-zinc-900 border-white/10 text-white sm:max-w-2xl overflow-y-auto">
-          <SheetHeader><SheetTitle className="text-white">{isAM ? "View Voice Ticket" : editingTicket ? "Edit Voice Ticket" : "Create Voice Ticket"}</SheetTitle></SheetHeader>
-          <form onSubmit={handleSubmit} className="space-y-4 mt-6">
-            {/* Priority */}
-            <div className="space-y-2">
-              <Label>Priority *</Label>
-              <Select value={formData.priority} onValueChange={(value) => setFormData({ ...formData, priority: value })} required disabled={isAM}>
-                <SelectTrigger className="bg-zinc-800 border-zinc-700"><SelectValue placeholder="Select priority" /></SelectTrigger>
-                <SelectContent className="bg-zinc-800 border-zinc-700">
-                  <SelectItem value="Low">Low</SelectItem>
-                  <SelectItem value="Medium">Medium</SelectItem>
-                  <SelectItem value="High">High</SelectItem>
-                  <SelectItem value="Urgent">Urgent</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+@api_router.post("/tickets/voice", response_model=VoiceTicket)
+async def create_voice_ticket(ticket_data: VoiceTicketCreate, current_user: dict = Depends(get_current_user)):
+    # AMs cannot create tickets
+    if current_user["role"] == "am":
+        raise HTTPException(status_code=403, detail="Account Managers cannot create tickets")
+    
+    # Validate status requirements
+    validate_ticket_status(ticket_data.status, ticket_data.assigned_to)
+    
+    # Get customer name
+    client = await db.clients.find_one({"id": ticket_data.customer_id}, {"_id": 0})
+    if not client:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    
+    ticket_dict = ticket_data.model_dump()
+    ticket_dict["created_by"] = current_user["id"]
+    ticket_dict["customer"] = client["name"]
+    
+    # Generate ID and ticket number before creating object
+    ticket_id = str(uuid.uuid4())
+    ticket_date = datetime.now(timezone.utc)
+    ticket_dict["id"] = ticket_id
+    ticket_dict["date"] = ticket_date
+    ticket_dict["ticket_number"] = generate_ticket_number(ticket_date, ticket_id)
+    
+    ticket_obj = VoiceTicket(**ticket_dict)
+    
+    doc = ticket_obj.model_dump()
+    doc['date'] = doc['date'].isoformat()
+    doc['updated_at'] = doc['updated_at'].isoformat()
+    
+    await db.voice_tickets.insert_one(doc)
+    return ticket_obj
 
-            {/* Volume */}
-            <div className="space-y-2">
-              <Label>Volume *</Label>
-              <Input value={formData.volume || ""} onChange={(e) => setFormData({ ...formData, volume: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" placeholder="Enter volume" required disabled={isAM} />
-            </div>
-
-            {/* Enterprise */}
-            <div className="space-y-2">
-              <Label>Enterprise *</Label>
-              <SearchableSelect 
-                options={enterprises.filter(e => e.enterprise_type === "voice").map(e => ({ value: e.id, label: e.name }))} 
-                value={formData.customer_id} 
-                onChange={(value) => {
-                  setFormData({ 
-                    ...formData, 
-                    customer_id: value,
-                    customer_trunk: "" // Clear trunk when enterprise changes
-                  });
-                }} 
-                placeholder="Search enterprise..." 
-                isRequired={true} 
-                isDisabled={isAM} 
-              />
-            </div>
-
-            {/* Enterprise Trunk */}
-            <div className="space-y-2">
-              <Label>Enterprise Trunk *</Label>
-              <Select value={formData.customer_trunk || ""} onValueChange={(value) => setFormData({ ...formData, customer_trunk: value })} required disabled={isAM || !formData.customer_id}>
-                <SelectTrigger className="bg-zinc-800 border-zinc-700"><SelectValue placeholder={formData.customer_id ? "Select customer trunk" : "Select enterprise first"} /></SelectTrigger>
-                <SelectContent className="bg-zinc-800 border-zinc-700">
-                  {(formData.customer_id 
-                    ? enterprises.find(e => e.id === formData.customer_id)?.customer_trunks || []
-                    : customerTrunkOptions
-                  ).map((trunk) => (
-                    <SelectItem key={trunk} value={trunk}>{trunk}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Destination */}
-            <div className="space-y-2">
-              <Label>Destination *</Label>
-              <Input value={formData.destination || ""} onChange={(e) => setFormData({ ...formData, destination: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" placeholder="Enter destination" required disabled={isAM} />
-            </div>
-
-            {/* Issue Types - Multi-select checklist */}
-            <IssueTypeSelect
-              selectedTypes={formData.issue_types || []}
-              otherText={formData.issue_other || ""}
-              fasType={formData.fas_type || ""}
-              onTypesChange={(types) => setFormData({ ...formData, issue_types: types })}
-              onOtherChange={(text) => setFormData({ ...formData, issue_other: text })}
-              onFasTypeChange={(text) => setFormData({ ...formData, fas_type: text })}
-              disabled={isAM}
-              ticketType="voice"
-            />
-
-            {/* Opened Via - Multi-select checklist */}
-            <OpenedViaSelect
-              selectedOptions={formData.opened_via || []}
-              onChange={(options) => setFormData({ ...formData, opened_via: options })}
-              disabled={isAM}
-            />
-
-            {/* Assigned To */}
-            <div className="space-y-2">
-              <Label>Assigned To</Label>
-              <SearchableSelect options={users.map(u => ({ value: u.id, label: u.username }))} value={formData.assigned_to} onChange={(value) => setFormData({ ...formData, assigned_to: value })} placeholder="Search NOC member..." isDisabled={isAM} />
-            </div>
-
-            {/* Status */}
-            <div className="space-y-2">
-              <Label>Status *</Label>
-              <Select value={formData.status} onValueChange={(value) => setFormData({ ...formData, status: value })} required disabled={isAM}>
-                <SelectTrigger className="bg-zinc-800 border-zinc-700"><SelectValue /></SelectTrigger>
-                <SelectContent className="bg-zinc-800 border-zinc-700">
-                  <SelectItem value="Unassigned">Unassigned</SelectItem>
-                  <SelectItem value="Assigned">Assigned</SelectItem>
-                  <SelectItem value="Awaiting Vendor">Awaiting Vendor</SelectItem>
-                  <SelectItem value="Awaiting Client">Awaiting Client</SelectItem>
-                  <SelectItem value="Awaiting AM">Awaiting AM</SelectItem>
-                  <SelectItem value="Resolved">Resolved</SelectItem>
-                  <SelectItem value="Unresolved">Unresolved</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="border-t border-zinc-700 pt-4 mt-4">
-              <h3 className="text-sm font-medium text-zinc-400 mb-4">Vendor & Cost</h3>
-              <div className="grid grid-cols-3 gap-4">
-                <div className="space-y-2"><Label>Rate</Label><Input value={formData.rate || ""} onChange={(e) => setFormData({ ...formData, rate: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" placeholder="Rate per minute" disabled={isAM} /></div>
-              {/* Vendor Trunks - Multi-select checklist with popover */}
-              <div className="space-y-2">
-                <Label>Vendor Trunks</Label>
-                <Popover open={vendorTrunksOpen} onOpenChange={setVendorTrunksOpen}>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      className="bg-zinc-800 border-zinc-700 text-white w-full justify-start hover:bg-zinc-700"
-                      disabled={isAM}
-                    >
-                      <ListChecks className="mr-2 h-4 w-4" />
-                      {(formData.vendor_trunks || []).length > 0
-                        ? `${(formData.vendor_trunks || []).length} trunk(s) selected`
-                        : "Select vendor trunks..."}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-80 p-0 bg-zinc-800 border-zinc-700" align="start">
-                    <div className="p-2 border-b border-zinc-700">
-                      <Input
-                        placeholder="Search vendor trunks..."
-                        value={vendorTrunkSearch}
-                        onChange={(e) => setVendorTrunkSearch(e.target.value)}
-                        className="bg-zinc-700 border-zinc-600 text-white text-sm"
-                      />
-                    </div>
-                    <div className="max-h-64 overflow-y-auto p-2">
-                      {vendorTrunkOptions
-                        .filter(trunk => trunk.toLowerCase().includes(vendorTrunkSearch.toLowerCase()))
-                        .length === 0 ? (
-                        <p className="text-sm text-zinc-500 p-2">No vendor trunks found</p>
-                      ) : (
-                        vendorTrunkOptions
-                          .filter(trunk => trunk.toLowerCase().includes(vendorTrunkSearch.toLowerCase()))
-                          .map((trunk) => {
-                            const isSelected = (formData.vendor_trunks || []).find(v => v.trunk === trunk);
-                            return (
-                              <div
-                                key={trunk}
-                                className="flex items-center space-x-2 p-2 rounded hover:bg-zinc-700 cursor-pointer"
-                                onClick={() => {
-                                  if (isSelected) {
-                                    const updatedTrunks = (formData.vendor_trunks || []).filter(v => v.trunk !== trunk);
-                                    setFormData({ ...formData, vendor_trunks: updatedTrunks });
-                                  } else {
-                                    setFormData({
-                                      ...formData,
-                                      vendor_trunks: [...(formData.vendor_trunks || []), { trunk: trunk, percentage: "", position: "" }]
-                                    });
-                                  }
-                                }}
-                              >
-                                <Checkbox
-                                  checked={!!isSelected}
-                                  className="border-zinc-500"
-                                  onCheckedChange={() => {}}
-                                />
-                                <Label className="text-white text-sm cursor-pointer flex-1">{trunk}</Label>
-                              </div>
-                            );
-                          })
-                      )}
-                    </div>
-                  </PopoverContent>
-                </Popover>
-
-                {/* Selected vendor trunks with % and position (when 2+) */}
-                {(formData.vendor_trunks || []).length > 0 && (
-                  <div className="bg-zinc-800/50 border border-zinc-700 rounded-md p-2 space-y-2">
-                    <div className="space-y-2">
-                      {(formData.vendor_trunks || []).map((vendorTrunk, index) => (
-                        <div key={`selected-${index}`} className="flex items-center space-x-2 bg-zinc-700/50 p-2 rounded">
-                          <input
-                            type="checkbox"
-                            checked={true}
-                            readOnly
-                            className="rounded border-zinc-500"
-                          />
-                          <Label className="text-white text-sm flex-1 cursor-pointer">{vendorTrunk.trunk}</Label>
-                          {((formData.vendor_trunks || []).length >= 2) && (
-                            <>
-                              <Input
-                                placeholder="%"
-                                value={vendorTrunk.percentage || ""}
-                                onChange={(e) => {
-                                  const updatedTrunks = (formData.vendor_trunks || []).map((v, i) =>
-                                    i === index ? { ...v, percentage: e.target.value } : v
-                                  );
-                                  setFormData({ ...formData, vendor_trunks: updatedTrunks });
-                                }}
-                                className="bg-zinc-600 border-zinc-500 text-white text-xs w-16 h-7"
-                                disabled={isAM}
-                              />
-                              <Select
-                                value={vendorTrunk.position || ""}
-                                onValueChange={(value) => {
-                                  const updatedTrunks = (formData.vendor_trunks || []).map((v, i) =>
-                                    i === index ? { ...v, position: value } : v
-                                  );
-                                  setFormData({ ...formData, vendor_trunks: updatedTrunks });
-                                }}
-                                disabled={isAM}
-                              >
-                                <SelectTrigger className="bg-zinc-600 border-zinc-500 h-7 w-20"><SelectValue placeholder="Pos" /></SelectTrigger>
-                                <SelectContent className="bg-zinc-800 border-zinc-700">
-                                  <SelectItem value="1">1st</SelectItem>
-                                  <SelectItem value="2">2nd</SelectItem>
-                                  <SelectItem value="3">3rd</SelectItem>
-                                  <SelectItem value="4">4th</SelectItem>
-                                  <SelectItem value="5">5th</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </>
-                          )}
-                          <Button 
-                            size="sm" 
-                            variant="ghost" 
-                            onClick={() => {
-                              const updatedTrunks = (formData.vendor_trunks || []).filter((_, i) => i !== index);
-                              setFormData({ ...formData, vendor_trunks: updatedTrunks });
-                            }}
-                            className="text-red-400 hover:text-red-300 h-6 w-6 p-0"
-                            disabled={isAM}
-                          >
-                            <X className="h-3 w-3" />
-                          </Button>
-                        </div>
-                      ))}
-                      {/* Total percentage when 2+ selected */}
-                      {((formData.vendor_trunks || []).length >= 2) && (
-                        <div className="text-xs text-zinc-400 pt-1">
-                          Total: {((formData.vendor_trunks || []).reduce((sum, v) => sum + (parseFloat(v.percentage) || 0), 0))}%
-                          {((formData.vendor_trunks || []).reduce((sum, v) => sum + (parseFloat(v.percentage) || 0), 0)) !== 100 && 
-                            <span className="text-red-400 ml-1">(must equal 100%)</span>}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-              <div className="space-y-2"><Label>Cost</Label><Input value={formData.cost || ""} onChange={(e) => setFormData({ ...formData, cost: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" placeholder="e.g., 0.005" disabled={isAM} /></div>
-              </div>
-              <div className="grid grid-cols-1 gap-4 mt-4">
-                <div className="space-y-2">
-                  <Label>Is LCR</Label>
-                  <Select value={formData.is_lcr || "no"} onValueChange={(value) => setFormData({ ...formData, is_lcr: value })} disabled={isAM}>
-                    <SelectTrigger className="bg-zinc-800 border-zinc-700 w-32"><SelectValue /></SelectTrigger>
-                    <SelectContent className="bg-zinc-800 border-zinc-700">
-                      <SelectItem value="yes">Yes</SelectItem>
-                      <SelectItem value="no">No</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-            </div>
-
-            {/* Resolution Details */}
-            <div className="border-t border-zinc-700 pt-4 mt-4">
-              <h3 className="text-sm font-medium text-zinc-400 mb-4">Resolution</h3>
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label>Root Cause</Label>
-                  <Textarea value={formData.root_cause || ""} onChange={(e) => setFormData({ ...formData, root_cause: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" placeholder="Identified root cause" rows={2} disabled={isAM} />
-                </div>
-                <div className="space-y-2">
-                  <Label>Alternative Route/Solution</Label>
-                  <Textarea value={formData.action_taken || ""} onChange={(e) => setFormData({ ...formData, action_taken: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" placeholder="Alternative route or solution taken" rows={2} disabled={isAM} />
-                </div>
-                <div className="space-y-2">
-                  <Label>Internal Notes</Label>
-                  <Textarea value={formData.internal_notes || ""} onChange={(e) => setFormData({ ...formData, internal_notes: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" placeholder="Internal notes (not visible to client)" rows={2} disabled={isAM} />
-                </div>
-              </div>
-            </div>
-
-            <div className="flex space-x-3 pt-4">
-              {canModify && <Button type="submit" className="bg-emerald-500 text-black hover:bg-emerald-400">{editingTicket ? "Update" : "Create"} Ticket</Button>}
-              {canModify && editingTicket && (
-                <Button 
-                  type="button" 
-                  variant="outline" 
-                  onClick={() => {
-                    setTicketToDelete(editingTicket);
-                    setDeleteDialogOpen(true);
-                  }}
-                  className="border-red-500/50 text-red-500 hover:bg-red-500/10"
-                  data-testid="delete-ticket-button"
-                >
-                  <Trash2 className="h-4 w-4 mr-2" />
-                  Delete
-                </Button>
-              )}
-              <Button type="button" variant="outline" onClick={() => setSheetOpen(false)} className="border-zinc-700 text-white hover:bg-zinc-800">{isAM ? "Close" : "Cancel"}</Button>
-            </div>
-          </form>
-        </SheetContent>
-      </Sheet>
-
-      {/* Delete Confirmation Dialog */}
-      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <AlertDialogContent className="bg-zinc-900 border-white/10">
-          <AlertDialogHeader>
-            <AlertDialogTitle className="text-white">Delete Ticket</AlertDialogTitle>
-            <AlertDialogDescription className="text-zinc-400">
-              Are you sure you want to delete ticket {ticketToDelete?.ticket_number}? This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel className="border-zinc-700 text-white hover:bg-zinc-800">Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} className="bg-red-500 text-white hover:bg-red-600">
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+@api_router.get("/tickets/voice", response_model=List[VoiceTicket])
+async def get_voice_tickets(current_user: dict = Depends(get_current_user)):
+    query = {}
+    
+    if current_user["role"] == "am":
+        # Check if AM is assigned to Voice
+        if current_user.get("am_type") != "voice":
+            raise HTTPException(status_code=403, detail="You are not assigned to Voice tickets")
         
-      {/* Same-Day Identical Ticket Confirmation Dialog */}
-      <AlertDialog open={sameDayDialogOpen} onOpenChange={setSameDayDialogOpen}>
-        <AlertDialogContent className="bg-zinc-900 border-white/10">
-          <AlertDialogHeader>
-            <AlertDialogTitle className="text-white">Same-Day Identical Ticket Found</AlertDialogTitle>
-            <AlertDialogDescription className="text-zinc-400">
-              A ticket with the same Enterprise, Trunk, Destination, and Issue was created today: {sameDayTickets.map(t => t.ticket_number).join(', ')}. Do you still want to create this ticket?
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel className="border-zinc-700 text-white hover:bg-zinc-800" onClick={() => {
-              setSameDayDialogOpen(false);
-              setSameDayTickets([]);
-              setPendingFormData(null);
-            }}>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleConfirmedSubmit} className="bg-emerald-500 text-black hover:bg-emerald-600">
-              Create Anyway
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        clients = await db.clients.find({"assigned_am_id": current_user["id"]}, {"_id": 0}).to_list(1000)
+        client_ids = [c["id"] for c in clients]
+        query["customer_id"] = {"$in": client_ids}
+    
+    # Limit to 500 most recent tickets for performance
+    tickets = await db.voice_tickets.find(query, {"_id": 0}).sort("date", -1).limit(500).to_list(500)
+    for ticket in tickets:
+        if isinstance(ticket.get('date'), str):
+            ticket['date'] = datetime.fromisoformat(ticket['date'])
+        if isinstance(ticket.get('updated_at'), str):
+            ticket['updated_at'] = datetime.fromisoformat(ticket['updated_at'])
+        # Normalize opened_via for backward compatibility
+        ticket['opened_via'] = normalize_opened_via(ticket.get('opened_via'))
+    return [VoiceTicket(**ticket) for ticket in tickets]
 
-      {/* Actions/Ticket History Dialog */}
-      <Dialog open={actionsDialogOpen} onOpenChange={setActionsDialogOpen}>
-        <DialogContent className="bg-zinc-900 border-white/10 text-white max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Ticket Actions - {selectedTicket?.ticket_number}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 max-h-[400px] overflow-y-auto">
-            {ticketActions.length === 0 ? (
-              <p className="text-zinc-500 text-center py-4">No actions recorded yet</p>
-            ) : (
-              ticketActions.map((action) => (
-                <div key={action.id} className="bg-zinc-800/50 rounded-lg p-3 border border-white/5">
-                  <div className="flex justify-between items-start mb-2">
-                    <div className="flex items-center gap-2">
-                      <span className="text-emerald-500 font-medium text-sm">{action.created_by_username}</span>
-                      {action.edited && (
-                        <span className="text-xs bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded">Edited</span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-zinc-500 text-xs">
-                        {action.edited && action.edited_at 
-                          ? `Edited: ${new Date(action.edited_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}`
-                          : new Date(action.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                      </span>
-                      {/* Show edit/delete buttons only for own actions */}
-                      {currentUser && action.created_by === currentUser.id && (
-                        <div className="flex gap-1">
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => handleEditAction(action)}
-                            className="h-6 w-6 p-0 text-zinc-400 hover:text-white"
-                          >
-                            <Pencil className="h-3 w-3" />
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => handleDeleteAction(action.id)}
-                            className="h-6 w-6 p-0 text-zinc-400 hover:text-red-400"
-                          >
-                            <Trash2 className="h-3 w-3" />
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  {editingAction === action.id ? (
-                    <div className="space-y-2">
-                      <Textarea
-                        value={editActionText}
-                        onChange={(e) => setEditActionText(e.target.value)}
-                        className="bg-zinc-700 border-zinc-600 text-white text-sm"
-                        rows={3}
-                      />
-                      <div className="flex gap-2">
-                        <Button
-                          size="sm"
-                          onClick={() => handleSaveEdit(action.id)}
-                          disabled={!editActionText.trim()}
-                          className="bg-emerald-500 text-black hover:bg-emerald-400"
-                        >
-                          Save
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={handleCancelEdit}
-                          className="border-zinc-600 text-zinc-300 hover:bg-zinc-700"
-                        >
-                          Cancel
-                        </Button>
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="text-zinc-300 text-sm whitespace-pre-wrap">{action.text}</p>
-                  )}
-                </div>
-              ))
-            )}
-          </div>
-          <DialogFooter className="mt-4">
-            <div className="flex flex-col w-full gap-2">
-              <Textarea
-                value={newActionText}
-                onChange={(e) => setNewActionText(e.target.value)}
-                placeholder="Add a new action/update..."
-                className="bg-zinc-800 border-zinc-700 text-white placeholder:text-zinc-500"
-                rows={3}
-              />
-              <Button
-                onClick={handleAddAction}
-                disabled={!newActionText.trim()}
-                className="bg-emerald-500 text-black hover:bg-emerald-400"
-              >
-                Add Action
-              </Button>
-            </div>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
-}
+@api_router.get("/tickets/voice/{ticket_id}", response_model=VoiceTicket)
+async def get_voice_ticket(ticket_id: str, current_user: dict = Depends(get_current_user)):
+    ticket = await db.voice_tickets.find_one({"id": ticket_id}, {"_id": 0})
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    
+    if isinstance(ticket['date'], str):
+        ticket['date'] = datetime.fromisoformat(ticket['date'])
+    if isinstance(ticket['updated_at'], str):
+        ticket['updated_at'] = datetime.fromisoformat(ticket['updated_at'])
+    # Normalize opened_via for backward compatibility
+    ticket['opened_via'] = normalize_opened_via(ticket.get('opened_via'))
+    return VoiceTicket(**ticket)
+
+@api_router.put("/tickets/voice/{ticket_id}", response_model=VoiceTicket)
+async def update_voice_ticket(ticket_id: str, ticket_data: VoiceTicketUpdate, current_user: dict = Depends(get_current_user)):
+    # AMs cannot update tickets
+    if current_user["role"] == "am":
+        raise HTTPException(status_code=403, detail="Account Managers cannot modify tickets")
+    
+    # Get the existing ticket to check status validation
+    existing_ticket = await db.voice_tickets.find_one({"id": ticket_id}, {"_id": 0})
+    if not existing_ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    
+    update_dict = {k: v for k, v in ticket_data.model_dump().items() if v is not None}
+    
+    # Validate status requirements
+    new_status = update_dict.get("status", existing_ticket.get("status"))
+    new_assigned_to = update_dict.get("assigned_to", existing_ticket.get("assigned_to"))
+    validate_ticket_status(new_status, new_assigned_to)
+    
+    # Set assigned_at when ticket is assigned
+    # Only set if: assigned_to is being set/changed AND status is "Assigned"
+    if new_assigned_to and new_status == "Assigned":
+        # Check if assigned_to is new or changed
+        existing_assigned_to = existing_ticket.get("assigned_to")
+        if not existing_assigned_to or existing_assigned_to != new_assigned_to:
+            update_dict["assigned_at"] = datetime.now(timezone.utc)
+    
+    update_dict["updated_at"] = datetime.now(timezone.utc).isoformat()
+    
+    # Check if we need to create a notification for ticket modification
+    # Only notify if:
+    # 1. Ticket has an assigned user
+    # 2. Ticket status is "Assigned" 
+    # 3. The user modifying the ticket is different from the assigned user
+    existing_assigned_to = existing_ticket.get("assigned_to")
+    existing_status = existing_ticket.get("status")
+    current_user_id = current_user.get("id")
+    
+    should_notify = (
+        existing_assigned_to and 
+        existing_status == "Assigned" and 
+        existing_assigned_to != current_user_id
+    )
+    
+    result = await db.voice_tickets.find_one_and_update(
+        {"id": ticket_id},
+        {"$set": update_dict},
+        return_document=True,
+        projection={"_id": 0}
+    )
+    
+    if not result:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    
+    # Create notification after successful update
+    if should_notify:
+        await create_ticket_modification_notification(
+            ticket_id=ticket_id,
+            ticket_number=existing_ticket.get("ticket_number", ""),
+            ticket_type="voice",
+            assigned_to=existing_assigned_to,
+            modified_by=current_user_id,
+            modified_by_username=current_user.get("username", "Unknown")
+        )
+    
+    if isinstance(result['date'], str):
+        result['date'] = datetime.fromisoformat(result['date'])
+    if isinstance(result['updated_at'], str):
+        result['updated_at'] = datetime.fromisoformat(result['updated_at'])
+    # Normalize opened_via for backward compatibility
+    result['opened_via'] = normalize_opened_via(result.get('opened_via'))
+    return VoiceTicket(**result)
+
+@api_router.delete("/tickets/voice/{ticket_id}")
+async def delete_voice_ticket(ticket_id: str, current_user: dict = Depends(get_current_admin_or_noc)):
+    result = await db.voice_tickets.delete_one({"id": ticket_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    return {"message": "Ticket deleted successfully"}
+
+
+# ==================== TICKET ACTIONS ROUTES ====================
+
+class AddTicketAction(BaseModel):
+    text: str
+
+
+class UpdateTicketAction(BaseModel):
+    text: str
+
+
+@api_router.post("/tickets/sms/{ticket_id}/actions")
+async def add_sms_ticket_action(
+    ticket_id: str,
+    action_data: AddTicketAction,
+    current_user: dict = Depends(get_current_user)
+):
+    # Get user info
+    user = await db.users.find_one({"id": current_user["id"]})
+    username = user.get("username", "Unknown") if user else "Unknown"
+    
+    action_obj = {
+        "id": str(uuid.uuid4()),
+        "text": action_data.text,
+        "created_by": current_user["id"],
+        "created_by_username": username,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    result = await db.sms_tickets.find_one_and_update(
+        {"id": ticket_id},
+        {
+            "$push": {"actions": action_obj},
+            "$set": {"updated_at": datetime.now(timezone.utc).isoformat()}
+        },
+        projection={"_id": 0}
+    )
+    
+    if not result:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    
+    return {"message": "Action added successfully", "action": action_obj}
+
+
+@api_router.post("/tickets/voice/{ticket_id}/actions")
+async def add_voice_ticket_action(
+    ticket_id: str,
+    action_data: AddTicketAction,
+    current_user: dict = Depends(get_current_user)
+):
+    # Get user info
+    user = await db.users.find_one({"id": current_user["id"]})
+    username = user.get("username", "Unknown") if user else "Unknown"
+    
+    action_obj = {
+        "id": str(uuid.uuid4()),
+        "text": action_data.text,
+        "created_by": current_user["id"],
+        "created_by_username": username,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    result = await db.voice_tickets.find_one_and_update(
+        {"id": ticket_id},
+        {
+            "$push": {"actions": action_obj},
+            "$set": {"updated_at": datetime.now(timezone.utc).isoformat()}
+        },
+        projection={"_id": 0}
+    )
+    
+    if not result:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    
+    return {"message": "Action added successfully", "action": action_obj}
+
+
+# Edit and Delete SMS Ticket Actions
+@api_router.put("/tickets/sms/{ticket_id}/actions/{action_id}")
+async def update_sms_ticket_action(
+    ticket_id: str,
+    action_id: str,
+    action_data: UpdateTicketAction,
+    current_user: dict = Depends(get_current_user)
+):
+    # First get the ticket to find the action
+    ticket = await db.sms_tickets.find_one({"id": ticket_id})
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    
+    # Find the action
+    action = None
+    for a in ticket.get("actions", []):
+        if a.get("id") == action_id:
+            action = a
+            break
+    
+    if not action:
+        raise HTTPException(status_code=404, detail="Action not found")
+    
+    # Check if user owns this action
+    if action.get("created_by") != current_user["id"]:
+        raise HTTPException(status_code=403, detail="You can only edit your own actions")
+    
+    # Update the action
+    result = await db.sms_tickets.find_one_and_update(
+        {"id": ticket_id, "actions.id": action_id},
+        {
+            "$set": {
+                "actions.$.text": action_data.text,
+                "actions.$.edited": True,
+                "actions.$.edited_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }
+        },
+        projection={"_id": 0}
+    )
+    
+    return {"message": "Action updated successfully"}
+
+
+@api_router.delete("/tickets/sms/{ticket_id}/actions/{action_id}")
+async def delete_sms_ticket_action(
+    ticket_id: str,
+    action_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    # First get the ticket to find the action
+    ticket = await db.sms_tickets.find_one({"id": ticket_id})
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    
+    # Find the action
+    action = None
+    for a in ticket.get("actions", []):
+        if a.get("id") == action_id:
+            action = a
+            break
+    
+    if not action:
+        raise HTTPException(status_code=404, detail="Action not found")
+    
+    # Check if user owns this action
+    if action.get("created_by") != current_user["id"]:
+        raise HTTPException(status_code=403, detail="You can only delete your own actions")
+    
+    # Delete the action using pull
+    result = await db.sms_tickets.find_one_and_update(
+        {"id": ticket_id},
+        {
+            "$pull": {"actions": {"id": action_id}},
+            "$set": {"updated_at": datetime.now(timezone.utc).isoformat()}
+        },
+        projection={"_id": 0}
+    )
+    
+    return {"message": "Action deleted successfully"}
+
+
+# Edit and Delete Voice Ticket Actions
+@api_router.put("/tickets/voice/{ticket_id}/actions/{action_id}")
+async def update_voice_ticket_action(
+    ticket_id: str,
+    action_id: str,
+    action_data: UpdateTicketAction,
+    current_user: dict = Depends(get_current_user)
+):
+    # First get the ticket to find the action
+    ticket = await db.voice_tickets.find_one({"id": ticket_id})
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    
+    # Find the action
+    action = None
+    for a in ticket.get("actions", []):
+        if a.get("id") == action_id:
+            action = a
+            break
+    
+    if not action:
+        raise HTTPException(status_code=404, detail="Action not found")
+    
+    # Check if user owns this action
+    if action.get("created_by") != current_user["id"]:
+        raise HTTPException(status_code=403, detail="You can only edit your own actions")
+    
+    # Update the action
+    result = await db.voice_tickets.find_one_and_update(
+        {"id": ticket_id, "actions.id": action_id},
+        {
+            "$set": {
+                "actions.$.text": action_data.text,
+                "actions.$.edited": True,
+                "actions.$.edited_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }
+        },
+        projection={"_id": 0}
+    )
+    
+    return {"message": "Action updated successfully"}
+
+
+@api_router.delete("/tickets/voice/{ticket_id}/actions/{action_id}")
+async def delete_voice_ticket_action(
+    ticket_id: str,
+    action_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    # First get the ticket to find the action
+    ticket = await db.voice_tickets.find_one({"id": ticket_id})
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    
+    # Find the action
+    action = None
+    for a in ticket.get("actions", []):
+        if a.get("id") == action_id:
+            action = a
+            break
+    
+    if not action:
+        raise HTTPException(status_code=404, detail="Action not found")
+    
+    # Check if user owns this action
+    if action.get("created_by") != current_user["id"]:
+        raise HTTPException(status_code=403, detail="You can only delete your own actions")
+    
+    # Delete the action using pull
+    result = await db.voice_tickets.find_one_and_update(
+        {"id": ticket_id},
+        {
+            "$pull": {"actions": {"id": action_id}},
+            "$set": {"updated_at": datetime.now(timezone.utc).isoformat()}
+        },
+        projection={"_id": 0}
+    )
+    
+    return {"message": "Action deleted successfully"}
+
+# ==================== DASHBOARD ROUTES ====================
+
+@api_router.get("/dashboard/online-users")
+async def get_online_users(current_user: dict = Depends(get_current_user)):
+    """Get list of users who were active in the last 5 minutes"""
+    from datetime import timedelta
+    
+    # Consider users active in the last 5 minutes as online
+    five_minutes_ago = datetime.now(timezone.utc) - timedelta(minutes=5)
+    
+    # Get users who have been active in the last 5 minutes
+    online_users = await db.users.find(
+        {"last_active": {"$gte": five_minutes_ago}},
+        {"_id": 0, "password_hash": 0}
+    ).to_list(100)
+    
+    # Also include users who logged in recently (last_active not set but logged in recently)
+    # For now, just return users with last_active
+    return online_users
+
+
+@api_router.get("/dashboard/user-online-time")
+async def get_user_online_time(current_user: dict = Depends(get_current_user)):
+    """Get online time statistics for all users today"""
+    from datetime import timedelta
+    
+    now = datetime.now(timezone.utc)
+    # Get start of today (midnight UTC)
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    
+    # Get all sessions from today
+    sessions = await db.user_sessions.find({
+        "login_time": {"$gte": today_start}
+    }).to_list(1000)
+    
+    # Calculate total online time per user from sessions
+    user_online_time = {}
+    for session in sessions:
+        user_id = session.get("user_id")
+        username = session.get("username", "Unknown")
+        
+        login_time = session.get("login_time")
+        if isinstance(login_time, str):
+            login_time = datetime.fromisoformat(login_time)
+        
+        # Determine the effective login time (either start of today or session login)
+        effective_login = login_time if login_time and login_time >= today_start else today_start
+        
+        # For ongoing sessions (no logout_time), use current time
+        logout_time = session.get("logout_time")
+        if logout_time is None:
+            # Session is still active - include time until now
+            logout_time = now
+        elif isinstance(logout_time, str):
+            logout_time = datetime.fromisoformat(logout_time)
+        
+        if effective_login and logout_time:
+            duration = (logout_time - effective_login).total_seconds()
+            
+            if duration > 0:
+                if user_id not in user_online_time:
+                    user_online_time[user_id] = {
+                        "user_id": user_id,
+                        "username": username,
+                        "total_seconds": 0,
+                        "session_count": 0
+                    }
+                
+                user_online_time[user_id]["total_seconds"] += duration
+                user_online_time[user_id]["session_count"] += 1
+    
+    # Also check last_active for users who don't have session records
+    # This serves as a fallback for users who logged in before session tracking was added
+    all_users = await db.users.find({}, {"_id": 0, "id": 1, "username": 1, "last_active": 1}).to_list(1000)
+    
+    for user in all_users:
+        user_id = user.get("id")
+        username = user.get("username", "Unknown")
+        last_active = user.get("last_active")
+        
+        if last_active:
+            if isinstance(last_active, str):
+                last_active = datetime.fromisoformat(last_active)
+            
+            # If last_active is within the last hour, consider them online today
+            one_hour_ago = now - timedelta(hours=1)
+            if last_active >= one_hour_ago:
+                # Estimate they were online for at least some time today
+                # Use 30 minutes as a conservative estimate
+                estimated_time = 1800  # 30 minutes
+                
+                if user_id not in user_online_time:
+                    user_online_time[user_id] = {
+                        "user_id": user_id,
+                        "username": username,
+                        "total_seconds": estimated_time,
+                        "session_count": 1
+                    }
+                else:
+                    # Add to existing time
+                    user_online_time[user_id]["total_seconds"] += estimated_time
+    
+    # Convert to list and format duration
+    result = []
+    for user_id, data in user_online_time.items():
+        total_seconds = data["total_seconds"]
+        hours = int(total_seconds // 3600)
+        minutes = int((total_seconds % 3600) // 60)
+        
+        # Only include users who have been online for at least 1 minute
+        if total_seconds >= 60:
+            result.append({
+                "user_id": data["user_id"],
+                "username": data["username"],
+                "total_time_formatted": f"{hours}h {minutes}m",
+                "total_seconds": total_seconds,
+                "session_count": data["session_count"]
+            })
+    
+    # Sort by total time (descending)
+    result.sort(key=lambda x: x["total_seconds"], reverse=True)
+    
+    return result
+
+
+@api_router.get("/dashboard/unassigned-alerts")
+async def get_unassigned_alerts(current_user: dict = Depends(get_current_user)):
+    """Get unassigned tickets that have exceeded their alert threshold based on priority"""
+    from datetime import timedelta
+    
+    # Define alert intervals in minutes based on priority
+    priority_intervals = {
+        "Urgent": 5,
+        "High": 10,
+        "Medium": 15,
+        "Low": 20
+    }
+    
+    now = datetime.now(timezone.utc)
+    alerts = []
+    
+    # Check SMS tickets
+    sms_tickets = await db.sms_tickets.find({
+        "status": "Unassigned"
+    }).to_list(1000)
+    
+    for ticket in sms_tickets:
+        priority = ticket.get("priority", "Medium")
+        interval = priority_intervals.get(priority, 15)  # Default to 15 minutes
+        threshold_time = now - timedelta(minutes=interval)
+        
+        ticket_date = ticket.get("date")
+        if isinstance(ticket_date, str):
+            ticket_date = datetime.fromisoformat(ticket_date)
+        
+        if ticket_date and ticket_date <= threshold_time:
+            alerts.append({
+                "id": ticket["id"],
+                "ticket_number": ticket["ticket_number"],
+                "type": "sms",
+                "priority": priority,
+                "interval_minutes": interval,
+                "waiting_since": ticket_date.isoformat() if ticket_date else None,
+                "customer": ticket.get("customer", "Unknown"),
+                "issue": ticket.get("issue", ticket.get("issue_types", []))
+            })
+    
+    # Check Voice tickets
+    voice_tickets = await db.voice_tickets.find({
+        "status": "Unassigned"
+    }).to_list(1000)
+    
+    for ticket in voice_tickets:
+        priority = ticket.get("priority", "Medium")
+        interval = priority_intervals.get(priority, 15)  # Default to 15 minutes
+        threshold_time = now - timedelta(minutes=interval)
+        
+        ticket_date = ticket.get("date")
+        if isinstance(ticket_date, str):
+            ticket_date = datetime.fromisoformat(ticket_date)
+        
+        if ticket_date and ticket_date <= threshold_time:
+            alerts.append({
+                "id": ticket["id"],
+                "ticket_number": ticket["ticket_number"],
+                "type": "voice",
+                "priority": priority,
+                "interval_minutes": interval,
+                "waiting_since": ticket_date.isoformat() if ticket_date else None,
+                "customer": ticket.get("customer", "Unknown"),
+                "issue": ticket.get("issue", ticket.get("issue_types", []))
+            })
+    
+    return alerts
+
+
+@api_router.get("/dashboard/ticket-modifications")
+async def get_ticket_modification_notifications(current_user: dict = Depends(get_current_user)):
+    """Get notifications for tickets that were modified by another user while still assigned to the current user"""
+    current_user_id = current_user.get("id")
+    
+    # Get unread notifications for the current user
+    notifications = await db.ticket_notifications.find({
+        "assigned_to": current_user_id,
+        "read": False
+    }).sort("created_at", -1).limit(20).to_list(20)
+    
+    # Convert datetime fields to ISO format strings for JSON serialization
+    for notification in notifications:
+        if "created_at" in notification and hasattr(notification["created_at"], "isoformat"):
+            notification["created_at"] = notification["created_at"].isoformat()
+    
+    return notifications
+
+
+@api_router.post("/dashboard/ticket-modifications/{notification_id}/read")
+async def mark_notification_as_read(notification_id: str, current_user: dict = Depends(get_current_user)):
+    """Mark a ticket modification notification as read"""
+    current_user_id = current_user.get("id")
+    
+    result = await db.ticket_notifications.find_one_and_update(
+        {"id": notification_id, "assigned_to": current_user_id},
+        {"$set": {"read": True}},
+        return_document=True
+    )
+    
+    if not result:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    
+    return {"message": "Notification marked as read"}
+
+
+@api_router.get("/dashboard/assigned-ticket-reminders")
+async def get_assigned_ticket_reminders(current_user: dict = Depends(get_current_user)):
+    """Get tickets assigned to current user that have been in 'Assigned' status too long based on priority:
+    - Urgent: 10 minutes
+    - High: 15 minutes
+    - Medium: 25 minutes
+    - Low: 30 minutes
+    """
+    from datetime import timedelta
+    
+    current_user_id = current_user.get("id")
+    
+    # Define reminder intervals in minutes based on priority
+    priority_intervals = {
+        "Urgent": 5,
+        "High": 10,
+        "Medium": 20,
+        "Low": 25
+    }
+    
+    now = datetime.now(timezone.utc)
+    reminders = []
+    
+    # Check SMS tickets assigned to current user
+    sms_tickets = await db.sms_tickets.find({
+        "assigned_to": current_user_id,
+        "status": "Assigned"
+    }).to_list(1000)
+    
+    for ticket in sms_tickets:
+        priority = ticket.get("priority", "Medium")
+        interval = priority_intervals.get(priority, 25)  # Default to 25 minutes
+        threshold_time = now - timedelta(minutes=interval)
+        
+        # Use assigned_at if available, otherwise use date as fallback
+        assigned_at = ticket.get("assigned_at")
+        if isinstance(assigned_at, str):
+            assigned_at = datetime.fromisoformat(assigned_at)
+        
+        # If no assigned_at, fall back to ticket date only if it's recent (within last hour)
+        if not assigned_at:
+            ticket_date = ticket.get("date")
+            if isinstance(ticket_date, str):
+                ticket_date = datetime.fromisoformat(ticket_date)
+            # Only use date as fallback if it's within the last hour
+            if ticket_date and ticket_date >= (now - timedelta(hours=1)):
+                assigned_at = ticket_date
+            else:
+                # Skip this ticket - no valid assigned_at and date is too old
+                continue
+        
+        # Only show reminder if ticket has been assigned longer than the threshold
+        if assigned_at and assigned_at <= threshold_time:
+            reminders.append({
+                "id": ticket["id"],
+                "ticket_number": ticket["ticket_number"],
+                "type": "sms",
+                "priority": priority,
+                "interval_minutes": interval,
+                "assigned_since": assigned_at.isoformat() if assigned_at else None,
+                "customer": ticket.get("customer", "Unknown"),
+                "issue": ticket.get("issue", ticket.get("issue_types", []))
+            })
+    
+    # Check Voice tickets assigned to current user
+    voice_tickets = await db.voice_tickets.find({
+        "assigned_to": current_user_id,
+        "status": "Assigned"
+    }).to_list(1000)
+    
+    for ticket in voice_tickets:
+        priority = ticket.get("priority", "Medium")
+        interval = priority_intervals.get(priority, 25)  # Default to 25 minutes
+        threshold_time = now - timedelta(minutes=interval)
+        
+        # Use assigned_at if available, otherwise use date as fallback
+        assigned_at = ticket.get("assigned_at")
+        if isinstance(assigned_at, str):
+            assigned_at = datetime.fromisoformat(assigned_at)
+        
+        # If no assigned_at, fall back to ticket date only if it's recent (within last hour)
+        if not assigned_at:
+            ticket_date = ticket.get("date")
+            if isinstance(ticket_date, str):
+                ticket_date = datetime.fromisoformat(ticket_date)
+            # Only use date as fallback if it's within the last hour
+            if ticket_date and ticket_date >= (now - timedelta(hours=1)):
+                assigned_at = ticket_date
+            else:
+                # Skip this ticket - no valid assigned_at and date is too old
+                continue
+        
+        # Only show reminder if ticket has been assigned longer than the threshold
+        if assigned_at and assigned_at <= threshold_time:
+            reminders.append({
+                "id": ticket["id"],
+                "ticket_number": ticket["ticket_number"],
+                "type": "voice",
+                "priority": priority,
+                "interval_minutes": interval,
+                "assigned_since": assigned_at.isoformat() if assigned_at else None,
+                "customer": ticket.get("customer", "Unknown"),
+                "issue": ticket.get("issue", ticket.get("issue_types", []))
+            })
+    
+    return reminders
+
+
+@api_router.get("/dashboard/stats", response_model=DashboardStats)
+async def get_dashboard_stats(
+    current_user: dict = Depends(get_current_user),
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None
+):
+    query = {}
+    
+    if current_user["role"] == "am":
+        clients = await db.clients.find({"assigned_am_id": current_user["id"]}, {"_id": 0, "id": 1}).to_list(1000)
+        client_ids = [c["id"] for c in clients]
+        query["customer_id"] = {"$in": client_ids}
+    
+    # Add date range filter if provided
+    if date_from or date_to:
+        date_query = {}
+        if date_from:
+            date_query["$gte"] = date_from
+        if date_to:
+            # Add a day to include the entire end date
+            date_query["$lte"] = date_to + "T23:59:59.999999"
+        query["date"] = date_query
+    
+    # Use field projections for efficiency - only fetch fields needed for stats
+    stats_projection = {"_id": 0, "status": 1, "priority": 1}
+    recent_projection = {"_id": 0, "id": 1, "ticket_number": 1, "customer": 1, "priority": 1, "status": 1, "date": 1}
+    
+    # Get SMS tickets for stats (only status and priority fields)
+    sms_tickets = await db.sms_tickets.find(query, stats_projection).to_list(10000)
+    voice_tickets = await db.voice_tickets.find(query, stats_projection).to_list(10000)
+    
+    # Count by status
+    sms_by_status = {}
+    sms_by_priority = {}
+    for ticket in sms_tickets:
+        status = ticket.get("status", "Unknown")
+        priority = ticket.get("priority", "Unknown")
+        sms_by_status[status] = sms_by_status.get(status, 0) + 1
+        sms_by_priority[priority] = sms_by_priority.get(priority, 0) + 1
+    
+    voice_by_status = {}
+    voice_by_priority = {}
+    for ticket in voice_tickets:
+        status = ticket.get("status", "Unknown")
+        priority = ticket.get("priority", "Unknown")
+        voice_by_status[status] = voice_by_status.get(status, 0) + 1
+        voice_by_priority[priority] = voice_by_priority.get(priority, 0) + 1
+    
+    # Recent tickets - fetch only 10 most recent from each, sorted by date
+    recent_sms = await db.sms_tickets.find(query, recent_projection).sort("date", -1).limit(10).to_list(10)
+    recent_voice = await db.voice_tickets.find(query, recent_projection).sort("date", -1).limit(10).to_list(10)
+    
+    all_tickets = []
+    for ticket in recent_sms:
+        all_tickets.append({
+            "id": ticket["id"],
+            "type": "SMS",
+            "ticket_number": ticket["ticket_number"],
+            "customer": ticket["customer"],
+            "priority": ticket["priority"],
+            "status": ticket["status"],
+            "date": ticket["date"]
+        })
+    for ticket in recent_voice:
+        all_tickets.append({
+            "id": ticket["id"],
+            "type": "Voice",
+            "ticket_number": ticket["ticket_number"],
+            "customer": ticket["customer"],
+            "priority": ticket["priority"],
+            "status": ticket["status"],
+            "date": ticket["date"]
+        })
+    
+    # Sort by date descending
+    all_tickets.sort(key=lambda x: x["date"] if isinstance(x["date"], str) else x["date"].isoformat(), reverse=True)
+    recent_tickets = all_tickets[:10]
+    
+    return DashboardStats(
+        total_sms_tickets=len(sms_tickets),
+        total_voice_tickets=len(voice_tickets),
+        sms_by_status=sms_by_status,
+        voice_by_status=voice_by_status,
+        sms_by_priority=sms_by_priority,
+        voice_by_priority=voice_by_priority,
+        recent_tickets=recent_tickets
+    )
+
+# Include router
+app.include_router(api_router)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_credentials=True,
+    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+@app.on_event("startup")
+async def startup_init():
+    """Initialize default departments and migrate users on startup"""
+    await init_default_departments()
+    await migrate_users_to_departments()
+
+@app.on_event("shutdown")
+async def shutdown_db_client():
+    client.close()
