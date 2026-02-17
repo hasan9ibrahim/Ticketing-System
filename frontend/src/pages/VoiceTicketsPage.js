@@ -423,6 +423,15 @@ export default function VoiceTicketsPage() {
       return;
     }
 
+    // Validate vendor percentages sum to 100% when multiple vendors selected
+    if (formData.vendor_trunks && formData.vendor_trunks.length > 1) {
+      const totalPercentage = formData.vendor_trunks.reduce((sum, v) => sum + (parseFloat(v.percentage) || 0), 0);
+      if (totalPercentage !== 100) {
+        toast.error(`Vendor percentages must equal 100%. Current total: ${totalPercentage}%`);
+        return;
+      }
+    }
+
     // Validate status - can't be "Assigned" without assigned_to
     if (formData.status === "Assigned" && !formData.assigned_to) {
       toast.error("Status cannot be 'Assigned' unless a NOC member is assigned");
