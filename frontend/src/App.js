@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import "@/App.css";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import LoginPage from "./pages/LoginPage";
 import DashboardLayout from "./components/DashboardLayout";
 import DashboardPage from "./pages/DashboardPage";
@@ -10,19 +10,32 @@ import EnterprisesPage from "./pages/EnterprisesPage";
 import UsersPage from "./pages/UsersPage";
 import MyEnterprisesPage from "./pages/MyEnterprisesPage";
 import DepartmentsPage from "./pages/DepartmentsPage";
-import AuditPage from "./pages/AuditPage";
 import { Toaster } from "@/components/ui/sonner";
 import axios from "axios";
-import useInactivityLogout from "./hooks/useInactivityLogout";
 
 const API = `${process.env.REACT_APP_API_URL}/api`;
 
-function App() {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
+// Component to save current path to localStorage on navigation
+function PathTracker() {
+  const location = useLocation();
+  
+  useEffect(() => {
+    // Save current path (except login and root)
+    if (location.pathname !== "/login" && location.pathname !== "/") {
+      localStorage.setItem("lastPath", location.pathname);
+    }
+  }, [location]);
+  
+  return null;
+}
 
-  // Auto-logout after 5 minutes of inactivity
-  useInactivityLogout(!!user, setUser);
+function App() {
+  const [user, setUser] = useState(() => {
+    // Check localStorage for existing user on initial load
+    const userData = localStorage.getItem("user");
+    return userData ? JSON.parse(userData) : null;
+  });
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -65,8 +78,9 @@ function App() {
   return (
     <div className="App">
       <BrowserRouter>
+        <PathTracker />
         <Routes>
-          <Route path="/login" element={!user ? <LoginPage setUser={setUser} /> : <Navigate to="/" />} />
+          <Route path="/login" element={!user ? <LoginPage setUser={setUser} /> : <Navigate to={localStorage.getItem("lastPath") || "/"} />} />
           <Route path="/" element={user ? <DashboardLayout user={user} setUser={setUser} /> : <Navigate to="/login" />}>
             <Route index element={<DashboardPage />} />
             <Route path="sms-tickets" element={<SMSTicketsPage />} />
@@ -75,7 +89,6 @@ function App() {
             <Route path="my-enterprises" element={user?.role === "am" || user?.department_type ? <MyEnterprisesPage /> : <Navigate to="/" />} />
             <Route path="users" element={user?.role === "admin" || user?.department?.can_edit_users ? <UsersPage /> : <Navigate to="/" />} />
             <Route path="departments" element={user?.role === "admin" ? <DepartmentsPage /> : <Navigate to="/" />} />
-            <Route path="audit" element={user?.role === "admin" ? <AuditPage /> : <Navigate to="/" />} />
           </Route>
         </Routes>
       </BrowserRouter>
