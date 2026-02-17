@@ -9,6 +9,7 @@ import VoiceTicketsPage from "./pages/VoiceTicketsPage";
 import EnterprisesPage from "./pages/EnterprisesPage";
 import UsersPage from "./pages/UsersPage";
 import MyEnterprisesPage from "./pages/MyEnterprisesPage";
+import AuditPage from "./pages/AuditPage";
 import DepartmentsPage from "./pages/DepartmentsPage";
 import { Toaster } from "@/components/ui/sonner";
 import axios from "axios";
@@ -54,11 +55,23 @@ function App() {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (response.data) {
+        // Calculate role from department permissions (same logic as backend)
+        let role = "unknown";
+        const dept = response.data;
+        if (dept.can_edit_users) {
+          role = "admin";
+        } else if (dept.can_create_tickets && !dept.can_edit_enterprises) {
+          role = "am";
+        } else if (dept.can_edit_tickets) {
+          role = "noc";
+        }
+        
         const updatedUser = {
           ...currentUser,
           department_id: response.data.id,
           department_type: response.data.department_type,
           department: response.data,  // Include full department object with permissions
+          role: role,  // Add computed role from department permissions
         };
         setUser(updatedUser);
         localStorage.setItem("user", JSON.stringify(updatedUser));
@@ -89,6 +102,7 @@ function App() {
             <Route path="my-enterprises" element={user?.role === "am" || user?.department_type ? <MyEnterprisesPage /> : <Navigate to="/" />} />
             <Route path="users" element={user?.role === "admin" || user?.department?.can_edit_users ? <UsersPage /> : <Navigate to="/" />} />
             <Route path="departments" element={user?.role === "admin" ? <DepartmentsPage /> : <Navigate to="/" />} />
+            <Route path="audit" element={user?.role === "admin" ? <AuditPage /> : <Navigate to="/" />} />
           </Route>
         </Routes>
       </BrowserRouter>
