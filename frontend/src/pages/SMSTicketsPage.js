@@ -769,11 +769,11 @@ export default function SMSTicketsPage() {
             <SelectValue placeholder="Filter by Priority" />
           </SelectTrigger>
           <SelectContent className="bg-zinc-800 border-zinc-700">
-            <SelectItem value="all">All Priorities</SelectItem>
-            <SelectItem value="Low">Low</SelectItem>
-            <SelectItem value="Medium">Medium</SelectItem>
-            <SelectItem value="High">High</SelectItem>
-            <SelectItem value="Urgent">Urgent</SelectItem>
+            <SelectItem value="all" className="text-white">All Priorities</SelectItem>
+            <SelectItem value="Low" className="text-white">Low</SelectItem>
+            <SelectItem value="Medium" className="text-white">Medium</SelectItem>
+            <SelectItem value="High" className="text-white">High</SelectItem>
+            <SelectItem value="Urgent" className="text-white">Urgent</SelectItem>
           </SelectContent>
         </Select>
 
@@ -782,14 +782,14 @@ export default function SMSTicketsPage() {
             <SelectValue placeholder="Filter by Status" />
           </SelectTrigger>
           <SelectContent className="bg-zinc-800 border-zinc-700">
-            <SelectItem value="all">All Statuses</SelectItem>
-            <SelectItem value="Unassigned">Unassigned</SelectItem>
-            <SelectItem value="Assigned">Assigned</SelectItem>
-            <SelectItem value="Awaiting Vendor">Awaiting Vendor</SelectItem>
-            <SelectItem value="Awaiting Client">Awaiting Client</SelectItem>
-            <SelectItem value="Awaiting AM">Awaiting AM</SelectItem>
-            <SelectItem value="Resolved">Resolved</SelectItem>
-            <SelectItem value="Unresolved">Unresolved</SelectItem>
+            <SelectItem value="all" className="text-white">All Statuses</SelectItem>
+            <SelectItem value="Unassigned" className="text-white">Unassigned</SelectItem>
+            <SelectItem value="Assigned" className="text-white">Assigned</SelectItem>
+            <SelectItem value="Awaiting Vendor" className="text-white">Awaiting Vendor</SelectItem>
+            <SelectItem value="Awaiting Client" className="text-white">Awaiting Client</SelectItem>
+            <SelectItem value="Awaiting AM" className="text-white">Awaiting AM</SelectItem>
+            <SelectItem value="Resolved" className="text-white">Resolved</SelectItem>
+            <SelectItem value="Unresolved" className="text-white">Unresolved</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -800,9 +800,9 @@ export default function SMSTicketsPage() {
             <SelectValue placeholder="Filter by Enterprise" />
           </SelectTrigger>
           <SelectContent className="bg-zinc-800 border-zinc-700">
-            <SelectItem value="all">All Enterprises</SelectItem>
+            <SelectItem value="all" className="text-white">All Enterprises</SelectItem>
             {enterprises.map((enterprise) => (
-              <SelectItem key={enterprise.id} value={enterprise.id}>
+              <SelectItem key={enterprise.id} value={enterprise.id} className="text-white">
                 {enterprise.name}
               </SelectItem>
             ))}
@@ -814,9 +814,9 @@ export default function SMSTicketsPage() {
             <SelectValue placeholder="Filter by Issue Type" />
           </SelectTrigger>
           <SelectContent className="bg-zinc-800 border-zinc-700">
-            <SelectItem value="all">All Issue Types</SelectItem>
+            <SelectItem value="all" className="text-white">All Issue Types</SelectItem>
             {SMS_ISSUE_TYPES.map((type) => (
-              <SelectItem key={type} value={type}>{type}</SelectItem>
+              <SelectItem key={type} value={type} className="text-white">{type}</SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -834,10 +834,10 @@ export default function SMSTicketsPage() {
             <SelectValue placeholder="Filter by Assigned To" />
           </SelectTrigger>
           <SelectContent className="bg-zinc-800 border-zinc-700">
-            <SelectItem value="all">All Assignees</SelectItem>
-            <SelectItem value="unassigned">Unassigned</SelectItem>
+            <SelectItem value="all" className="text-white">All Assignees</SelectItem>
+            <SelectItem value="unassigned" className="text-white">Unassigned</SelectItem>
             {users.map((user) => (
-              <SelectItem key={user.id} value={user.id}>
+              <SelectItem key={user.id} value={user.id} className="text-white">
                 {user.username}
               </SelectItem>
             ))}
@@ -1012,18 +1012,20 @@ export default function SMSTicketsPage() {
           <form onSubmit={handleSubmit} className="space-y-4 mt-6">
             {/* Priority */}
             <div className="space-y-2">
-              <Label>Priority *</Label>
+              <Label className="text-white">Priority *</Label>
               <Select value={formData.priority} onValueChange={(value) => setFormData({ ...formData, priority: value })} required>
-                <SelectTrigger className="bg-zinc-800 border-zinc-700"><SelectValue placeholder="Select priority" /></SelectTrigger>
+                <SelectTrigger className="bg-zinc-800 border-zinc-700 text-white"><SelectValue placeholder="Select priority" /></SelectTrigger>
                 <SelectContent className="bg-zinc-800 border-zinc-700">
-                  <SelectItem value="Low">Low</SelectItem><SelectItem value="Medium">Medium</SelectItem>
-                  <SelectItem value="High">High</SelectItem><SelectItem value="Urgent">Urgent</SelectItem>
+                  <SelectItem value="Low" className="text-white">Low</SelectItem>
+                  <SelectItem value="Medium" className="text-white">Medium</SelectItem>
+                  <SelectItem value="High" className="text-white">High</SelectItem>
+                  <SelectItem value="Urgent" className="text-white">Urgent</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
             {/* Volume */}
-            <div className="space-y-2"><Label>Volume *</Label><Input value={formData.volume || ""} onChange={(e) => setFormData({ ...formData, volume: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" placeholder="Enter volume" required disabled={isAM} /></div>
+            <div className="space-y-2"><Label className="text-white">Volume *</Label><Input value={formData.volume || ""} onChange={(e) => setFormData({ ...formData, volume: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" placeholder="Enter volume" required disabled={isAM} /></div>
 
             {/* Enterprise */}
             <div className="space-y-2">
@@ -1046,15 +1048,15 @@ export default function SMSTicketsPage() {
 
             {/* Enterprise Trunk */}
             <div className="space-y-2">
-              <Label>Enterprise Trunk *</Label>
+              <Label className="text-white">Enterprise Trunk *</Label>
               <Select value={formData.customer_trunk || ""} onValueChange={(value) => setFormData({ ...formData, customer_trunk: value })} required disabled={isAM || !formData.customer_id}>
-                <SelectTrigger className="bg-zinc-800 border-zinc-700"><SelectValue placeholder={formData.customer_id ? "Select customer trunk" : "Select enterprise first"} /></SelectTrigger>
+                <SelectTrigger className="bg-zinc-800 border-zinc-700 text-white"><SelectValue placeholder={formData.customer_id ? "Select customer trunk" : "Select enterprise first"} /></SelectTrigger>
                 <SelectContent className="bg-zinc-800 border-zinc-700">
                   {(formData.customer_id 
                     ? enterprises.find(e => e.id === formData.customer_id)?.customer_trunks || []
                     : customerTrunkOptions
                   ).map((trunk) => (
-                    <SelectItem key={trunk} value={trunk}>{trunk}</SelectItem>
+                    <SelectItem key={trunk} value={trunk} className="text-white">{trunk}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -1088,14 +1090,17 @@ export default function SMSTicketsPage() {
 
             {/* Status */}
             <div className="space-y-2">
-              <Label>Status *</Label>
+              <Label className="text-white">Status *</Label>
               <Select value={formData.status} onValueChange={(value) => setFormData({ ...formData, status: value })} required>
-                <SelectTrigger className="bg-zinc-800 border-zinc-700"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="bg-zinc-800 border-zinc-700 text-white"><SelectValue /></SelectTrigger>
                 <SelectContent className="bg-zinc-800 border-zinc-700">
-                  <SelectItem value="Unassigned">Unassigned</SelectItem><SelectItem value="Assigned">Assigned</SelectItem>
-                  <SelectItem value="Awaiting Vendor">Awaiting Vendor</SelectItem><SelectItem value="Awaiting Client">Awaiting Client</SelectItem>
-                  <SelectItem value="Awaiting AM">Awaiting AM</SelectItem><SelectItem value="Resolved">Resolved</SelectItem>
-                  <SelectItem value="Unresolved">Unresolved</SelectItem>
+                  <SelectItem value="Unassigned" className="text-white">Unassigned</SelectItem>
+                  <SelectItem value="Assigned" className="text-white">Assigned</SelectItem>
+                  <SelectItem value="Awaiting Vendor" className="text-white">Awaiting Vendor</SelectItem>
+                  <SelectItem value="Awaiting Client" className="text-white">Awaiting Client</SelectItem>
+                  <SelectItem value="Awaiting AM" className="text-white">Awaiting AM</SelectItem>
+                  <SelectItem value="Resolved" className="text-white">Resolved</SelectItem>
+                  <SelectItem value="Unresolved" className="text-white">Unresolved</SelectItem>
                 </SelectContent>
               </Select>
             </div>
