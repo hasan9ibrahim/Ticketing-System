@@ -272,6 +272,10 @@ export default function DashboardLayout({ user, setUser }) {
       // Continue with logout even if API call fails
       console.error("Logout API call failed:", error);
     } finally {
+      // Clear user-specific last path
+      if (user && user.id) {
+        localStorage.removeItem(`lastPath_${user.id}`);
+      }
       localStorage.removeItem("token");
       localStorage.removeItem("user");
       setUser(null);
