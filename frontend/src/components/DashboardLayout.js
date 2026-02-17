@@ -250,9 +250,9 @@ export default function DashboardLayout({ user, setUser }) {
         </div>
       )}
 
-      {/* Assigned Ticket Reminders - Below Unassigned Alerts */}
+      {/* Assigned Ticket Reminders - Top Left */}
       {showReminders && assignedReminders.length > 0 && (
-        <div className="fixed top-4 left-4 z-40 max-w-md mt-[320px]">
+        <div className="fixed top-4 left-4 z-40 max-w-md">
           <div className="bg-amber-950/95 border border-amber-500/50 rounded-lg shadow-lg p-4 backdrop-blur-sm">
             <div className="flex items-center gap-2 mb-3">
               <AlertTriangle className="h-5 w-5 text-amber-400" />
