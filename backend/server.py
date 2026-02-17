@@ -140,6 +140,201 @@ class UserUpdate(BaseModel):
     role: Optional[str] = None  # Deprecated
     am_type: Optional[str] = None  # Deprecated
 
+
+class UserNotificationSettings(BaseModel):
+    """Model for user notification preferences - customizable for AM users"""
+    model_config = ConfigDict(extra="ignore")
+    user_id: str
+    # Enterprise-related notifications
+    notify_ticket_created_for_enterprise: bool = True  # Ticket created for an enterprise assigned to the AM
+    # Assignment notifications
+    notify_ticket_assigned: bool = True  # Ticket is assigned to this user
+    # Status change notifications
+    notify_ticket_resolved: bool = True  # Ticket is resolved
+    notify_ticket_unresolved: bool = True  # Ticket is unresolved (re-opened)
+
+
+class UserNotificationSettingsUpdate(BaseModel):
+    """Model for updating notification settings"""
+    notify_ticket_created_for_enterprise: Optional[bool] = None
+    notify_ticket_assigned: Optional[bool] = None
+    notify_ticket_resolved: Optional[bool] = None
+    notify_ticket_unresolved: Optional[bool] = None
+
+
+class AMTicketNotification(BaseModel):
+    """Model for AM enterprise-related ticket notifications"""
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    ticket_id: str
+    ticket_number: str
+    ticket_type: str  # "sms" or "voice"
+    enterprise_id: str
+    enterprise_name: str
+    user_id: str  # The AM who should receive this notification
+    notification_type: str  # "ticket_created", "ticket_assigned", "ticket_resolved", "ticket_unresolved"
+    message: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    read: bool = False
+
+
+async def get_or_create_notification_settings(user_id: str) -> UserNotificationSettings:
+    """Get or create notification settings for a user"""
+    settings = await db.user_notification_settings.find_one({"user_id": user_id})
+    if not settings:
+        new_settings = UserNotificationSettings(user_id=user_id)
+        doc = new_settings.model_dump()
+        doc['created_at'] = doc['created_at'].isoformat()
+        await db.user_notification_settings.insert_one(doc)
+        return new_settings
+    # Remove MongoDB _id and convert
+    settings.pop('_id', None)
+    if 'created_at' in settings and isinstance(settings['created_at'], str):
+        settings['created_at'] = datetime.fromisoformat(settings['created_at'])
+    return UserNotificationSettings(**settings)
+
+
+async def create_am_notification(
+    ticket_id: str,
+    ticket_number: str,
+    ticket_type: str,
+    enterprise_id: str,
+    enterprise_name: str,
+    user_id: str,
+    notification_type: str,
+    message: str
+):
+    """Create an AM notification for enterprise-related ticket events"""
+    notification = AMTicketNotification(
+        ticket_id=ticket_id,
+        ticket_number=ticket_number,
+        ticket_type=ticket_type,
+        enterprise_id=enterprise_id,
+        enterprise_name=enterprise_name,
+        user_id=user_id,
+        notification_type=notification_type,
+        message=message
+    )
+    doc = notification.model_dump()
+    doc['created_at'] = doc['created_at'].isoformat()
+    await db.am_ticket_notifications.insert_one(doc)
+
+
+async def notify_am_on_ticket_created(
+    ticket_id: str,
+    ticket_number: str,
+    ticket_type: str,
+    enterprise_id: str,
+    enterprise_name: str,
+    assigned_to: Optional[str] = None
+):
+    """Notify AMs when a ticket is created for their enterprise"""
+    # Find the AM assigned to this enterprise
+    enterprise = await db.clients.find_one({"id": enterprise_id}, {"_id": 0, "assigned_am_id": 1})
+    if not enterprise or not enterprise.get("assigned_am_id"):
+        return  # No AM assigned to this enterprise
+    
+    am_id = enterprise["assigned_am_id"]
+    
+    # Get AM's notification settings
+    settings = await get_or_create_notification_settings(am_id)
+    
+    # Check if AM wants to receive this type of notification
+    if not settings.notify_ticket_created_for_enterprise:
+        return
+    
+    # Create notification
+    await create_am_notification(
+        ticket_id=ticket_id,
+        ticket_number=ticket_number,
+        ticket_type=ticket_type,
+        enterprise_id=enterprise_id,
+        enterprise_name=enterprise_name,
+        user_id=am_id,
+        notification_type="ticket_created",
+        message=f"New {ticket_type.upper()} ticket {ticket_number} was created for {enterprise_name}"
+    )
+
+
+async def notify_on_ticket_assignment(
+    ticket_id: str,
+    ticket_number: str,
+    ticket_type: str,
+    enterprise_id: str,
+    enterprise_name: str,
+    assigned_to: str,
+    previous_assigned_to: Optional[str] = None
+):
+    """Notify user when a ticket is assigned to them"""
+    # Get user's notification settings
+    settings = await get_or_create_notification_settings(assigned_to)
+    
+    # Check if user wants to receive assignment notifications
+    if not settings.notify_ticket_assigned:
+        return
+    
+    # Create notification
+    await create_am_notification(
+        ticket_id=ticket_id,
+        ticket_number=ticket_number,
+        ticket_type=ticket_type,
+        enterprise_id=enterprise_id,
+        enterprise_name=enterprise_name,
+        user_id=assigned_to,
+        notification_type="ticket_assigned",
+        message=f"{ticket_type.upper()} ticket {ticket_number} for {enterprise_name} has been assigned to you"
+    )
+
+
+async def notify_on_ticket_status_change(
+    ticket_id: str,
+    ticket_number: str,
+    ticket_type: str,
+    enterprise_id: str,
+    enterprise_name: str,
+    assigned_to: str,
+    new_status: str,
+    previous_status: str
+):
+    """Notify user when a ticket status changes to resolved/unresolved"""
+    if not assigned_to:
+        return
+    
+    # Get user's notification settings
+    settings = await get_or_create_notification_settings(assigned_to)
+    
+    # Determine notification type based on new status
+    is_resolved = new_status.lower() in ["resolved", "completed", "closed"]
+    was_resolved = previous_status.lower() in ["resolved", "completed", "closed"]
+    
+    if is_resolved and not was_resolved:
+        # Ticket was resolved
+        if not settings.notify_ticket_resolved:
+            return
+        notification_type = "ticket_resolved"
+        message = f"{ticket_type.upper()} ticket {ticket_number} for {enterprise_name} has been resolved"
+    elif was_resolved and not is_resolved:
+        # Ticket was unresolved (re-opened)
+        if not settings.notify_ticket_unresolved:
+            return
+        notification_type = "ticket_unresolved"
+        message = f"{ticket_type.upper()} ticket {ticket_number} for {enterprise_name} has been re-opened (unresolved)"
+    else:
+        return  # Not a resolved/unresolved change
+    
+    # Create notification
+    await create_am_notification(
+        ticket_id=ticket_id,
+        ticket_number=ticket_number,
+        ticket_type=ticket_type,
+        enterprise_id=enterprise_id,
+        enterprise_name=enterprise_name,
+        user_id=assigned_to,
+        notification_type=notification_type,
+        message=message
+    )
+
+
 class TicketModificationNotification(BaseModel):
     """Model for ticket modification notifications"""
     model_config = ConfigDict(extra="ignore")
@@ -657,6 +852,97 @@ async def delete_user(user_id: str, current_admin: dict = Depends(get_current_ad
         raise HTTPException(status_code=404, detail="User not found")
     return {"message": "User deleted successfully"}
 
+# ==================== NOTIFICATION SETTINGS ROUTES ====================
+
+@api_router.get("/users/notification-settings", response_model=UserNotificationSettings)
+async def get_notification_settings(current_user: dict = Depends(get_current_user)):
+    """Get current user's notification settings"""
+    user_id = current_user.get("id")
+    settings = await get_or_create_notification_settings(user_id)
+    return settings
+
+
+@api_router.put("/users/notification-settings", response_model=UserNotificationSettings)
+async def update_notification_settings(
+    settings_data: UserNotificationSettingsUpdate,
+    current_user: dict = Depends(get_current_user)
+):
+    """Update current user's notification settings"""
+    user_id = current_user.get("id")
+    
+    # Get existing settings or create new
+    existing = await db.user_notification_settings.find_one({"user_id": user_id})
+    
+    update_dict = {k: v for k, v in settings_data.model_dump().items() if v is not None}
+    
+    if not update_dict:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    
+    if existing:
+        # Update existing settings
+        await db.user_notification_settings.update_one(
+            {"user_id": user_id},
+            {"$set": update_dict}
+        )
+    else:
+        # Create new settings with defaults
+        new_settings = UserNotificationSettings(user_id=user_id, **update_dict)
+        doc = new_settings.model_dump()
+        doc['created_at'] = doc['created_at'].isoformat()
+        await db.user_notification_settings.insert_one(doc)
+    
+    # Return updated settings
+    return await get_or_create_notification_settings(user_id)
+
+
+@api_router.get("/users/am-notifications")
+async def get_am_notifications(current_user: dict = Depends(get_current_user)):
+    """Get AM notifications for enterprise-related ticket events"""
+    user_id = current_user.get("id")
+    
+    # Get unread notifications for the current user
+    notifications = await db.am_ticket_notifications.find({
+        "user_id": user_id,
+        "read": False
+    }).sort("created_at", -1).limit(20).to_list(20)
+    
+    # Convert datetime fields to ISO format strings for JSON serialization
+    for notification in notifications:
+        if "created_at" in notification and hasattr(notification["created_at"], "isoformat"):
+            notification["created_at"] = notification["created_at"].isoformat()
+    
+    return notifications
+
+
+@api_router.post("/users/am-notifications/{notification_id}/read")
+async def mark_am_notification_as_read(notification_id: str, current_user: dict = Depends(get_current_user)):
+    """Mark an AM notification as read"""
+    user_id = current_user.get("id")
+    
+    result = await db.am_ticket_notifications.find_one_and_update(
+        {"id": notification_id, "user_id": user_id},
+        {"$set": {"read": True}},
+        return_document=True
+    )
+    
+    if not result:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    
+    return {"message": "Notification marked as read"}
+
+
+@api_router.post("/users/am-notifications/read-all")
+async def mark_all_am_notifications_as_read(current_user: dict = Depends(get_current_user)):
+    """Mark all AM notifications as read"""
+    user_id = current_user.get("id")
+    
+    result = await db.am_ticket_notifications.update_many(
+        {"user_id": user_id, "read": False},
+        {"$set": {"read": True}}
+    )
+    
+    return {"message": f"Marked {result.modified_count} notifications as read"}
+
 # ==================== DEPARTMENT ROUTES ====================
 
 async def init_default_departments():
@@ -1006,6 +1292,17 @@ async def create_sms_ticket(ticket_data: SMSTicketCreate, current_user: dict = D
     doc['updated_at'] = doc['updated_at'].isoformat()
     
     await db.sms_tickets.insert_one(doc)
+    
+    # Notify AMs when ticket is created for their enterprise
+    await notify_am_on_ticket_created(
+        ticket_id=ticket_id,
+        ticket_number=ticket_dict["ticket_number"],
+        ticket_type="sms",
+        enterprise_id=ticket_data.customer_id,
+        enterprise_name=client["name"],
+        assigned_to=ticket_data.assigned_to
+    )
+    
     return ticket_obj
 
 @api_router.get("/tickets/sms", response_model=List[SMSTicket])
@@ -1129,6 +1426,38 @@ async def update_sms_ticket(ticket_id: str, ticket_data: SMSTicketUpdate, curren
             modified_by_username=current_user.get("username", "Unknown")
         )
     
+    # Check for new assignment and notify the newly assigned user
+    if new_assigned_to and new_assigned_to != existing_ticket.get("assigned_to"):
+        # Get enterprise info for notification
+        client = await db.clients.find_one({"id": existing_ticket.get("customer_id")}, {"_id": 0, "name": 1})
+        enterprise_name = client["name"] if client else "Unknown Enterprise"
+        
+        await notify_on_ticket_assignment(
+            ticket_id=ticket_id,
+            ticket_number=existing_ticket.get("ticket_number", ""),
+            ticket_type="sms",
+            enterprise_id=existing_ticket.get("customer_id", ""),
+            enterprise_name=enterprise_name,
+            assigned_to=new_assigned_to,
+            previous_assigned_to=existing_ticket.get("assigned_to")
+        )
+    
+    # Check for status change to resolved/unresolved and notify assignee
+    if new_status != existing_status and new_assigned_to:
+        client = await db.clients.find_one({"id": existing_ticket.get("customer_id")}, {"_id": 0, "name": 1})
+        enterprise_name = client["name"] if client else "Unknown Enterprise"
+        
+        await notify_on_ticket_status_change(
+            ticket_id=ticket_id,
+            ticket_number=existing_ticket.get("ticket_number", ""),
+            ticket_type="sms",
+            enterprise_id=existing_ticket.get("customer_id", ""),
+            enterprise_name=enterprise_name,
+            assigned_to=new_assigned_to,
+            new_status=new_status,
+            previous_status=existing_status
+        )
+    
     if isinstance(result['date'], str):
         result['date'] = datetime.fromisoformat(result['date'])
     if isinstance(result['updated_at'], str):
@@ -1178,6 +1507,17 @@ async def create_voice_ticket(ticket_data: VoiceTicketCreate, current_user: dict
     doc['updated_at'] = doc['updated_at'].isoformat()
     
     await db.voice_tickets.insert_one(doc)
+    
+    # Notify AMs when ticket is created for their enterprise
+    await notify_am_on_ticket_created(
+        ticket_id=ticket_id,
+        ticket_number=ticket_dict["ticket_number"],
+        ticket_type="voice",
+        enterprise_id=ticket_data.customer_id,
+        enterprise_name=client["name"],
+        assigned_to=ticket_data.assigned_to
+    )
+    
     return ticket_obj
 
 @api_router.get("/tickets/voice", response_model=List[VoiceTicket])
@@ -1280,6 +1620,38 @@ async def update_voice_ticket(ticket_id: str, ticket_data: VoiceTicketUpdate, cu
             assigned_to=existing_assigned_to,
             modified_by=current_user_id,
             modified_by_username=current_user.get("username", "Unknown")
+        )
+    
+    # Check for new assignment and notify the newly assigned user
+    if new_assigned_to and new_assigned_to != existing_ticket.get("assigned_to"):
+        # Get enterprise info for notification
+        client = await db.clients.find_one({"id": existing_ticket.get("customer_id")}, {"_id": 0, "name": 1})
+        enterprise_name = client["name"] if client else "Unknown Enterprise"
+        
+        await notify_on_ticket_assignment(
+            ticket_id=ticket_id,
+            ticket_number=existing_ticket.get("ticket_number", ""),
+            ticket_type="voice",
+            enterprise_id=existing_ticket.get("customer_id", ""),
+            enterprise_name=enterprise_name,
+            assigned_to=new_assigned_to,
+            previous_assigned_to=existing_ticket.get("assigned_to")
+        )
+    
+    # Check for status change to resolved/unresolved and notify assignee
+    if new_status != existing_status and new_assigned_to:
+        client = await db.clients.find_one({"id": existing_ticket.get("customer_id")}, {"_id": 0, "name": 1})
+        enterprise_name = client["name"] if client else "Unknown Enterprise"
+        
+        await notify_on_ticket_status_change(
+            ticket_id=ticket_id,
+            ticket_number=existing_ticket.get("ticket_number", ""),
+            ticket_type="voice",
+            enterprise_id=existing_ticket.get("customer_id", ""),
+            enterprise_name=enterprise_name,
+            assigned_to=new_assigned_to,
+            new_status=new_status,
+            previous_status=existing_status
         )
     
     if isinstance(result['date'], str):
