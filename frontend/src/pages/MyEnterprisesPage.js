@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Label } from "@/components/ui/label";
+import NotificationSettings from "@/components/custom/NotificationSettings";
 
 const BACKEND_URL = process.env.REACT_APP_API_URL;
 const API = `${BACKEND_URL}/api`;
@@ -80,6 +81,9 @@ export default function MyEnterprisesPage() {
         <h1 className="text-4xl font-bold text-white">My Enterprises</h1>
         <p className="text-zinc-400 mt-1">Enterprises assigned to you</p>
       </div>
+
+      {/* Notification Settings for AMs */}
+      <NotificationSettings />
 
       {enterprises.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
