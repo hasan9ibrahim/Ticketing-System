@@ -320,7 +320,6 @@ export default function SMSTicketsPage() {
       status: "Unassigned",
       opened_via: ["Monitoring"],
       is_lcr: "no",
-      client_or_vendor: "client",
       volume: "0",
       customer_trunk: "",
       issue_types: [],
@@ -526,15 +525,6 @@ export default function SMSTicketsPage() {
       if (currentAssignedCount >= 3) {
         const user = users.find(u => u.id === assignedToId);
         toast.error(`${user?.username || 'This member'} already has 3 assigned tickets. Maximum is 3.`);
-        return;
-      }
-    }
-
-    // ✅ Validate vendor percentage equals 100% when 2+ vendors selected
-    if ((formData.vendor_trunks || []).length >= 2) {
-      const totalPercentage = (formData.vendor_trunks || []).reduce((sum, v) => sum + (parseFloat(v.percentage) || 0), 0);
-      if (totalPercentage !== 100) {
-        toast.error(`Vendor percentages must equal 100%. Current total: ${totalPercentage}%`);
         return;
       }
     }
@@ -1099,15 +1089,6 @@ export default function SMSTicketsPage() {
                   <SelectItem value="Unresolved">Unresolved</SelectItem>
                 </SelectContent>
               </Select>
-            </div>
-
-            {/* Enterprise Role */}
-            <div className="space-y-2">
-              <Label>Enterprise Role *</Label>
-              <RadioGroup value={formData.client_or_vendor} onValueChange={(value) => setFormData({ ...formData, client_or_vendor: value })} className="flex space-x-4">
-                <div className="flex items-center space-x-2"><RadioGroupItem value="client" id="client" /><Label htmlFor="client" className="font-normal cursor-pointer">Client</Label></div>
-                <div className="flex items-center space-x-2"><RadioGroupItem value="vendor" id="vendor" /><Label htmlFor="vendor" className="font-normal cursor-pointer">Vendor</Label></div>
-              </RadioGroup>
             </div>
 
             {/* SMS-Specific Fields */}
