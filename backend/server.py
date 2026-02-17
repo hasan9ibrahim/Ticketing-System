@@ -2513,6 +2513,438 @@ async def get_audit_logs_count(
     total = await db.audit_logs.count_documents(query)
     return {"total": total}
 
+# ==================== REFERENCE LIST MODELS ====================
+
+# Traffic types for reference lists (similar to ticket issue types but for reference)
+TRAFFIC_TYPES = [
+    "OTP",
+    "Spam",
+    "Phishing",
+    "Spam and Phishing",
+    "Casino",
+    "Clean Marketing",
+    "Banking",
+    "Other"
+]
+
+
+class VendorReference(BaseModel):
+    """Model for a vendor in a reference list"""
+    model_config = ConfigDict(extra="ignore")
+    trunk: str  # Vendor trunk name
+    cost: Optional[str] = None  # Cost for this vendor trunk
+    custom_field: Optional[str] = None  # Custom field similar to tickets
+    is_working: bool = True  # Whether this vendor is currently working
+    is_backup: bool = False  # Whether this is a backup vendor
+
+
+class VendorReferenceList(BaseModel):
+    """Model for a vendor reference list (working/backup vendors for a destination)"""
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    name: str  # Name of the reference list
+    list_type: str  # "sms" or "voice"
+    destination: str  # Destination country/region
+    traffic_type: str  # Type of traffic (OTP, Spam, Phishing, etc.)
+    vendors: List[VendorReference] = Field(default_factory=list)
+    created_by: str  # User ID who created
+    created_by_username: str  # Username who created
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class VendorReferenceListCreate(BaseModel):
+    """Model for creating a new vendor reference list"""
+    name: str
+    list_type: str  # "sms" or "voice"
+    destination: str
+    traffic_type: str
+
+
+class VendorReferenceListUpdate(BaseModel):
+    """Model for updating a vendor reference list"""
+    name: Optional[str] = None
+    destination: Optional[str] = None
+    traffic_type: Optional[str] = None
+
+
+class VendorReferenceAdd(BaseModel):
+    """Model for adding a vendor to a reference list"""
+    trunk: str
+    cost: Optional[str] = None
+    custom_field: Optional[str] = None
+    is_working: bool = True
+    is_backup: bool = False
+
+
+class VendorReferenceUpdate(BaseModel):
+    """Model for updating a vendor in a reference list"""
+    cost: Optional[str] = None
+    custom_field: Optional[str] = None
+    is_working: Optional[bool] = None
+    is_backup: Optional[bool] = None
+
+
+# ==================== REFERENCE LIST API ROUTES ====================
+
+@api_router.get("/references", response_model=List[VendorReferenceList])
+async def get_reference_lists(
+    list_type: Optional[str] = None,  # Filter by "sms" or "voice"
+    current_user: dict = Depends(get_current_user)
+):
+    """Get all vendor reference lists, optionally filtered by type"""
+    # Get user's department to determine access
+    dept = await get_user_department(current_user)
+    user_role = get_user_role_from_department(dept)
+    dept_type = dept.get("department_type", "all") if dept else "all"
+    
+    query = {}
+    
+    # Filter by type if provided and user has access
+    if list_type:
+        query["list_type"] = list_type
+        # Check if user has access to this type
+        if dept_type != "all" and dept_type != list_type:
+            if user_role not in ["admin", "noc"]:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"You don't have access to {list_type} reference lists"
+                )
+    else:
+        # If no type specified, filter based on user's department
+        if dept_type != "all":
+            query["list_type"] = dept_type
+        # Admin and NOC can see all, but we don't filter further
+    
+    # For AMs, they can only see what they created or all (based on their department)
+    if user_role == "am" and dept_type != "all":
+        # AMs in specific department can see all lists of that type
+        pass
+    
+    lists = await db.vendor_reference_lists.find(query, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    return lists
+
+
+@api_router.post("/references", response_model=VendorReferenceList)
+async def create_reference_list(
+    list_data: VendorReferenceListCreate,
+    current_user: dict = Depends(get_current_user)
+):
+    """Create a new vendor reference list"""
+    # Get user's department to check access
+    dept = await get_user_department(current_user)
+    user_role = get_user_role_from_department(dept)
+    dept_type = dept.get("department_type", "all") if dept else "all"
+    
+    # Check if user has access to create for this type
+    if dept_type != "all" and dept_type != list_data.list_type:
+        if user_role not in ["admin", "noc"]:
+            raise HTTPException(
+                status_code=403,
+                detail=f"You don't have access to create {list_data.list_type} reference lists"
+            )
+    
+    # Get username
+    username = current_user.get("username", "unknown")
+    
+    # Create the reference list
+    reference_list = VendorReferenceList(
+        name=list_data.name,
+        list_type=list_data.list_type,
+        destination=list_data.destination,
+        traffic_type=list_data.traffic_type,
+        vendors=[],
+        created_by=current_user["id"],
+        created_by_username=username
+    )
+    
+    doc = reference_list.model_dump()
+    doc["created_at"] = doc["created_at"].isoformat()
+    doc["updated_at"] = doc["updated_at"].isoformat()
+    
+    await db.vendor_reference_lists.insert_one(doc)
+    
+    return reference_list
+
+
+@api_router.put("/references/{list_id}", response_model=VendorReferenceList)
+async def update_reference_list(
+    list_id: str,
+    list_data: VendorReferenceListUpdate,
+    current_user: dict = Depends(get_current_user)
+):
+    """Update a vendor reference list"""
+    # Find existing list
+    existing = await db.vendor_reference_lists.find_one({"id": list_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Reference list not found")
+    
+    # Get user's department to check access
+    dept = await get_user_department(current_user)
+    user_role = get_user_role_from_department(dept)
+    dept_type = dept.get("department_type", "all") if dept else "all"
+    
+    # Check if user has access to this type
+    list_type = existing.get("list_type")
+    if dept_type != "all" and dept_type != list_type:
+        if user_role not in ["admin", "noc"]:
+            raise HTTPException(
+                status_code=403,
+                detail=f"You don't have access to update {list_type} reference lists"
+            )
+    
+    # Build update fields
+    update_fields = {}
+    if list_data.name is not None:
+        update_fields["name"] = list_data.name
+    if list_data.destination is not None:
+        update_fields["destination"] = list_data.destination
+    if list_data.traffic_type is not None:
+        update_fields["traffic_type"] = list_data.traffic_type
+    
+    update_fields["updated_at"] = datetime.now(timezone.utc).isoformat()
+    
+    await db.vendor_reference_lists.update_one(
+        {"id": list_id},
+        {"$set": update_fields}
+    )
+    
+    # Return updated list
+    updated = await db.vendor_reference_lists.find_one({"id": list_id}, {"_id": 0})
+    return updated
+
+
+@api_router.delete("/references/{list_id}")
+async def delete_reference_list(
+    list_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Delete a vendor reference list"""
+    # Find existing list
+    existing = await db.vendor_reference_lists.find_one({"id": list_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Reference list not found")
+    
+    # Get user's department to check access
+    dept = await get_user_department(current_user)
+    user_role = get_user_role_from_department(dept)
+    dept_type = dept.get("department_type", "all") if dept else "all"
+    
+    # Check if user has access to this type
+    list_type = existing.get("list_type")
+    if dept_type != "all" and dept_type != list_type:
+        if user_role not in ["admin", "noc"]:
+            raise HTTPException(
+                status_code=403,
+                detail=f"You don't have access to delete {list_type} reference lists"
+            )
+    
+    await db.vendor_reference_lists.delete_one({"id": list_id})
+    
+    return {"message": "Reference list deleted successfully"}
+
+
+@api_router.get("/references/{list_id}/vendors")
+async def get_available_vendors(
+    list_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get available vendor trunks for adding to a reference list"""
+    # Find the reference list to get its type
+    reference_list = await db.vendor_reference_lists.find_one({"id": list_id}, {"_id": 0, "list_type": 1})
+    if not reference_list:
+        raise HTTPException(status_code=404, detail="Reference list not found")
+    
+    list_type = reference_list.get("list_type")
+    
+    # Get user's department to check access
+    dept = await get_user_department(current_user)
+    user_role = get_user_role_from_department(dept)
+    dept_type = dept.get("department_type", "all") if dept else "all"
+    
+    # Check if user has access to this type
+    if dept_type != "all" and dept_type != list_type:
+        if user_role not in ["admin", "noc"]:
+            raise HTTPException(
+                status_code=403,
+                detail=f"You don't have access to {list_type} reference lists"
+            )
+    
+    # Get all vendor trunks for this enterprise type
+    clients = await db.clients.find(
+        {"enterprise_type": list_type},
+        {"_id": 0, "vendor_trunks": 1}
+    ).to_list(1000)
+    
+    # Collect unique vendor trunks
+    vendor_trunks = set()
+    for client in clients:
+        if client.get("vendor_trunks"):
+            for trunk in client["vendor_trunks"]:
+                vendor_trunks.add(trunk)
+    
+    # Get the reference list to find already added vendors
+    reference = await db.vendor_reference_lists.find_one({"id": list_id}, {"_id": 0, "vendors.trunk": 1})
+    existing_trunks = set()
+    if reference and reference.get("vendors"):
+        for vendor in reference["vendors"]:
+            existing_trunks.add(vendor.get("trunk"))
+    
+    # Return available trunks (not already in the list)
+    available = [trunk for trunk in sorted(vendor_trunks) if trunk not in existing_trunks]
+    
+    return {"available_vendors": available}
+
+
+@api_router.post("/references/{list_id}/vendors", response_model=VendorReferenceList)
+async def add_vendor_to_list(
+    list_id: str,
+    vendor_data: VendorReferenceAdd,
+    current_user: dict = Depends(get_current_user)
+):
+    """Add a vendor to a reference list"""
+    # Find existing list
+    existing = await db.vendor_reference_lists.find_one({"id": list_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Reference list not found")
+    
+    # Get user's department to check access
+    dept = await get_user_department(current_user)
+    user_role = get_user_role_from_department(dept)
+    dept_type = dept.get("department_type", "all") if dept else "all"
+    
+    # Check if user has access to this type
+    list_type = existing.get("list_type")
+    if dept_type != "all" and dept_type != list_type:
+        if user_role not in ["admin", "noc"]:
+            raise HTTPException(
+                status_code=403,
+                detail=f"You don't have access to update {list_type} reference lists"
+            )
+    
+    # Check if vendor already exists
+    vendors = existing.get("vendors", [])
+    for vendor in vendors:
+        if vendor.get("trunk") == vendor_data.trunk:
+            raise HTTPException(status_code=400, detail="Vendor already exists in this list")
+    
+    # Add the new vendor
+    new_vendor = VendorReference(
+        trunk=vendor_data.trunk,
+        cost=vendor_data.cost,
+        custom_field=vendor_data.custom_field,
+        is_working=vendor_data.is_working,
+        is_backup=vendor_data.is_backup
+    )
+    
+    vendors.append(new_vendor.model_dump())
+    
+    await db.vendor_reference_lists.update_one(
+        {"id": list_id},
+        {"$set": {"vendors": vendors, "updated_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    
+    # Return updated list
+    updated = await db.vendor_reference_lists.find_one({"id": list_id}, {"_id": 0})
+    return updated
+
+
+@api_router.put("/references/{list_id}/vendors/{vendor_index}", response_model=VendorReferenceList)
+async def update_vendor_in_list(
+    list_id: str,
+    vendor_index: int,
+    vendor_data: VendorReferenceUpdate,
+    current_user: dict = Depends(get_current_user)
+):
+    """Update a vendor in a reference list"""
+    # Find existing list
+    existing = await db.vendor_reference_lists.find_one({"id": list_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Reference list not found")
+    
+    # Get user's department to check access
+    dept = await get_user_department(current_user)
+    user_role = get_user_role_from_department(dept)
+    dept_type = dept.get("department_type", "all") if dept else "all"
+    
+    # Check if user has access to this type
+    list_type = existing.get("list_type")
+    if dept_type != "all" and dept_type != list_type:
+        if user_role not in ["admin", "noc"]:
+            raise HTTPException(
+                status_code=403,
+                detail=f"You don't have access to update {list_type} reference lists"
+            )
+    
+    # Check if vendor index is valid
+    vendors = existing.get("vendors", [])
+    if vendor_index < 0 or vendor_index >= len(vendors):
+        raise HTTPException(status_code=404, detail="Vendor not found at specified index")
+    
+    # Update the vendor
+    if vendor_data.cost is not None:
+        vendors[vendor_index]["cost"] = vendor_data.cost
+    if vendor_data.custom_field is not None:
+        vendors[vendor_index]["custom_field"] = vendor_data.custom_field
+    if vendor_data.is_working is not None:
+        vendors[vendor_index]["is_working"] = vendor_data.is_working
+    if vendor_data.is_backup is not None:
+        vendors[vendor_index]["is_backup"] = vendor_data.is_backup
+    
+    await db.vendor_reference_lists.update_one(
+        {"id": list_id},
+        {"$set": {"vendors": vendors, "updated_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    
+    # Return updated list
+    updated = await db.vendor_reference_lists.find_one({"id": list_id}, {"_id": 0})
+    return updated
+
+
+@api_router.delete("/references/{list_id}/vendors/{vendor_index}", response_model=VendorReferenceList)
+async def remove_vendor_from_list(
+    list_id: str,
+    vendor_index: int,
+    current_user: dict = Depends(get_current_user)
+):
+    """Remove a vendor from a reference list"""
+    # Find existing list
+    existing = await db.vendor_reference_lists.find_one({"id": list_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Reference list not found")
+    
+    # Get user's department to check access
+    dept = await get_user_department(current_user)
+    user_role = get_user_role_from_department(dept)
+    dept_type = dept.get("department_type", "all") if dept else "all"
+    
+    # Check if user has access to this type
+    list_type = existing.get("list_type")
+    if dept_type != "all" and dept_type != list_type:
+        if user_role not in ["admin", "noc"]:
+            raise HTTPException(
+                status_code=403,
+                detail=f"You don't have access to update {list_type} reference lists"
+            )
+    
+    # Check if vendor index is valid
+    vendors = existing.get("vendors", [])
+    if vendor_index < 0 or vendor_index >= len(vendors):
+        raise HTTPException(status_code=404, detail="Vendor not found at specified index")
+    
+    # Remove the vendor
+    vendors.pop(vendor_index)
+    
+    await db.vendor_reference_lists.update_one(
+        {"id": list_id},
+        {"$set": {"vendors": vendors, "updated_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    
+    # Return updated list
+    updated = await db.vendor_reference_lists.find_one({"id": list_id}, {"_id": 0})
+    return updated
+
+
 # Include router
 app.include_router(api_router)
 
