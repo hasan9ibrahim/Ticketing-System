@@ -1564,7 +1564,7 @@ async def get_user_online_time(current_user: dict = Depends(get_current_user)):
     from datetime import timedelta
     
     now = datetime.now(timezone.utc)
-    # Get start of today (midnight)
+    # Get start of today (midnight UTC)
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     
     # Get all sessions from today
@@ -1617,24 +1617,27 @@ async def get_user_online_time(current_user: dict = Depends(get_current_user)):
         username = user.get("username", "Unknown")
         last_active = user.get("last_active")
         
-        if last_active and user_id not in user_online_time:
-            # Try to estimate online time from last_active
+        if last_active:
             if isinstance(last_active, str):
                 last_active = datetime.fromisoformat(last_active)
             
-            # If last_active is today, estimate they were online for some time
-            if last_active and last_active >= today_start:
-                # Estimate: time from start of day to last_active
-                # (This is rough but provides some data)
-                duration = (last_active - today_start).total_seconds()
+            # If last_active is within the last hour, consider them online today
+            one_hour_ago = now - timedelta(hours=1)
+            if last_active >= one_hour_ago:
+                # Estimate they were online for at least some time today
+                # Use 30 minutes as a conservative estimate
+                estimated_time = 1800  # 30 minutes
                 
-                if duration > 60:  # At least 1 minute
+                if user_id not in user_online_time:
                     user_online_time[user_id] = {
                         "user_id": user_id,
                         "username": username,
-                        "total_seconds": duration,
+                        "total_seconds": estimated_time,
                         "session_count": 1
                     }
+                else:
+                    # Add to existing time
+                    user_online_time[user_id]["total_seconds"] += estimated_time
     
     # Convert to list and format duration
     result = []
@@ -1780,10 +1783,10 @@ async def get_assigned_ticket_reminders(current_user: dict = Depends(get_current
     
     # Define reminder intervals in minutes based on priority
     priority_intervals = {
-        "Urgent": 10,
-        "High": 15,
-        "Medium": 25,
-        "Low": 30
+        "Urgent": 5,
+        "High": 10,
+        "Medium": 20,
+        "Low": 25
     }
     
     now = datetime.now(timezone.utc)
@@ -1800,10 +1803,17 @@ async def get_assigned_ticket_reminders(current_user: dict = Depends(get_current
         interval = priority_intervals.get(priority, 25)  # Default to 25 minutes
         threshold_time = now - timedelta(minutes=interval)
         
-        # Use assigned_at instead of date to track when ticket was assigned
+        # Use assigned_at if available, otherwise use date as fallback
         assigned_at = ticket.get("assigned_at")
         if isinstance(assigned_at, str):
             assigned_at = datetime.fromisoformat(assigned_at)
+        
+        # If no assigned_at, fall back to ticket date
+        if not assigned_at:
+            ticket_date = ticket.get("date")
+            if isinstance(ticket_date, str):
+                ticket_date = datetime.fromisoformat(ticket_date)
+            assigned_at = ticket_date
         
         # Only show reminder if ticket has been assigned longer than the threshold
         if assigned_at and assigned_at <= threshold_time:
@@ -1829,10 +1839,17 @@ async def get_assigned_ticket_reminders(current_user: dict = Depends(get_current
         interval = priority_intervals.get(priority, 25)  # Default to 25 minutes
         threshold_time = now - timedelta(minutes=interval)
         
-        # Use assigned_at instead of date to track when ticket was assigned
+        # Use assigned_at if available, otherwise use date as fallback
         assigned_at = ticket.get("assigned_at")
         if isinstance(assigned_at, str):
             assigned_at = datetime.fromisoformat(assigned_at)
+        
+        # If no assigned_at, fall back to ticket date
+        if not assigned_at:
+            ticket_date = ticket.get("date")
+            if isinstance(ticket_date, str):
+                ticket_date = datetime.fromisoformat(ticket_date)
+            assigned_at = ticket_date
         
         # Only show reminder if ticket has been assigned longer than the threshold
         if assigned_at and assigned_at <= threshold_time:
