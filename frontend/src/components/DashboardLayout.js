@@ -34,6 +34,7 @@ export default function DashboardLayout({ user, setUser }) {
   const [currentNotification, setCurrentNotification] = useState(null);
   const [assignedReminders, setAssignedReminders] = useState([]);
   const [showReminders, setShowReminders] = useState(false);
+  const [showAlerts, setShowAlerts] = useState(true);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -201,7 +202,7 @@ export default function DashboardLayout({ user, setUser }) {
   return (
     <div className="flex h-screen bg-zinc-950" data-testid="dashboard-layout">
       {/* Unassigned Tickets Alert - Top Left Notification */}
-      {alerts.length > 0 && (
+      {showAlerts && alerts.length > 0 && (
         <div className="fixed top-4 left-4 z-50 max-w-md">
           <div className="bg-red-950/95 border border-red-500/50 rounded-lg shadow-lg p-4 backdrop-blur-sm">
             <div className="flex items-center gap-2 mb-3">
@@ -210,6 +211,12 @@ export default function DashboardLayout({ user, setUser }) {
               <span className="bg-red-500/20 text-red-400 text-xs px-2 py-0.5 rounded-full ml-auto">
                 {alerts.length}
               </span>
+              <button
+                onClick={() => setShowAlerts(false)}
+                className="ml-2 text-red-400 hover:text-white"
+              >
+                <X className="h-4 w-4" />
+              </button>
             </div>
             <div className="space-y-2 max-h-[300px] overflow-y-auto">
               {alerts.slice(0, 5).map((alert) => (
@@ -243,9 +250,9 @@ export default function DashboardLayout({ user, setUser }) {
         </div>
       )}
 
-      {/* Assigned Ticket Reminders - Top Left (Below Unassigned Alerts) */}
+      {/* Assigned Ticket Reminders - Below Unassigned Alerts */}
       {showReminders && assignedReminders.length > 0 && (
-        <div className="fixed top-4 left-4 z-40 max-w-md">
+        <div className="fixed top-4 left-4 z-40 max-w-md mt-[320px]">
           <div className="bg-amber-950/95 border border-amber-500/50 rounded-lg shadow-lg p-4 backdrop-blur-sm">
             <div className="flex items-center gap-2 mb-3">
               <AlertTriangle className="h-5 w-5 text-amber-400" />
@@ -253,6 +260,12 @@ export default function DashboardLayout({ user, setUser }) {
               <span className="bg-amber-500/20 text-amber-400 text-xs px-2 py-0.5 rounded-full ml-auto">
                 {assignedReminders.length}
               </span>
+              <button
+                onClick={() => setShowReminders(false)}
+                className="ml-2 text-amber-400 hover:text-white"
+              >
+                <X className="h-4 w-4" />
+              </button>
             </div>
             <div className="space-y-2 max-h-[200px] overflow-y-auto">
               {assignedReminders.slice(0, 5).map((reminder) => (
