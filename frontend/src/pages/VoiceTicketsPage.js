@@ -1059,6 +1059,7 @@ export default function VoiceTicketsPage() {
                             />
                           )}
                           <Button 
+                            type="button"
                             size="sm" 
                             variant="ghost" 
                             onClick={() => {
