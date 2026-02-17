@@ -1,427 +1,321 @@
-import { useState, useEffect } from "react";
-import { Outlet, useNavigate, useLocation } from "react-router-dom";
-import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { useEffect, useState } from "react";
 import axios from "axios";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import {
-  LayoutDashboard,
-  MessageSquare,
-  Phone,
-  Building2,
-  Users,
-  LogOut,
-  Menu,
-  X,
-  Hexagon,
-  Briefcase,
-  Settings,
-  AlertTriangle,
-} from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { MessageSquare, Phone, TrendingUp, Activity, Users } from "lucide-react";
+import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from "recharts";
+import { toast } from "sonner";
+import StatusBadge from "@/components/custom/StatusBadge";
+import PriorityIndicator from "@/components/custom/PriorityIndicator";
+import DateRangePickerWithRange from "@/components/custom/DateRangePickerWithRange";
 
-export default function DashboardLayout({ user, setUser }) {
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [alerts, setAlerts] = useState([]);
-  const [ticketModificationNotifications, setTicketModificationNotifications] = useState([]);
-  const [currentNotification, setCurrentNotification] = useState(null);
-  const [assignedReminders, setAssignedReminders] = useState([]);
-  const [showReminders, setShowReminders] = useState(false);
-  const [showAlerts, setShowAlerts] = useState(true);
-  const navigate = useNavigate();
-  const location = useLocation();
+const BACKEND_URL = process.env.REACT_APP_API_URL;
+const API = `${BACKEND_URL}/api`;
 
-  const API = `${process.env.REACT_APP_API_URL || "http://localhost:8000"}/api`;
+export default function DashboardPage() {
+  const [stats, setStats] = useState(null);
+  const [dateRange, setDateRange] = useState({ from: new Date(), to: new Date() });
+  const [loading, setLoading] = useState(true);
+  const [onlineUsers, setOnlineUsers] = useState([]);
+  const [currentUser, setCurrentUser] = useState(null);
 
-  // Fetch alerts for NOC/Admin users
   useEffect(() => {
-    if (user && (user.role === "noc" || user.role === "admin" || user?.department?.can_view_all_tickets)) {
-      fetchAlerts();
-      // Refresh alerts every 30 seconds for faster updates when tickets are assigned
-      const alertInterval = setInterval(fetchAlerts, 30000);
-      return () => clearInterval(alertInterval);
+    // Get current user
+    const userData = localStorage.getItem("user");
+    if (userData) {
+      setCurrentUser(JSON.parse(userData));
     }
-  }, [user]);
+    
+    fetchStats();
+    fetchOnlineUsers();
+    // Refresh online users every 30 seconds
+    const interval = setInterval(() => {
+      fetchOnlineUsers();
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [dateRange]);
 
-  // Fetch ticket modification notifications for all users
-  useEffect(() => {
-    if (user) {
-      fetchTicketModifications();
-      // Refresh every 10 seconds to catch notifications quickly
-      const notificationInterval = setInterval(fetchTicketModifications, 10000);
-      return () => clearInterval(notificationInterval);
-    }
-  }, [user]);
-
-  // Fetch assigned ticket reminders for all users
-  useEffect(() => {
-    if (user) {
-      fetchAssignedReminders();
-      // Refresh every minute to check for overdue tickets
-      const reminderInterval = setInterval(fetchAssignedReminders, 60000);
-      return () => clearInterval(reminderInterval);
-    }
-  }, [user]);
-
-  const fetchAlerts = async () => {
+  const fetchOnlineUsers = async () => {
     try {
       const token = localStorage.getItem("token");
-      const response = await axios.get(`${API}/dashboard/unassigned-alerts`, {
+      const response = await axios.get(`${API}/dashboard/online-users`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      setAlerts(response.data || []);
+      setOnlineUsers(response.data || []);
     } catch (error) {
-      console.error("Failed to fetch alerts:", error);
+      console.error("Failed to fetch online users:", error);
     }
   };
 
-  const fetchTicketModifications = async () => {
+  const fetchStats = async () => {
     try {
       const token = localStorage.getItem("token");
-      const response = await axios.get(`${API}/dashboard/ticket-modifications`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const notifications = response.data || [];
-      setTicketModificationNotifications(notifications);
+            
+      let url = `${API}/dashboard/stats`;
+      const params = new URLSearchParams();
       
-      // Show the first unread notification as an alert dialog
-      if (notifications.length > 0 && !currentNotification) {
-        setCurrentNotification(notifications[0]);
+      if (dateRange?.from) {
+                // Use local date format (YYYY-MM-DD) to avoid timezone issues
+        const fromYear = dateRange.from.getFullYear();
+        const fromMonth = String(dateRange.from.getMonth() + 1).padStart(2, '0');
+        const fromDay = String(dateRange.from.getDate()).padStart(2, '0');
+        params.append('date_from', `${fromYear}-${fromMonth}-${fromDay}`);
       }
-    } catch (error) {
-      console.error("Failed to fetch ticket modifications:", error);
-    }
-  };
-
-  const handleNotificationAcknowledged = async () => {
-    if (currentNotification) {
-      try {
-        const token = localStorage.getItem("token");
-        await axios.post(
-          `${API}/dashboard/ticket-modifications/${currentNotification.id}/read`,
-          {},
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
-        
-        // Remove the acknowledged notification from the list
-        setTicketModificationNotifications((prev) => 
-          prev.filter((n) => n.id !== currentNotification.id)
-        );
-        
-        // Show the next notification if available
-        const remaining = ticketModificationNotifications.filter(
-          (n) => n.id !== currentNotification.id
-        );
-        if (remaining.length > 0) {
-          setCurrentNotification(remaining[0]);
-        } else {
-          setCurrentNotification(null);
-        }
-      } catch (error) {
-        console.error("Failed to mark notification as read:", error);
-        setCurrentNotification(null);
+      if (dateRange?.to) {
+                // Use local date format (YYYY-MM-DD) to avoid timezone issues
+        const toYear = dateRange.to.getFullYear();
+        const toMonth = String(dateRange.to.getMonth() + 1).padStart(2, '0');
+        const toDay = String(dateRange.to.getDate()).padStart(2, '0');
+        params.append('date_to', `${toYear}-${toMonth}-${toDay}`);
       }
-    }
-  };
-
-  const fetchAssignedReminders = async () => {
-    try {
-      const token = localStorage.getItem("token");
-      const response = await axios.get(`${API}/dashboard/assigned-ticket-reminders`, {
+      
+      if (params.toString()) {
+        url += `?${params.toString()}`;
+      }
+      
+      const response = await axios.get(url, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      const reminders = response.data || [];
-      setAssignedReminders(reminders);
-      
-      // Show reminders if there are any (always show when we have data)
-      if (reminders.length > 0) {
-        setShowReminders(true);
-      }
+      setStats(response.data);
     } catch (error) {
-      console.error("Failed to fetch assigned ticket reminders:", error);
-    }
-  };
-
-  const handleLogout = async () => {
-    try {
-      const token = localStorage.getItem("token");
-      // Call backend logout endpoint to mark user as offline
-      await axios.post(
-        `${API}/auth/logout`,
-        {},
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-    } catch (error) {
-      // Continue with logout even if API call fails
-      console.error("Logout API call failed:", error);
+      toast.error("Failed to load dashboard stats");
     } finally {
-      localStorage.removeItem("token");
-      localStorage.removeItem("user");
-      setUser(null);
-      navigate("/login");
+      setLoading(false);
     }
   };
 
-  const navItems = [
-    { path: "/", label: "Dashboard", icon: LayoutDashboard, roles: ["admin", "am", "noc"] },
-    { path: "/sms-tickets", label: "SMS Tickets", icon: MessageSquare, roles: ["admin", "am", "noc"], ticketType: "sms" },
-    { path: "/voice-tickets", label: "Voice Tickets", icon: Phone, roles: ["admin", "am", "noc"], ticketType: "voice" },
-    { path: "/enterprises", label: "Enterprises", icon: Building2, roles: ["admin", "noc"] },
-    { path: "/my-enterprises", label: "My Enterprises", icon: Briefcase, roles: ["am"] },
-    { path: "/users", label: "Users", icon: Users, roles: ["admin"] },
-    { path: "/departments", label: "Departments", icon: Settings, roles: ["admin"] },
-  ];
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="text-emerald-500">Loading dashboard...</div>
+      </div>
+    );
+  }
 
-  const filteredNavItems = navItems.filter((item) => {
-    if (!item.roles.includes(user.role)) return false;
-    
-    // Check department_type if available (new system)
-    if (user.department_type && user.department_type !== "all") {
-      // If user has a specific ticket type restriction, only show matching pages
-      if (item.ticketType && item.ticketType !== user.department_type) {
-        return false;
-      }
-    }
-    
-    // Legacy: For AMs with amTypes restriction, check if they match (backward compatibility)
-    if (user.role === "am" && user.am_type && item.amTypes) {
-      return item.amTypes.includes(user.am_type);
-    }
-    
-    // For NOC and Admin, show all items in their roles
-    return true;
-  });
+  const statusColors = {
+    Resolved: "#10b981",
+    Assigned: "#3b82f6",
+    "Awaiting Vendor": "#f59e0b",
+    "Awaiting Client": "#f59e0b",
+    "Awaiting AM": "#f59e0b",
+    Unresolved: "#71717a",
+  };
+
+  const smsStatusData = Object.entries(stats?.sms_by_status || {}).map(([name, value]) => ({
+    name,
+    value,
+    color: statusColors[name] || "#71717a",
+  }));
+
+  const voiceStatusData = Object.entries(stats?.voice_by_status || {}).map(([name, value]) => ({
+    name,
+    value,
+    color: statusColors[name] || "#71717a",
+  }));
 
   return (
-    <div className="flex h-screen bg-zinc-950" data-testid="dashboard-layout">
-      {/* Unassigned Tickets Alert - Top Left Notification */}
-      {showAlerts && alerts.length > 0 && (
-        <div className="fixed top-4 left-4 z-50 max-w-md">
-          <div className="bg-red-950/95 border border-red-500/50 rounded-lg shadow-lg p-4 backdrop-blur-sm">
-            <div className="flex items-center gap-2 mb-3">
-              <AlertTriangle className="h-5 w-5 text-red-400" />
-              <span className="text-red-400 font-semibold">Unassigned Tickets Alert</span>
-              <span className="bg-red-500/20 text-red-400 text-xs px-2 py-0.5 rounded-full ml-auto">
-                {alerts.length}
-              </span>
-              <button
-                onClick={() => setShowAlerts(false)}
-                className="ml-2 text-red-400 hover:text-white"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <div className="space-y-2 max-h-[300px] overflow-y-auto">
-              {alerts.slice(0, 5).map((alert) => (
-                <div
-                  key={`${alert.type}-${alert.id}`}
-                  className="flex items-center gap-2 bg-zinc-900/50 px-3 py-2 rounded text-sm"
-                >
-                  <div className={`h-2 w-2 rounded-full flex-shrink-0 ${
-                    alert.priority === "Urgent" ? "bg-red-500" :
-                    alert.priority === "High" ? "bg-orange-500" :
-                    alert.priority === "Medium" ? "bg-yellow-500" : "bg-blue-500"
-                  }`} />
-                  <span className="text-white font-medium">{alert.ticket_number}</span>
-                  <span className={`text-xs px-1.5 py-0.5 rounded ${
-                    alert.priority === "Urgent" ? "bg-red-500/20 text-red-400" :
-                    alert.priority === "High" ? "bg-orange-500/20 text-orange-400" :
-                    alert.priority === "Medium" ? "bg-yellow-500/20 text-yellow-400" : "bg-blue-500/20 text-blue-400"
-                  }`}>
-                    {alert.priority}
-                  </span>
-                  <span className="text-zinc-400 text-xs ml-auto">{alert.type.toUpperCase()}</span>
-                </div>
-              ))}
-              {alerts.length > 5 && (
-                <p className="text-zinc-400 text-xs text-center pt-2">
-                  +{alerts.length - 5} more tickets
-                </p>
-              )}
-            </div>
-          </div>
+    <div className="p-6 lg:p-8 space-y-6 max-w-[1920px] mx-auto" data-testid="dashboard-page">
+           {/* Header with Date Filter */}
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div className="space-y-2">
+          <h1 className="text-4xl font-bold text-white">Dashboard</h1>
+          <p className="text-zinc-400">Overview of ticket status and metrics</p>
         </div>
-      )}
-
-      {/* Assigned Ticket Reminders - Top Left */}
-      {showReminders && assignedReminders.length > 0 && (
-        <div className="fixed top-4 left-4 z-40 max-w-md">
-          <div className="bg-amber-950/95 border border-amber-500/50 rounded-lg shadow-lg p-4 backdrop-blur-sm">
-            <div className="flex items-center gap-2 mb-3">
-              <AlertTriangle className="h-5 w-5 text-amber-400" />
-              <span className="text-amber-400 font-semibold">Pending Assigned Tickets</span>
-              <span className="bg-amber-500/20 text-amber-400 text-xs px-2 py-0.5 rounded-full ml-auto">
-                {assignedReminders.length}
-              </span>
-              <button
-                onClick={() => setShowReminders(false)}
-                className="ml-2 text-amber-400 hover:text-white"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <div className="space-y-2 max-h-[200px] overflow-y-auto">
-              {assignedReminders.slice(0, 5).map((reminder) => (
-                <div
-                  key={`${reminder.type}-${reminder.id}`}
-                  className="flex items-center gap-2 bg-zinc-900/50 px-3 py-2 rounded text-sm"
-                >
-                  <div className={`h-2 w-2 rounded-full flex-shrink-0 ${
-                    reminder.priority === "Urgent" ? "bg-red-500" :
-                    reminder.priority === "High" ? "bg-orange-500" :
-                    reminder.priority === "Medium" ? "bg-yellow-500" : "bg-blue-500"
-                  }`} />
-                  <span className="text-white font-medium">{reminder.ticket_number}</span>
-                  <span className={`text-xs px-1.5 py-0.5 rounded ${
-                    reminder.priority === "Urgent" ? "bg-red-500/20 text-red-400" :
-                    reminder.priority === "High" ? "bg-orange-500/20 text-orange-400" :
-                    reminder.priority === "Medium" ? "bg-yellow-500/20 text-yellow-400" : "bg-blue-500/20 text-blue-400"
-                  }`}>
-                    {reminder.priority}
-                  </span>
-                  <span className="text-zinc-400 text-xs ml-auto">{reminder.type.toUpperCase()}</span>
-                </div>
-              ))}
-              {assignedReminders.length > 5 && (
-                <p className="text-zinc-400 text-xs text-center pt-2">
-                  +{assignedReminders.length - 5} more tickets
-                </p>
-              )}
-            </div>
-            <p className="text-amber-200 text-xs mt-2">
-              These tickets have been assigned for too long. Please update their status.
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Sidebar */}
-      <aside
-        className={`${
-          sidebarOpen ? "w-64" : "w-0 lg:w-20"
-        } bg-zinc-900 border-r border-white/5 transition-all duration-300 flex-shrink-0`}
-        data-testid="sidebar"
-      >
-        <div className="flex flex-col h-full">
-          {/* Logo */}
-          <div className="h-16 flex items-center justify-between px-4 border-b border-white/5">
-            {sidebarOpen && (
-              <div className="flex items-center gap-3">
-  <img
-    src="/Logo.png"
-    alt="Wii Telecom"
-    className="h-9 w-auto object-contain"
-  />
-                <span className="font-bold text-white text-lg">Wii NOC</span>
-              </div>
-            )}
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="text-zinc-400 hover:text-white hover:bg-zinc-800"
-              data-testid="sidebar-toggle"
+        <div className="flex items-center gap-4">
+          <DateRangePickerWithRange
+            dateRange={dateRange}
+            onDateRangeChange={setDateRange}
+          />
+          {dateRange && (
+            <button
+              onClick={() => setDateRange(null)}
+              className="text-sm text-zinc-400 hover:text-white underline"
             >
-              {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-            </Button>
-          </div>
-
-          {/* Navigation */}
-          <ScrollArea className="flex-1 px-3 py-4">
-            <nav className="space-y-1">
-              {filteredNavItems.map((item) => {
-                const Icon = item.icon;
-                const isActive = location.pathname === item.path;
-                return (
-                  <Button
-                    key={item.path}
-                    variant="ghost"
-                    data-testid={`nav-${item.label.toLowerCase().replace(' ', '-')}`}
-                    onClick={() => navigate(item.path)}
-                    className={`w-full justify-start h-11 ${
-                      isActive
-                        ? "bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20"
-                        : "text-zinc-400 hover:text-white hover:bg-zinc-800"
-                    } transition-colors`}
-                  >
-                    <Icon className="h-5 w-5" />
-                    {sidebarOpen && <span className="ml-3">{item.label}</span>}
-                  </Button>
-                );
-              })}
-            </nav>
-          </ScrollArea>
-
-          {/* User Info */}
-          <div className="p-4 border-t border-white/5">
-            {sidebarOpen ? (
-              <div className="space-y-3 animate-fade-in">
-                <div className="text-sm">
-                  <p className="text-white font-medium">{user.username}</p>
-                  <p className="text-zinc-500 capitalize">{user.role}</p>
-                </div>
-                <Button
-                  variant="ghost"
-                  onClick={handleLogout}
-                  data-testid="logout-button"
-                  className="w-full justify-start text-zinc-400 hover:text-white hover:bg-zinc-800"
-                >
-                  <LogOut className="h-5 w-5 mr-3" />
-                  Logout
-                </Button>
-              </div>
-            ) : (
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={handleLogout}
-                className="w-full text-zinc-400 hover:text-white hover:bg-zinc-800"
-              >
-                <LogOut className="h-5 w-5" />
-              </Button>
-            )}
-          </div>
+              Clear filter
+            </button>
+          )}
         </div>
-      </aside>
+      </div>
 
-      {/* Main Content */}
-      <main className="flex-1 overflow-auto">
-        <Outlet />
-      </main>
+      {/* Online Users Widget */}
+      <Card className="bg-zinc-900/50 border-white/10">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-medium text-zinc-400 flex items-center gap-2">
+            <Users className="h-4 w-4 text-emerald-500" />
+            Online Users
+            <span className="text-xs bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full ml-2">
+              {onlineUsers.length}
+            </span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {onlineUsers.length === 0 ? (
+            <p className="text-zinc-500 text-sm">No users currently online</p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {onlineUsers.map((user) => (
+                <div
+                  key={user.id}
+                  className="flex items-center gap-2 bg-zinc-800/50 px-3 py-1.5 rounded-full border border-white/5"
+                >
+                  <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                  <span className="text-sm text-zinc-300">{user.username}</span>
+                  {user.name && (
+                    <span className="text-xs text-zinc-500">({user.name})</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
-      {/* Ticket Modification Alert Dialog */}
-      <AlertDialog open={!!currentNotification} onOpenChange={(open) => !open && handleNotificationAcknowledged()}>
-        <AlertDialogContent className="max-w-md">
-          <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-amber-500" />
-              Ticket Modified
-            </AlertDialogTitle>
-            <AlertDialogDescription className="text-base">
-              {currentNotification && (
-                <>
-                  Your assigned ticket <strong>{currentNotification.ticket_number}</strong> ({currentNotification.ticket_type.toUpperCase()}) 
-                  was modified by <strong>{currentNotification.modified_by_username}</strong>.
-                  <br /><br />
-                  Please review the changes.
-                </>
-              )}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogAction onClick={handleNotificationAcknowledged}>
-              Okay
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {/* Stats Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <Card className="bg-zinc-900/50 border-white/10 grid-border" data-testid="sms-tickets-card">
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-zinc-400">Total SMS Tickets</CardTitle>
+            <MessageSquare className="h-4 w-4 text-emerald-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold text-white tabular-nums">{stats?.total_sms_tickets || 0}</div>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-zinc-900/50 border-white/10 grid-border" data-testid="voice-tickets-card">
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-zinc-400">Total Voice Tickets</CardTitle>
+            <Phone className="h-4 w-4 text-emerald-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold text-white tabular-nums">{stats?.total_voice_tickets || 0}</div>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-zinc-900/50 border-white/10 grid-border">
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-zinc-400">Open Tickets</CardTitle>
+            <Activity className="h-4 w-4 text-blue-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold text-white tabular-nums">
+              {(stats?.total_sms_tickets || 0) +
+                (stats?.total_voice_tickets || 0) -
+                ((stats?.sms_by_status?.Resolved || 0) + (stats?.voice_by_status?.Resolved || 0))}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-zinc-900/50 border-white/10 grid-border">
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-zinc-400">Resolved Today</CardTitle>
+            <TrendingUp className="h-4 w-4 text-emerald-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold text-white tabular-nums">
+              {(stats?.sms_by_status?.Resolved || 0) + (stats?.voice_by_status?.Resolved || 0)}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Charts */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <Card className="bg-zinc-900/50 border-white/10">
+          <CardHeader>
+            <CardTitle className="text-white">SMS Tickets by Status</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {smsStatusData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <PieChart>
+                  <Pie
+                    data={smsStatusData}
+                    cx="50%"
+                    cy="50%"
+                    labelLine={false}
+                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                    outerRadius={80}
+                    fill="#8884d8"
+                    dataKey="value"
+                  >
+                    {smsStatusData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip contentStyle={{ backgroundColor: "#18181b", border: "1px solid rgba(255,255,255,0.1)" }} />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-[300px] flex items-center justify-center text-zinc-500">No SMS tickets yet</div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="bg-zinc-900/50 border-white/10">
+          <CardHeader>
+            <CardTitle className="text-white">Voice Tickets by Status</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {voiceStatusData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <PieChart>
+                  <Pie
+                    data={voiceStatusData}
+                    cx="50%"
+                    cy="50%"
+                    labelLine={false}
+                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                    outerRadius={80}
+                    fill="#8884d8"
+                    dataKey="value"
+                  >
+                    {voiceStatusData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip contentStyle={{ backgroundColor: "#18181b", border: "1px solid rgba(255,255,255,0.1)" }} />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-[300px] flex items-center justify-center text-zinc-500">No voice tickets yet</div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Recent Tickets */}
+      <Card className="bg-zinc-900/50 border-white/10">
+        <CardHeader>
+          <CardTitle className="text-white">Recent Tickets</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {stats?.recent_tickets && stats.recent_tickets.length > 0 ? (
+            <div className="space-y-3" data-testid="recent-tickets-list">
+              {stats.recent_tickets.map((ticket) => (
+                <div
+                  key={ticket.id}
+                  className="flex items-center justify-between p-3 bg-zinc-800/50 rounded-lg border border-white/5 hover:border-white/10 transition-colors"
+                  data-testid="recent-ticket-item"
+                >
+                  <div className="flex items-center space-x-4">
+                    <PriorityIndicator priority={ticket.priority} />
+                    <div>
+                      <div className="flex items-center space-x-2">
+                        <span className="text-white font-medium">{ticket.ticket_number}</span>
+                        <span className="text-xs text-zinc-500">({ticket.type})</span>
+                      </div>
+                      <p className="text-sm text-zinc-400">{ticket.customer}</p>
+                    </div>
+                  </div>
+                  <StatusBadge status={ticket.status} />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-8 text-zinc-500">No recent tickets</div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
