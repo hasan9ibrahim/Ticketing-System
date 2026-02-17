@@ -27,7 +27,6 @@ import {
   AlertTriangle,
   ClipboardList,
   Bell,
-  BookOpen,
 } from "lucide-react";
 
 export default function DashboardLayout({ user, setUser }) {
@@ -248,7 +247,6 @@ export default function DashboardLayout({ user, setUser }) {
     { path: "/", label: "Dashboard", icon: LayoutDashboard, roles: ["admin", "am", "noc"] },
     { path: "/sms-tickets", label: "SMS Tickets", icon: MessageSquare, roles: ["admin", "am", "noc"], ticketType: "sms" },
     { path: "/voice-tickets", label: "Voice Tickets", icon: Phone, roles: ["admin", "am", "noc"], ticketType: "voice" },
-    { path: "/references", label: "References & Alerts", icon: BookOpen, roles: ["admin", "am", "noc"] },
     { path: "/enterprises", label: "Enterprises", icon: Building2, roles: ["admin", "noc"] },
     { path: "/my-enterprises", label: "My Enterprises", icon: Briefcase, roles: ["am"] },
     { path: "/users", label: "Users", icon: Users, roles: ["admin"] },
