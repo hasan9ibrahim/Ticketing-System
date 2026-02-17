@@ -25,6 +25,7 @@ import {
   Briefcase,
   Settings,
   AlertTriangle,
+  ClipboardList,
 } from "lucide-react";
 
 export default function DashboardLayout({ user, setUser }) {
@@ -226,6 +227,7 @@ export default function DashboardLayout({ user, setUser }) {
     { path: "/my-enterprises", label: "My Enterprises", icon: Briefcase, roles: ["am"] },
     { path: "/users", label: "Users", icon: Users, roles: ["admin"] },
     { path: "/departments", label: "Departments", icon: Settings, roles: ["admin"] },
+    { path: "/audit", label: "Audit Logs", icon: ClipboardList, roles: ["admin"] },
   ];
 
   const filteredNavItems = navItems.filter((item) => {
