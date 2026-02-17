@@ -1354,6 +1354,7 @@ export default function SMSTicketsPage() {
                               />
                             )}
                             <Button 
+                              type="button"
                               size="sm" 
                               variant="ghost" 
                               onClick={() => {
