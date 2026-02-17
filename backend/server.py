@@ -147,17 +147,17 @@ class UserNotificationSettings(BaseModel):
     user_id: str
     # Enterprise-related notifications
     notify_ticket_created_for_enterprise: bool = True  # Ticket created for an enterprise assigned to the AM
-    # Assignment notifications
-    notify_ticket_assigned: bool = True  # Ticket is assigned to this user
+    # Assignment notifications (when ticket for AM's enterprise is assigned to NOC)
+    notify_ticket_assigned_to_noc: bool = True  # Ticket for enterprise is assigned to a NOC user
     # Status change notifications
-    notify_ticket_resolved: bool = True  # Ticket is resolved
-    notify_ticket_unresolved: bool = True  # Ticket is unresolved (re-opened)
+    notify_ticket_resolved: bool = True  # Ticket for enterprise is resolved
+    notify_ticket_unresolved: bool = True  # Ticket for enterprise is unresolved (re-opened)
 
 
 class UserNotificationSettingsUpdate(BaseModel):
     """Model for updating notification settings"""
     notify_ticket_created_for_enterprise: Optional[bool] = None
-    notify_ticket_assigned: Optional[bool] = None
+    notify_ticket_assigned_to_noc: Optional[bool] = None
     notify_ticket_resolved: Optional[bool] = None
     notify_ticket_unresolved: Optional[bool] = None
 
@@ -256,21 +256,32 @@ async def notify_am_on_ticket_created(
     )
 
 
-async def notify_on_ticket_assignment(
+async def notify_on_ticket_assigned_to_noc(
     ticket_id: str,
     ticket_number: str,
     ticket_type: str,
     enterprise_id: str,
     enterprise_name: str,
     assigned_to: str,
-    previous_assigned_to: Optional[str] = None
+    assigned_to_username: str
 ):
-    """Notify user when a ticket is assigned to them"""
-    # Get user's notification settings
-    settings = await get_or_create_notification_settings(assigned_to)
+    """Notify AM when a ticket for their enterprise is assigned to a NOC user"""
+    # Find the AM assigned to this enterprise
+    enterprise = await db.clients.find_one({"id": enterprise_id}, {"_id": 0, "assigned_am_id": 1})
+    if not enterprise or not enterprise.get("assigned_am_id"):
+        return  # No AM assigned to this enterprise
     
-    # Check if user wants to receive assignment notifications
-    if not settings.notify_ticket_assigned:
+    am_id = enterprise["assigned_am_id"]
+    
+    # Don't notify if the ticket is being assigned to the AM themselves
+    if am_id == assigned_to:
+        return
+    
+    # Get AM's notification settings
+    settings = await get_or_create_notification_settings(am_id)
+    
+    # Check if AM wants to receive this type of notification
+    if not settings.notify_ticket_assigned_to_noc:
         return
     
     # Create notification
@@ -280,9 +291,9 @@ async def notify_on_ticket_assignment(
         ticket_type=ticket_type,
         enterprise_id=enterprise_id,
         enterprise_name=enterprise_name,
-        user_id=assigned_to,
-        notification_type="ticket_assigned",
-        message=f"{ticket_type.upper()} ticket {ticket_number} for {enterprise_name} has been assigned to you"
+        user_id=am_id,
+        notification_type="ticket_assigned_to_noc",
+        message=f"{ticket_type.upper()} ticket {ticket_number} for {enterprise_name} has been assigned to {assigned_to_username}"
     )
 
 
@@ -292,16 +303,19 @@ async def notify_on_ticket_status_change(
     ticket_type: str,
     enterprise_id: str,
     enterprise_name: str,
-    assigned_to: str,
     new_status: str,
     previous_status: str
 ):
-    """Notify user when a ticket status changes to resolved/unresolved"""
-    if not assigned_to:
-        return
+    """Notify AM when a ticket for their enterprise is resolved/unresolved"""
+    # Find the AM assigned to this enterprise
+    enterprise = await db.clients.find_one({"id": enterprise_id}, {"_id": 0, "assigned_am_id": 1})
+    if not enterprise or not enterprise.get("assigned_am_id"):
+        return  # No AM assigned to this enterprise
     
-    # Get user's notification settings
-    settings = await get_or_create_notification_settings(assigned_to)
+    am_id = enterprise["assigned_am_id"]
+    
+    # Get AM's notification settings
+    settings = await get_or_create_notification_settings(am_id)
     
     # Determine notification type based on new status
     is_resolved = new_status.lower() in ["resolved", "completed", "closed"]
@@ -322,14 +336,14 @@ async def notify_on_ticket_status_change(
     else:
         return  # Not a resolved/unresolved change
     
-    # Create notification
+    # Create notification for AM
     await create_am_notification(
         ticket_id=ticket_id,
         ticket_number=ticket_number,
         ticket_type=ticket_type,
         enterprise_id=enterprise_id,
         enterprise_name=enterprise_name,
-        user_id=assigned_to,
+        user_id=am_id,
         notification_type=notification_type,
         message=message
     )
@@ -1426,24 +1440,28 @@ async def update_sms_ticket(ticket_id: str, ticket_data: SMSTicketUpdate, curren
             modified_by_username=current_user.get("username", "Unknown")
         )
     
-    # Check for new assignment and notify the newly assigned user
+    # Check for new assignment and notify the AM when ticket is assigned to NOC
     if new_assigned_to and new_assigned_to != existing_ticket.get("assigned_to"):
         # Get enterprise info for notification
         client = await db.clients.find_one({"id": existing_ticket.get("customer_id")}, {"_id": 0, "name": 1})
         enterprise_name = client["name"] if client else "Unknown Enterprise"
         
-        await notify_on_ticket_assignment(
+        # Get the username of who was assigned
+        assigned_user = await db.users.find_one({"id": new_assigned_to}, {"_id": 0, "username": 1})
+        assigned_to_username = assigned_user["username"] if assigned_user else "Unknown User"
+        
+        await notify_on_ticket_assigned_to_noc(
             ticket_id=ticket_id,
             ticket_number=existing_ticket.get("ticket_number", ""),
             ticket_type="sms",
             enterprise_id=existing_ticket.get("customer_id", ""),
             enterprise_name=enterprise_name,
             assigned_to=new_assigned_to,
-            previous_assigned_to=existing_ticket.get("assigned_to")
+            assigned_to_username=assigned_to_username
         )
     
-    # Check for status change to resolved/unresolved and notify assignee
-    if new_status != existing_status and new_assigned_to:
+    # Check for status change to resolved/unresolved and notify AM
+    if new_status != existing_status:
         client = await db.clients.find_one({"id": existing_ticket.get("customer_id")}, {"_id": 0, "name": 1})
         enterprise_name = client["name"] if client else "Unknown Enterprise"
         
@@ -1453,7 +1471,6 @@ async def update_sms_ticket(ticket_id: str, ticket_data: SMSTicketUpdate, curren
             ticket_type="sms",
             enterprise_id=existing_ticket.get("customer_id", ""),
             enterprise_name=enterprise_name,
-            assigned_to=new_assigned_to,
             new_status=new_status,
             previous_status=existing_status
         )
@@ -1622,24 +1639,28 @@ async def update_voice_ticket(ticket_id: str, ticket_data: VoiceTicketUpdate, cu
             modified_by_username=current_user.get("username", "Unknown")
         )
     
-    # Check for new assignment and notify the newly assigned user
+    # Check for new assignment and notify the AM when ticket is assigned to NOC
     if new_assigned_to and new_assigned_to != existing_ticket.get("assigned_to"):
         # Get enterprise info for notification
         client = await db.clients.find_one({"id": existing_ticket.get("customer_id")}, {"_id": 0, "name": 1})
         enterprise_name = client["name"] if client else "Unknown Enterprise"
         
-        await notify_on_ticket_assignment(
+        # Get the username of who was assigned
+        assigned_user = await db.users.find_one({"id": new_assigned_to}, {"_id": 0, "username": 1})
+        assigned_to_username = assigned_user["username"] if assigned_user else "Unknown User"
+        
+        await notify_on_ticket_assigned_to_noc(
             ticket_id=ticket_id,
             ticket_number=existing_ticket.get("ticket_number", ""),
             ticket_type="voice",
             enterprise_id=existing_ticket.get("customer_id", ""),
             enterprise_name=enterprise_name,
             assigned_to=new_assigned_to,
-            previous_assigned_to=existing_ticket.get("assigned_to")
+            assigned_to_username=assigned_to_username
         )
     
-    # Check for status change to resolved/unresolved and notify assignee
-    if new_status != existing_status and new_assigned_to:
+    # Check for status change to resolved/unresolved and notify AM
+    if new_status != existing_status:
         client = await db.clients.find_one({"id": existing_ticket.get("customer_id")}, {"_id": 0, "name": 1})
         enterprise_name = client["name"] if client else "Unknown Enterprise"
         
@@ -1649,7 +1670,6 @@ async def update_voice_ticket(ticket_id: str, ticket_data: VoiceTicketUpdate, cu
             ticket_type="voice",
             enterprise_id=existing_ticket.get("customer_id", ""),
             enterprise_name=enterprise_name,
-            assigned_to=new_assigned_to,
             new_status=new_status,
             previous_status=existing_status
         )
