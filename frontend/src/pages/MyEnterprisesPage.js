@@ -26,7 +26,7 @@ export default function MyEnterprisesPage() {
   const fetchEnterprises = async () => {
     try {
       const token = localStorage.getItem("token");
-      const response = await axios.get(`${API}/clients`, {
+      const response = await axios.get(`${API}/my-enterprises`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       setEnterprises(response.data);
