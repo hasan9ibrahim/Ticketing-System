@@ -1456,7 +1456,12 @@ async def create_reference_list(list_data: ReferenceListCreate, current_user: di
         created_by=current_user.get("username", "unknown")
     )
     
-    await db.reference_lists.insert_one(reference_list.model_dump(exclude={"id"}, exclude_unset=True))
+    # Include the id in the insert
+    list_dict = reference_list.model_dump()
+    list_dict["id"] = reference_list.id
+    del list_dict["_id"]  # Remove any auto-generated _id
+    
+    await db.reference_lists.insert_one(list_dict)
     
     return reference_list
 
