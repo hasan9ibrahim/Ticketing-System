@@ -537,6 +537,18 @@ async def register(user_data: UserCreate, current_admin: dict = Depends(get_curr
     doc['created_at'] = doc['created_at'].isoformat()
     
     await db.users.insert_one(doc)
+    
+    # Create audit log for user creation
+    await create_audit_log(
+        user_id=current_admin["id"],
+        username=current_admin.get("username", "admin"),
+        action="create",
+        entity_type="user",
+        entity_id=user_obj.id,
+        entity_name=user_obj.username,
+        changes={"username": user_obj.username, "email": user_obj.email, "name": user_obj.name}
+    )
+    
     return UserResponse(**user_obj.model_dump())
 
 @api_router.post("/auth/login", response_model=Token)
@@ -636,6 +648,9 @@ async def update_user(user_id: str, user_data: UserUpdate, current_admin: dict =
     if not update_dict:
         raise HTTPException(status_code=400, detail="No fields to update")
     
+    # Get the user before update for audit
+    user_before = await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})
+    
     result = await db.users.find_one_and_update(
         {"id": user_id},
         {"$set": update_dict},
@@ -648,13 +663,40 @@ async def update_user(user_id: str, user_data: UserUpdate, current_admin: dict =
     
     if isinstance(result.get('created_at'), str):
         result['created_at'] = datetime.fromisoformat(result['created_at'])
+    
+    # Create audit log for user update
+    await create_audit_log(
+        user_id=current_admin["id"],
+        username=current_admin.get("username", "admin"),
+        action="update",
+        entity_type="user",
+        entity_id=user_id,
+        entity_name=user_before.get("username", user_id),
+        changes={"before": user_before, "after": result}
+    )
+    
     return UserResponse(**result)
 
 @api_router.delete("/users/{user_id}")
 async def delete_user(user_id: str, current_admin: dict = Depends(get_current_admin)):
+    # Get user before delete for audit
+    user_before = await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})
+    
     result = await db.users.delete_one({"id": user_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="User not found")
+    
+    # Create audit log for user deletion
+    await create_audit_log(
+        user_id=current_admin["id"],
+        username=current_admin.get("username", "admin"),
+        action="delete",
+        entity_type="user",
+        entity_id=user_id,
+        entity_name=user_before.get("username", user_id) if user_before else user_id,
+        changes={"deleted_user": user_before}
+    )
+    
     return {"message": "User deleted successfully"}
 
 # ==================== DEPARTMENT ROUTES ====================
@@ -787,12 +829,27 @@ async def create_department(dept_data: DepartmentCreate, current_admin: dict = D
     doc['created_at'] = doc['created_at'].isoformat()
     
     await db.departments.insert_one(doc)
+    
+    # Create audit log for department creation
+    await create_audit_log(
+        user_id=current_admin["id"],
+        username=current_admin.get("username", "admin"),
+        action="create",
+        entity_type="department",
+        entity_id=dept_obj.id,
+        entity_name=dept_obj.name,
+        changes=dept_data.model_dump()
+    )
+    
     return dept_obj
 
 @api_router.put("/departments/{dept_id}", response_model=Department)
 async def update_department(dept_id: str, dept_data: DepartmentUpdate, current_admin: dict = Depends(get_current_admin)):
     """Update a department - admin only"""
     update_dict = {k: v for k, v in dept_data.model_dump().items() if v is not None}
+    
+    # Get department before update for audit
+    dept_before = await db.departments.find_one({"id": dept_id}, {"_id": 0})
     
     result = await db.departments.find_one_and_update(
         {"id": dept_id},
@@ -806,6 +863,18 @@ async def update_department(dept_id: str, dept_data: DepartmentUpdate, current_a
     
     if isinstance(result.get('created_at'), str):
         result['created_at'] = datetime.fromisoformat(result['created_at'])
+    
+    # Create audit log for department update
+    await create_audit_log(
+        user_id=current_admin["id"],
+        username=current_admin.get("username", "admin"),
+        action="update",
+        entity_type="department",
+        entity_id=dept_id,
+        entity_name=dept_before.get("name", dept_id) if dept_before else dept_id,
+        changes={"before": dept_before, "after": result}
+    )
+    
     return Department(**result)
 
 @api_router.delete("/departments/{dept_id}")
@@ -815,9 +884,24 @@ async def delete_department(dept_id: str, current_admin: dict = Depends(get_curr
     if dept_id in ["dept_admin", "dept_sms_sales", "dept_voice_sales", "dept_noc"]:
         raise HTTPException(status_code=400, detail="Cannot delete default departments")
     
+    # Get department before delete for audit
+    dept_before = await db.departments.find_one({"id": dept_id}, {"_id": 0})
+    
     result = await db.departments.delete_one({"id": dept_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Department not found")
+    
+    # Create audit log for department deletion
+    await create_audit_log(
+        user_id=current_admin["id"],
+        username=current_admin.get("username", "admin"),
+        action="delete",
+        entity_type="department",
+        entity_id=dept_id,
+        entity_name=dept_before.get("name", dept_id) if dept_before else dept_id,
+        changes={"deleted_department": dept_before}
+    )
+    
     return {"message": "Department deleted successfully"}
 
 @api_router.get("/my-department")
@@ -847,6 +931,18 @@ async def create_client(client_data: ClientCreate, current_user: dict = Depends(
     doc['created_at'] = doc['created_at'].isoformat()
     
     await db.clients.insert_one(doc)
+    
+    # Create audit log for client creation
+    await create_audit_log(
+        user_id=current_user["id"],
+        username=current_user.get("username", "admin"),
+        action="create",
+        entity_type="client",
+        entity_id=client_obj.id,
+        entity_name=client_obj.name,
+        changes=client_data.model_dump()
+    )
+    
     return client_obj
 
 @api_router.get("/clients", response_model=List[Client])
@@ -873,6 +969,9 @@ async def update_client(client_id: str, client_data: ClientUpdate, current_user:
         raise HTTPException(status_code=403, detail="Admin or NOC access required")
     update_dict = {k: v for k, v in client_data.model_dump().items() if v is not None}
     
+    # Get client before update for audit
+    client_before = await db.clients.find_one({"id": client_id}, {"_id": 0})
+    
     result = await db.clients.find_one_and_update(
         {"id": client_id},
         {"$set": update_dict},
@@ -885,6 +984,18 @@ async def update_client(client_id: str, client_data: ClientUpdate, current_user:
     
     if isinstance(result['created_at'], str):
         result['created_at'] = datetime.fromisoformat(result['created_at'])
+    
+    # Create audit log for client update
+    await create_audit_log(
+        user_id=current_user["id"],
+        username=current_user.get("username", "admin"),
+        action="update",
+        entity_type="client",
+        entity_id=client_id,
+        entity_name=client_before.get("name", client_id) if client_before else client_id,
+        changes={"before": client_before, "after": result}
+    )
+    
     return Client(**result)
 
 # AM-specific endpoint to update contact fields only
@@ -898,12 +1009,16 @@ class ClientContactUpdate(BaseModel):
 @api_router.put("/clients/{client_id}/contact", response_model=Client)
 async def update_client_contact(client_id: str, contact_data: ClientContactUpdate, current_user: dict = Depends(get_current_user)):
     """Allow AMs to update contact fields for their assigned enterprises"""
-    if current_user["role"] != "am":
+    # Check role using department permissions
+    dept = await get_user_department(current_user)
+    role = get_user_role_from_department(dept)
+    
+    if role != "am":
         raise HTTPException(status_code=403, detail="Only AMs can use this endpoint")
     
     # Verify the client is assigned to this AM
-    client = await db.clients.find_one({"id": client_id, "assigned_am_id": current_user["id"]})
-    if not client:
+    client_before = await db.clients.find_one({"id": client_id, "assigned_am_id": current_user["id"]})
+    if not client_before:
         raise HTTPException(status_code=404, detail="Client not found or not assigned to you")
     
     update_dict = {k: v for k, v in contact_data.model_dump().items() if v is not None}
@@ -917,13 +1032,40 @@ async def update_client_contact(client_id: str, contact_data: ClientContactUpdat
     
     if isinstance(result['created_at'], str):
         result['created_at'] = datetime.fromisoformat(result['created_at'])
+    
+    # Create audit log for client contact update
+    await create_audit_log(
+        user_id=current_user["id"],
+        username=current_user.get("username", "am"),
+        action="update",
+        entity_type="client_contact",
+        entity_id=client_id,
+        entity_name=client_before.get("name", client_id) if client_before else client_id,
+        changes={"before": {k: client_before.get(k) for k in contact_data.model_dump().keys() if client_before.get(k)}, "after": update_dict}
+    )
+    
     return Client(**result)
 
 @api_router.delete("/clients/{client_id}")
 async def delete_client(client_id: str, current_admin: dict = Depends(get_current_admin)):
+    # Get client before delete for audit
+    client_before = await db.clients.find_one({"id": client_id}, {"_id": 0})
+    
     result = await db.clients.delete_one({"id": client_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Client not found")
+    
+    # Create audit log for client deletion
+    await create_audit_log(
+        user_id=current_admin["id"],
+        username=current_admin.get("username", "admin"),
+        action="delete",
+        entity_type="client",
+        entity_id=client_id,
+        entity_name=client_before.get("name", client_id) if client_before else client_id,
+        changes={"deleted_client": client_before}
+    )
+    
     return {"message": "Client deleted successfully"}
 
 @api_router.get("/trunks/{enterprise_type}")
@@ -1964,6 +2106,94 @@ async def get_dashboard_stats(
         voice_by_priority=voice_by_priority,
         recent_tickets=recent_tickets
     )
+
+# ==================== AUDIT LOGS ====================
+
+async def create_audit_log(user_id: str, username: str, action: str, entity_type: str, entity_id: str, entity_name: str, changes: Optional[dict] = None):
+    """Create an audit log entry"""
+    audit_log = {
+        "id": str(uuid.uuid4()),
+        "user_id": user_id,
+        "username": username,
+        "action": action,
+        "entity_type": entity_type,
+        "entity_id": entity_id,
+        "entity_name": entity_name,
+        "changes": changes,
+        "timestamp": datetime.now(timezone.utc)
+    }
+    await db.audit_logs.insert_one(audit_log)
+
+class AuditLogResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str
+    user_id: str
+    username: str
+    action: str  # create, update, delete
+    entity_type: str  # user, department, client, client_contact, ticket_sms, ticket_voice
+    entity_id: str
+    entity_name: str
+    changes: Optional[dict] = None
+    timestamp: datetime
+
+@api_router.get("/audit-logs", response_model=List[AuditLogResponse])
+async def get_audit_logs(
+    limit: int = 20,
+    offset: int = 0,
+    entity_type: Optional[str] = None,
+    action: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    current_admin: dict = Depends(get_current_admin)
+):
+    """Get audit logs - admin only"""
+    query = {}
+    
+    if entity_type:
+        query["entity_type"] = entity_type
+    if action:
+        query["action"] = action
+    if date_from:
+        query["timestamp"] = {"$gte": datetime.fromisoformat(date_from)}
+    if date_to:
+        if "timestamp" in query:
+            query["timestamp"]["$lte"] = datetime.fromisoformat(date_to)
+        else:
+            query["timestamp"] = {"$lte": datetime.fromisoformat(date_to)}
+    
+    logs = await db.audit_logs.find(query, {"_id": 0}).sort("timestamp", -1).skip(offset).limit(limit).to_list(limit)
+    
+    for log in logs:
+        if isinstance(log['timestamp'], str):
+            log['timestamp'] = datetime.fromisoformat(log['timestamp'])
+    
+    return [AuditLogResponse(**log) for log in logs]
+
+@api_router.get("/audit-logs/count")
+async def get_audit_logs_count(
+    entity_type: Optional[str] = None,
+    action: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    current_admin: dict = Depends(get_current_admin)
+):
+    """Get total count of audit logs - admin only"""
+    query = {}
+    
+    if entity_type:
+        query["entity_type"] = entity_type
+    if action:
+        query["action"] = action
+    if date_from:
+        query["timestamp"] = {"$gte": datetime.fromisoformat(date_from)}
+    if date_to:
+        if "timestamp" in query:
+            query["timestamp"]["$lte"] = datetime.fromisoformat(date_to)
+        else:
+            query["timestamp"] = {"$lte": datetime.fromisoformat(date_to)}
+    
+    total = await db.audit_logs.count_documents(query)
+    return {"total": total}
 
 # Include router
 app.include_router(api_router)
