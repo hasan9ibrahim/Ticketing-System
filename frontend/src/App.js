@@ -12,7 +12,6 @@ import MyEnterprisesPage from "./pages/MyEnterprisesPage";
 import AuditPage from "./pages/AuditPage";
 import NotificationSettingsPage from "./pages/NotificationSettingsPage";
 import DepartmentsPage from "./pages/DepartmentsPage";
-import ReferencesAndAlertsPage from "./pages/ReferencesAndAlertsPage";
 import { Toaster } from "@/components/ui/sonner";
 import axios from "axios";
 
@@ -106,7 +105,6 @@ function App() {
             <Route path="departments" element={user?.role === "admin" ? <DepartmentsPage /> : <Navigate to="/" />} />
             <Route path="audit" element={user?.role === "admin" ? <AuditPage /> : <Navigate to="/" />} />
             <Route path="notifications" element={user?.role === "am" ? <NotificationSettingsPage /> : <Navigate to="/" />} />
-            <Route path="references" element={<ReferencesAndAlertsPage />} />
           </Route>
         </Routes>
       </BrowserRouter>
