@@ -292,7 +292,7 @@ export default function ReferencesPage() {
 
   if (loading) {
     return (
-      <div className="container mx-auto py-6">
+      <div className="container mx-auto py-6 bg-zinc-950 min-h-screen">
         <div className="flex items-center justify-center h-64">
           <div className="text-zinc-400">Loading...</div>
         </div>
@@ -301,7 +301,7 @@ export default function ReferencesPage() {
   }
 
   return (
-    <div className="container mx-auto py-6">
+    <div className="container mx-auto py-6 bg-zinc-950 min-h-screen">
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
           <Database className="h-8 w-8 text-emerald-500" />
@@ -324,16 +324,16 @@ export default function ReferencesPage() {
         </div>
       </div>
 
-      <Tabs defaultValue={activeSection} onValueChange={setActiveSection}>
-        <TabsList className="mb-4">
+      <Tabs defaultValue={activeSection} onValueChange={setActiveSection} className="bg-zinc-900">
+        <TabsList className="mb-4 bg-zinc-800">
           {(departmentType === "all" || departmentType === "sms") && (
-            <TabsTrigger value="sms" className="gap-2">
+            <TabsTrigger value="sms" className="gap-2 text-zinc-300 data-[state=active]:bg-zinc-700 data-[state=active]:text-white">
               <MessageSquare className="h-4 w-4" />
               SMS
             </TabsTrigger>
           )}
           {(departmentType === "all" || departmentType === "voice") && (
-            <TabsTrigger value="voice" className="gap-2">
+            <TabsTrigger value="voice" className="gap-2 text-zinc-300 data-[state=active]:bg-zinc-700 data-[state=active]:text-white">
               <Phone className="h-4 w-4" />
               Voice
             </TabsTrigger>
@@ -341,7 +341,7 @@ export default function ReferencesPage() {
         </TabsList>
 
         {(departmentType === "all" || departmentType === "sms") && (
-          <TabsContent value="sms">
+          <TabsContent value="sms" className="bg-zinc-900 p-4 rounded-md">
             <div className="flex justify-end mb-4">
               <Button onClick={() => handleOpenDialog("sms")} className="gap-2">
                 <Plus className="h-4 w-4" />
@@ -405,7 +405,7 @@ export default function ReferencesPage() {
         )}
 
         {(departmentType === "all" || departmentType === "voice") && (
-          <TabsContent value="voice">
+          <TabsContent value="voice" className="bg-zinc-900 p-4 rounded-md">
             <div className="flex justify-end mb-4">
               <Button onClick={() => handleOpenDialog("voice")} className="gap-2">
                 <Plus className="h-4 w-4" />
@@ -471,7 +471,7 @@ export default function ReferencesPage() {
 
       {/* Create/Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto bg-zinc-950 border-zinc-800">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto bg-zinc-950 border-zinc-800 text-white">
           <DialogHeader>
             <DialogTitle className="text-white">
               {editingList ? "Edit Reference List" : "Create Reference List"}
@@ -599,7 +599,7 @@ export default function ReferencesPage() {
                           />
                         </div>
                         <div>
-                          <Label className="text-xs text-zinc-400">Custom Field</Label>
+                          <Label className="text-xs text-zinc-400">Note</Label>
                           <Input
                             value={vendor.custom_field || ""}
                             onChange={(e) => handleVendorFieldChange(vendor.trunk, "custom_field", e.target.value)}
