@@ -35,6 +35,27 @@ export default function DashboardLayout({ user, setUser }) {
   const [assignedReminders, setAssignedReminders] = useState([]);
   const [showReminders, setShowReminders] = useState(false);
   const [showAlerts, setShowAlerts] = useState(true);
+  // Track dismissed reminders: { [reminderId]: timestamp when dismissed }
+  const [dismissedReminders, setDismissedReminders] = useState(() => {
+    const saved = localStorage.getItem("dismissedReminders");
+    return saved ? JSON.parse(saved) : {};
+  });
+  // Track dismissed unassigned alerts: { [alertId]: timestamp when dismissed }
+  const [dismissedAlerts, setDismissedAlerts] = useState(() => {
+    const saved = localStorage.getItem("dismissedAlerts");
+    return saved ? JSON.parse(saved) : {};
+  });
+  
+  // Get interval in milliseconds based on priority
+  const getPriorityIntervalMs = (priority) => {
+    switch (priority) {
+      case "Urgent": return 5 * 60 * 1000;   // 5 minutes
+      case "High": return 10 * 60 * 1000;   // 10 minutes
+      case "Medium": return 20 * 60 * 1000; // 20 minutes
+      case "Low": return 30 * 60 * 1000;   // 30 minutes
+      default: return 20 * 60 * 1000;      // Default to Medium (20 min)
+    }
+  };
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -43,9 +64,11 @@ export default function DashboardLayout({ user, setUser }) {
   // Fetch alerts for NOC/Admin users
   useEffect(() => {
     if (user && (user.role === "noc" || user.role === "admin" || user?.department?.can_view_all_tickets)) {
-      fetchAlerts();
+      // Clear dismissed alerts on page load (to show if tickets are still unassigned)
+      setDismissedAlerts({});
+      fetchAlerts(true); // true = is initial load
       // Refresh alerts every 30 seconds for faster updates when tickets are assigned
-      const alertInterval = setInterval(fetchAlerts, 30000);
+      const alertInterval = setInterval(() => fetchAlerts(false), 30000);
       return () => clearInterval(alertInterval);
     }
   }, [user]);
@@ -63,20 +86,37 @@ export default function DashboardLayout({ user, setUser }) {
   // Fetch assigned ticket reminders for all users
   useEffect(() => {
     if (user) {
-      fetchAssignedReminders();
-      // Refresh every minute to check for overdue tickets
-      const reminderInterval = setInterval(fetchAssignedReminders, 60000);
+      // Clear dismissed reminders on page load (to show if tickets are still overdue)
+      setDismissedReminders({});
+      fetchAssignedReminders(true); // true = is initial load
+      // Refresh every 30 seconds to check for overdue tickets
+      const reminderInterval = setInterval(() => fetchAssignedReminders(false), 30000);
       return () => clearInterval(reminderInterval);
     }
   }, [user]);
 
-  const fetchAlerts = async () => {
+  const fetchAlerts = async (isInitial = false) => {
     try {
       const token = localStorage.getItem("token");
       const response = await axios.get(`${API}/dashboard/unassigned-alerts`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      setAlerts(response.data || []);
+      const fetchedAlerts = response.data || [];
+      setAlerts(fetchedAlerts);
+      
+      // Filter out dismissed alerts that haven't expired yet
+      const now = Date.now();
+      const activeAlerts = fetchedAlerts.filter(a => {
+        const dismissedTime = dismissedAlerts[a.id];
+        if (!dismissedTime) return true;
+        const intervalMs = getPriorityIntervalMs(a.priority);
+        return (now - dismissedTime) >= intervalMs;
+      });
+      
+      // Auto-show on initial load
+      if (isInitial && activeAlerts.length > 0) {
+        setShowAlerts(true);
+      }
     } catch (error) {
       console.error("Failed to fetch alerts:", error);
     }
@@ -131,7 +171,7 @@ export default function DashboardLayout({ user, setUser }) {
     }
   };
 
-  const fetchAssignedReminders = async () => {
+  const fetchAssignedReminders = async (isInitial = false) => {
     try {
       const token = localStorage.getItem("token");
       const response = await axios.get(`${API}/dashboard/assigned-ticket-reminders`, {
@@ -140,8 +180,19 @@ export default function DashboardLayout({ user, setUser }) {
       const reminders = response.data || [];
       setAssignedReminders(reminders);
       
-      // Show reminders if there are any
-      if (reminders.length > 0) {
+      const now = Date.now();
+      const intervalMs = 5 * 60 * 1000; // 5 minutes
+      
+      // Filter out dismissed reminders that haven't expired yet
+      const activeReminders = reminders.filter(r => {
+        const dismissedTime = dismissedReminders[r.id];
+        if (!dismissedTime) return true; // Not dismissed
+        // Show again if 5 minutes have passed since dismissal
+        return (now - dismissedTime) >= intervalMs;
+      });
+      
+      // Auto-show on initial load
+      if (isInitial && activeReminders.length > 0) {
         setShowReminders(true);
       }
     } catch (error) {
@@ -199,20 +250,47 @@ export default function DashboardLayout({ user, setUser }) {
     return true;
   });
 
+  // Compute active reminders (filter out those dismissed less than priority-based interval ago)
+  const now = Date.now();
+  const activeReminders = assignedReminders.filter(r => {
+    const dismissedTime = dismissedReminders[r.id];
+    if (!dismissedTime) return true;
+    const intervalMs = getPriorityIntervalMs(r.priority);
+    return (now - dismissedTime) >= intervalMs;
+  });
+  
+  // Compute active alerts (filter out those dismissed less than priority-based interval ago)
+  const activeAlerts = alerts.filter(a => {
+    const dismissedTime = dismissedAlerts[a.id];
+    if (!dismissedTime) return true;
+    const intervalMs = getPriorityIntervalMs(a.priority);
+    return (now - dismissedTime) >= intervalMs;
+  });
+
   return (
     <div className="flex h-screen bg-zinc-950" data-testid="dashboard-layout">
       {/* Unassigned Tickets Alert - Top Left Notification */}
-      {showAlerts && alerts.length > 0 && (
+      {showAlerts && activeAlerts.length > 0 && (
         <div className="fixed top-4 left-4 z-50 max-w-md">
           <div className="bg-red-950/95 border border-red-500/50 rounded-lg shadow-lg p-4 backdrop-blur-sm">
             <div className="flex items-center gap-2 mb-3">
               <AlertTriangle className="h-5 w-5 text-red-400" />
               <span className="text-red-400 font-semibold">Unassigned Tickets Alert</span>
               <span className="bg-red-500/20 text-red-400 text-xs px-2 py-0.5 rounded-full ml-auto">
-                {alerts.length}
+                {activeAlerts.length}
               </span>
               <button
-                onClick={() => setShowAlerts(false)}
+                onClick={() => {
+                  // Dismiss all current alerts with timestamp
+                  const now = Date.now();
+                  const newDismissed = { ...dismissedAlerts };
+                  alerts.forEach(a => {
+                    newDismissed[a.id] = now;
+                  });
+                  setDismissedAlerts(newDismissed);
+                  localStorage.setItem("dismissedAlerts", JSON.stringify(newDismissed));
+                  setShowAlerts(false);
+                }}
                 className="ml-2 text-red-400 hover:text-white"
               >
                 <X className="h-4 w-4" />
@@ -251,24 +329,34 @@ export default function DashboardLayout({ user, setUser }) {
       )}
 
       {/* Assigned Ticket Reminders - Top Left */}
-      {showReminders && assignedReminders.length > 0 && (
+      {showReminders && activeReminders.length > 0 && (
         <div className="fixed top-4 left-4 z-40 max-w-md">
           <div className="bg-amber-950/95 border border-amber-500/50 rounded-lg shadow-lg p-4 backdrop-blur-sm">
             <div className="flex items-center gap-2 mb-3">
               <AlertTriangle className="h-5 w-5 text-amber-400" />
               <span className="text-amber-400 font-semibold">Pending Assigned Tickets</span>
               <span className="bg-amber-500/20 text-amber-400 text-xs px-2 py-0.5 rounded-full ml-auto">
-                {assignedReminders.length}
+                {activeReminders.length}
               </span>
               <button
-                onClick={() => setShowReminders(false)}
+                onClick={() => {
+                  // Dismiss all current reminders with timestamp
+                  const now = Date.now();
+                  const newDismissed = { ...dismissedReminders };
+                  assignedReminders.forEach(r => {
+                    newDismissed[r.id] = now;
+                  });
+                  setDismissedReminders(newDismissed);
+                  localStorage.setItem("dismissedReminders", JSON.stringify(newDismissed));
+                  setShowReminders(false);
+                }}
                 className="ml-2 text-amber-400 hover:text-white"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
             <div className="space-y-2 max-h-[200px] overflow-y-auto">
-              {assignedReminders.slice(0, 5).map((reminder) => (
+              {activeReminders.slice(0, 5).map((reminder) => (
                 <div
                   key={`${reminder.type}-${reminder.id}`}
                   className="flex items-center gap-2 bg-zinc-900/50 px-3 py-2 rounded text-sm"
@@ -289,9 +377,9 @@ export default function DashboardLayout({ user, setUser }) {
                   <span className="text-zinc-400 text-xs ml-auto">{reminder.type.toUpperCase()}</span>
                 </div>
               ))}
-              {assignedReminders.length > 5 && (
+              {activeReminders.length > 5 && (
                 <p className="text-zinc-400 text-xs text-center pt-2">
-                  +{assignedReminders.length - 5} more tickets
+                  +{activeReminders.length - 5} more tickets
                 </p>
               )}
             </div>
