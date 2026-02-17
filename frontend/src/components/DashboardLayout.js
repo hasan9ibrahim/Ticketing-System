@@ -35,7 +35,6 @@ export default function DashboardLayout({ user, setUser }) {
   const [assignedReminders, setAssignedReminders] = useState([]);
   const [showReminders, setShowReminders] = useState(false);
   const [showAlerts, setShowAlerts] = useState(true);
-  const [initialRemindersFetched, setInitialRemindersFetched] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -141,12 +140,9 @@ export default function DashboardLayout({ user, setUser }) {
       const reminders = response.data || [];
       setAssignedReminders(reminders);
       
-      // Only show reminders after initial fetch is done (not on page load)
-      // This gives time for the interval check before showing alerts
-      if (initialRemindersFetched && reminders.length > 0) {
+      // Show reminders if there are any
+      if (reminders.length > 0) {
         setShowReminders(true);
-      } else if (!initialRemindersFetched) {
-        setInitialRemindersFetched(true);
       }
     } catch (error) {
       console.error("Failed to fetch assigned ticket reminders:", error);
