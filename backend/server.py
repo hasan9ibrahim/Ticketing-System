@@ -1174,6 +1174,17 @@ async def get_clients(current_user: dict = Depends(get_current_user)):
             client['created_at'] = datetime.fromisoformat(client['created_at'])
     return [Client(**client) for client in clients]
 
+@api_router.get("/my-enterprises", response_model=List[Client])
+async def get_my_enterprises(current_user: dict = Depends(get_current_user)):
+    """Get enterprises assigned to the current AM user"""
+    query = {"assigned_am_id": current_user["id"]}
+    
+    clients = await db.clients.find(query, {"_id": 0}).to_list(1000)
+    for client in clients:
+        if isinstance(client['created_at'], str):
+            client['created_at'] = datetime.fromisoformat(client['created_at'])
+    return [Client(**client) for client in clients]
+
 @api_router.put("/clients/{client_id}", response_model=Client)
 async def update_client(client_id: str, client_data: ClientUpdate, current_user: dict = Depends(get_current_user)):
     """Update client - requires can_edit_enterprises permission"""
