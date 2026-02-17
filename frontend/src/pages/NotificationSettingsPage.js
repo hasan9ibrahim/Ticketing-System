@@ -79,7 +79,7 @@ export default function NotificationSettingsPage() {
         <CardHeader>
           <CardTitle className="text-white flex items-center gap-2">
             <Bell className="h-5 w-5" />
-            Email Notifications
+            Notifications
           </CardTitle>
           <CardDescription className="text-zinc-400">
             Choose which notifications you want to receive for your assigned enterprises
