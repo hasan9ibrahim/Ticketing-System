@@ -64,8 +64,6 @@ export default function DashboardLayout({ user, setUser }) {
   // Fetch alerts for NOC/Admin users
   useEffect(() => {
     if (user && (user.role === "noc" || user.role === "admin" || user?.department?.can_view_all_tickets)) {
-      // Clear dismissed alerts on page load (to show if tickets are still unassigned)
-      setDismissedAlerts({});
       fetchAlerts(true); // true = is initial load
       // Refresh alerts every 30 seconds for faster updates when tickets are assigned
       const alertInterval = setInterval(() => fetchAlerts(false), 30000);
@@ -86,8 +84,6 @@ export default function DashboardLayout({ user, setUser }) {
   // Fetch assigned ticket reminders for all users
   useEffect(() => {
     if (user) {
-      // Clear dismissed reminders on page load (to show if tickets are still overdue)
-      setDismissedReminders({});
       fetchAssignedReminders(true); // true = is initial load
       // Refresh every 30 seconds to check for overdue tickets
       const reminderInterval = setInterval(() => fetchAssignedReminders(false), 30000);
@@ -104,7 +100,7 @@ export default function DashboardLayout({ user, setUser }) {
       const fetchedAlerts = response.data || [];
       setAlerts(fetchedAlerts);
       
-      // Filter out dismissed alerts that haven't expired yet
+      // Filter out dismissed alerts that haven't expired yet (based on priority)
       const now = Date.now();
       const activeAlerts = fetchedAlerts.filter(a => {
         const dismissedTime = dismissedAlerts[a.id];
@@ -113,8 +109,9 @@ export default function DashboardLayout({ user, setUser }) {
         return (now - dismissedTime) >= intervalMs;
       });
       
-      // Auto-show on initial load
-      if (isInitial && activeAlerts.length > 0) {
+      // Show alerts if there are active ones
+      // On initial load AND on interval checks
+      if (activeAlerts.length > 0) {
         setShowAlerts(true);
       }
     } catch (error) {
@@ -181,18 +178,19 @@ export default function DashboardLayout({ user, setUser }) {
       setAssignedReminders(reminders);
       
       const now = Date.now();
-      const intervalMs = 5 * 60 * 1000; // 5 minutes
       
-      // Filter out dismissed reminders that haven't expired yet
+      // Filter out dismissed reminders that haven't expired yet (based on priority)
       const activeReminders = reminders.filter(r => {
         const dismissedTime = dismissedReminders[r.id];
         if (!dismissedTime) return true; // Not dismissed
-        // Show again if 5 minutes have passed since dismissal
+        const intervalMs = getPriorityIntervalMs(r.priority);
+        // Show again if priority-based interval has passed since dismissal
         return (now - dismissedTime) >= intervalMs;
       });
       
-      // Auto-show on initial load
-      if (isInitial && activeReminders.length > 0) {
+      // Show reminders if there are active ones
+      // On initial load AND on interval checks
+      if (activeReminders.length > 0) {
         setShowReminders(true);
       }
     } catch (error) {
