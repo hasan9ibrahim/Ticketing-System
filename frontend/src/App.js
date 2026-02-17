@@ -18,13 +18,17 @@ const API = `${process.env.REACT_APP_API_URL}/api`;
 // Component to save current path to localStorage on navigation
 function PathTracker() {
   const location = useLocation();
+  const [user] = useState(() => {
+    const userData = localStorage.getItem("user");
+    return userData ? JSON.parse(userData) : null;
+  });
   
   useEffect(() => {
-    // Save current path (except login and root)
-    if (location.pathname !== "/login" && location.pathname !== "/") {
-      localStorage.setItem("lastPath", location.pathname);
+    // Save current path with user-specific key (except login and root)
+    if (user && location.pathname !== "/login" && location.pathname !== "/") {
+      localStorage.setItem(`lastPath_${user.id}`, location.pathname);
     }
-  }, [location]);
+  }, [location, user]);
   
   return null;
 }
@@ -36,6 +40,14 @@ function App() {
     return userData ? JSON.parse(userData) : null;
   });
   const [loading, setLoading] = useState(true);
+
+  // Get user-specific last path
+  const getLastPath = () => {
+    if (user && user.id) {
+      return localStorage.getItem(`lastPath_${user.id}`) || "/";
+    }
+    return "/";
+  };
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -80,7 +92,7 @@ function App() {
       <BrowserRouter>
         <PathTracker />
         <Routes>
-          <Route path="/login" element={!user ? <LoginPage setUser={setUser} /> : <Navigate to={localStorage.getItem("lastPath") || "/"} />} />
+          <Route path="/login" element={!user ? <LoginPage setUser={setUser} /> : <Navigate to={getLastPath()} />} />
           <Route path="/" element={user ? <DashboardLayout user={user} setUser={setUser} /> : <Navigate to="/login" />}>
             <Route index element={<DashboardPage />} />
             <Route path="sms-tickets" element={<SMSTicketsPage />} />
