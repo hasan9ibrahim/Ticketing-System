@@ -3,6 +3,7 @@ import { Outlet, useNavigate, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import axios from "axios";
+import { toast } from "sonner";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -25,6 +26,7 @@ import {
   Briefcase,
   Settings,
   AlertTriangle,
+  Bell,
 } from "lucide-react";
 
 export default function DashboardLayout({ user, setUser }) {
@@ -44,6 +46,12 @@ export default function DashboardLayout({ user, setUser }) {
   const [dismissedAlerts, setDismissedAlerts] = useState(() => {
     const saved = localStorage.getItem("dismissedAlerts");
     return saved ? JSON.parse(saved) : {};
+  });
+  
+  // Track AM notifications for toasts (to avoid duplicates)
+  const [seenAMNotifications, setSeenAMNotifications] = useState(() => {
+    const saved = localStorage.getItem("seenAMNotifications");
+    return saved ? JSON.parse(saved) : [];
   });
   
   // Get interval in milliseconds based on priority
@@ -90,6 +98,59 @@ export default function DashboardLayout({ user, setUser }) {
       return () => clearInterval(reminderInterval);
     }
   }, [user]);
+
+  // Fetch AM notifications and display toasts
+  useEffect(() => {
+    if (user) {
+      fetchAMNotifications();
+      // Refresh every 10 seconds to catch notifications quickly
+      const notificationInterval = setInterval(fetchAMNotifications, 10000);
+      return () => clearInterval(notificationInterval);
+    }
+  }, [user]);
+
+  const fetchAMNotifications = async () => {
+    try {
+      const token = localStorage.getItem("token");
+      const response = await axios.get(`${API}/users/am-notifications`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const notifications = response.data || [];
+      
+      // Check for new notifications and show toasts
+      notifications.forEach((notification) => {
+        if (!seenAMNotifications.includes(notification.id)) {
+          // Show toast notification
+          const notificationType = notification.notification_type;
+          let toastType = "info";
+          let icon = <Bell className="h-4 w-4" />;
+          
+          if (notificationType === "ticket_created") {
+            toastType = "info";
+          } else if (notificationType === "ticket_assigned") {
+            toastType = "info";
+          } else if (notificationType === "ticket_resolved") {
+            toastType = "success";
+          } else if (notificationType === "ticket_unresolved") {
+            toastType = "warning";
+          }
+          
+          toast(notification.message, {
+            position: "top-left",
+            duration: 10000,
+            id: notification.id,
+          });
+          
+          // Mark as seen
+          const newSeen = [...seenAMNotifications, notification.id];
+          setSeenAMNotifications(newSeen);
+          localStorage.setItem("seenAMNotifications", JSON.stringify(newSeen));
+        }
+      });
+    } catch (error) {
+      console.error("Failed to fetch AM notifications:", error);
+    }
+  };
 
   const fetchAlerts = async (isInitial = false) => {
     try {
