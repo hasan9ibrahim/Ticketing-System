@@ -1808,12 +1808,17 @@ async def get_assigned_ticket_reminders(current_user: dict = Depends(get_current
         if isinstance(assigned_at, str):
             assigned_at = datetime.fromisoformat(assigned_at)
         
-        # If no assigned_at, fall back to ticket date
+        # If no assigned_at, fall back to ticket date only if it's recent (within last hour)
         if not assigned_at:
             ticket_date = ticket.get("date")
             if isinstance(ticket_date, str):
                 ticket_date = datetime.fromisoformat(ticket_date)
-            assigned_at = ticket_date
+            # Only use date as fallback if it's within the last hour
+            if ticket_date and ticket_date >= (now - timedelta(hours=1)):
+                assigned_at = ticket_date
+            else:
+                # Skip this ticket - no valid assigned_at and date is too old
+                continue
         
         # Only show reminder if ticket has been assigned longer than the threshold
         if assigned_at and assigned_at <= threshold_time:
@@ -1844,12 +1849,17 @@ async def get_assigned_ticket_reminders(current_user: dict = Depends(get_current
         if isinstance(assigned_at, str):
             assigned_at = datetime.fromisoformat(assigned_at)
         
-        # If no assigned_at, fall back to ticket date
+        # If no assigned_at, fall back to ticket date only if it's recent (within last hour)
         if not assigned_at:
             ticket_date = ticket.get("date")
             if isinstance(ticket_date, str):
                 ticket_date = datetime.fromisoformat(ticket_date)
-            assigned_at = ticket_date
+            # Only use date as fallback if it's within the last hour
+            if ticket_date and ticket_date >= (now - timedelta(hours=1)):
+                assigned_at = ticket_date
+            else:
+                # Skip this ticket - no valid assigned_at and date is too old
+                continue
         
         # Only show reminder if ticket has been assigned longer than the threshold
         if assigned_at and assigned_at <= threshold_time:
