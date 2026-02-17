@@ -181,6 +181,46 @@ class AMNotification(BaseModel):
     read: bool = False
 
 
+# ==================== REFERENCE LIST MODELS ====================
+
+class ReferenceVendorEntry(BaseModel):
+    """Model for a vendor entry in a reference list"""
+    trunk: str
+    cost: Optional[str] = None
+    custom_field: Optional[str] = None
+
+
+class ReferenceList(BaseModel):
+    """Model for a reference list (backup vendors for a destination)"""
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    name: str
+    section: str  # "sms" or "voice"
+    destination: str
+    traffic_type: str  # OTP, Phishing, Spam, Spam and Phishing, Casino, Marketing, Banking, etc.
+    vendor_entries: List[dict] = Field(default_factory=list)  # List of {trunk, cost, custom_field} objects
+    created_by: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class ReferenceListCreate(BaseModel):
+    """Model for creating a reference list"""
+    name: str
+    section: str  # "sms" or "voice"
+    destination: str
+    traffic_type: str
+    vendor_entries: List[dict] = Field(default_factory=list)
+
+
+class ReferenceListUpdate(BaseModel):
+    """Model for updating a reference list"""
+    name: Optional[str] = None
+    destination: Optional[str] = None
+    traffic_type: Optional[str] = None
+    vendor_entries: Optional[List[dict]] = None
+
+
 async def create_am_notification(
     am_id: str,
     ticket_id: str,
@@ -1326,6 +1366,146 @@ async def get_trunks_by_type(enterprise_type: str, current_user: dict = Depends(
         "customer_trunks": customer_trunks,
         "vendor_trunks": vendor_trunks
     }
+
+# ==================== REFERENCE LIST ROUTES ====================
+
+TRAFFIC_TYPES = [
+    "OTP",
+    "Phishing",
+    "Spam",
+    "Spam and Phishing",
+    "Casino",
+    "Clean Marketing",
+    "Banking",
+    "Other"
+]
+
+@api_router.get("/references/trunks/{section}")
+async def get_reference_trunks(section: str, current_user: dict = Depends(get_current_user)):
+    """Get all vendor trunks for a specific section (sms or voice)"""
+    # Validate section
+    if section not in ["sms", "voice"]:
+        raise HTTPException(status_code=400, detail="Section must be 'sms' or 'voice'")
+    
+    # Check department type access
+    dept = await get_user_department(current_user)
+    ticket_type = get_user_ticket_type(dept)
+    if ticket_type != "all" and ticket_type != section:
+        raise HTTPException(status_code=403, detail=f"You don't have access to {section} references")
+    
+    # Get all enterprises of this type (no AM restriction - all can see)
+    query = {"enterprise_type": section}
+    
+    clients = await db.clients.find(query, {"_id": 0, "vendor_trunks": 1}).to_list(1000)
+    
+    vendor_trunks = []
+    for client in clients:
+        if client.get("vendor_trunks"):
+            for trunk in client["vendor_trunks"]:
+                if trunk not in vendor_trunks:
+                    vendor_trunks.append(trunk)
+    
+    return {
+        "vendor_trunks": vendor_trunks,
+        "traffic_types": TRAFFIC_TYPES
+    }
+
+
+@api_router.get("/references/{section}")
+async def get_reference_lists(section: str, current_user: dict = Depends(get_current_user)):
+    """Get all reference lists for a specific section (sms or voice)"""
+    # Validate section
+    if section not in ["sms", "voice"]:
+        raise HTTPException(status_code=400, detail="Section must be 'sms' or 'voice'")
+    
+    # Check department type access
+    dept = await get_user_department(current_user)
+    ticket_type = get_user_ticket_type(dept)
+    if ticket_type != "all" and ticket_type != section:
+        raise HTTPException(status_code=403, detail=f"You don't have access to {section} references")
+    
+    # Get all reference lists for this section
+    lists = await db.reference_lists.find(
+        {"section": section},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(1000)
+    
+    return lists
+
+
+@api_router.post("/references", response_model=ReferenceList)
+async def create_reference_list(list_data: ReferenceListCreate, current_user: dict = Depends(get_current_user)):
+    """Create a new reference list"""
+    # Validate section
+    if list_data.section not in ["sms", "voice"]:
+        raise HTTPException(status_code=400, detail="Section must be 'sms' or 'voice'")
+    
+    # Check department type access
+    dept = await get_user_department(current_user)
+    ticket_type = get_user_ticket_type(dept)
+    if ticket_type != "all" and ticket_type != list_data.section:
+        raise HTTPException(status_code=403, detail=f"You don't have access to {list_data.section} references")
+    
+    # Create the reference list
+    reference_list = ReferenceList(
+        name=list_data.name,
+        section=list_data.section,
+        destination=list_data.destination,
+        traffic_type=list_data.traffic_type,
+        vendor_entries=list_data.vendor_entries,
+        created_by=current_user.get("username", "unknown")
+    )
+    
+    await db.reference_lists.insert_one(reference_list.model_dump(exclude={"id"}, exclude_unset=True))
+    
+    return reference_list
+
+
+@api_router.put("/references/{list_id}", response_model=ReferenceList)
+async def update_reference_list(list_id: str, list_data: ReferenceListUpdate, current_user: dict = Depends(get_current_user)):
+    """Update an existing reference list"""
+    # Find existing list
+    existing = await db.reference_lists.find_one({"id": list_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Reference list not found")
+    
+    # Check department type access
+    dept = await get_user_department(current_user)
+    ticket_type = get_user_ticket_type(dept)
+    if ticket_type != "all" and ticket_type != existing.get("section"):
+        raise HTTPException(status_code=403, detail=f"You don't have access to {existing.get('section')} references")
+    
+    # Build update dict
+    update_data = list_data.model_dump(exclude_unset=True)
+    update_data["updated_at"] = datetime.now(timezone.utc)
+    
+    await db.reference_lists.update_one(
+        {"id": list_id},
+        {"$set": update_data}
+    )
+    
+    # Return updated list
+    updated = await db.reference_lists.find_one({"id": list_id}, {"_id": 0})
+    return updated
+
+
+@api_router.delete("/references/{list_id}")
+async def delete_reference_list(list_id: str, current_user: dict = Depends(get_current_user)):
+    """Delete a reference list"""
+    # Find existing list
+    existing = await db.reference_lists.find_one({"id": list_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Reference list not found")
+    
+    # Check department type access
+    dept = await get_user_department(current_user)
+    ticket_type = get_user_ticket_type(dept)
+    if ticket_type != "all" and ticket_type != existing.get("section"):
+        raise HTTPException(status_code=403, detail=f"You don't have access to {existing.get('section')} references")
+    
+    await db.reference_lists.delete_one({"id": list_id})
+    
+    return {"message": "Reference list deleted successfully"}
 
 # ==================== SMS TICKET ROUTES ====================
 
