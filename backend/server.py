@@ -250,7 +250,7 @@ class SMSTicket(BaseModel):
     sms_details: Optional[List[dict]] = []  # List of {sid, content} objects
     rate: Optional[str] = None
     vendor_trunk: Optional[str] = None  # Legacy field
-    vendor_trunks: Optional[List[dict]] = Field(default_factory=list)  # List of {trunk, percentage, position} objects
+    vendor_trunks: Optional[List[dict]] = Field(default_factory=list)  # List of {trunk, percentage, position, cost, cost_type, min_cost, max_cost} objects
     cost: Optional[str] = None
     is_lcr: Optional[str] = None
     root_cause: Optional[str] = None
@@ -291,7 +291,7 @@ class SMSTicketCreate(BaseModel):
     sms_details: Optional[List[dict]] = []
     rate: Optional[str] = None
     vendor_trunk: Optional[str] = None  # Legacy field
-    vendor_trunks: Optional[List[dict]] = Field(default_factory=list)  # List of {trunk, percentage, position} objects
+    vendor_trunks: Optional[List[dict]] = Field(default_factory=list)  # List of {trunk, percentage, position, cost, cost_type, min_cost, max_cost} objects
     cost: Optional[str] = None
     is_lcr: Optional[str] = None
     root_cause: Optional[str] = None
@@ -316,7 +316,7 @@ class SMSTicketUpdate(BaseModel):
     sms_details: Optional[List[dict]] = None
     rate: Optional[str] = None
     vendor_trunk: Optional[str] = None  # Legacy field
-    vendor_trunks: Optional[List[dict]] = None  # List of {trunk, percentage, position} objects
+    vendor_trunks: Optional[List[dict]] = None  # List of {trunk, percentage, position, cost, cost_type, min_cost, max_cost} objects
     cost: Optional[str] = None
     is_lcr: Optional[str] = None
     root_cause: Optional[str] = None
@@ -345,7 +345,7 @@ class VoiceTicket(BaseModel):
     status: str
     rate: Optional[str] = None
     vendor_trunk: Optional[str] = None  # Legacy field
-    vendor_trunks: Optional[List[dict]] = Field(default_factory=list)  # List of {trunk, percentage, position} objects
+    vendor_trunks: Optional[List[dict]] = Field(default_factory=list)  # List of {trunk, percentage, position, cost, cost_type, min_cost, max_cost} objects
     cost: Optional[str] = None
     is_lcr: Optional[str] = None
     root_cause: Optional[str] = None
@@ -371,7 +371,7 @@ class VoiceTicketCreate(BaseModel):
     status: str = "Unassigned"
     rate: Optional[str] = None
     vendor_trunk: Optional[str] = None  # Legacy field
-    vendor_trunks: Optional[List[dict]] = Field(default_factory=list)  # List of {trunk, percentage, position} objects
+    vendor_trunks: Optional[List[dict]] = Field(default_factory=list)  # List of {trunk, percentage, position, cost, cost_type, min_cost, max_cost} objects
     cost: Optional[str] = None
     is_lcr: Optional[str] = None
     root_cause: Optional[str] = None
@@ -392,7 +392,7 @@ class VoiceTicketUpdate(BaseModel):
     status: Optional[str] = None
     rate: Optional[str] = None
     vendor_trunk: Optional[str] = None  # Legacy field
-    vendor_trunks: Optional[List[dict]] = None  # List of {trunk, percentage, position} objects
+    vendor_trunks: Optional[List[dict]] = None  # List of {trunk, percentage, position, cost, cost_type, min_cost, max_cost} objects
     cost: Optional[str] = None
     is_lcr: Optional[str] = None
     root_cause: Optional[str] = None
@@ -407,6 +407,8 @@ class DashboardStats(BaseModel):
     sms_by_priority: dict
     voice_by_priority: dict
     recent_tickets: List[dict]
+    sms_pending: int = 0  # Tickets that are not resolved or unresolved
+    voice_pending: int = 0  # Tickets that are not resolved or unresolved
 
 # ==================== AUTH HELPERS ====================
 
@@ -2053,19 +2055,27 @@ async def get_dashboard_stats(
     # Count by status
     sms_by_status = {}
     sms_by_priority = {}
+    sms_pending = 0
     for ticket in sms_tickets:
         status = ticket.get("status", "Unknown")
         priority = ticket.get("priority", "Unknown")
         sms_by_status[status] = sms_by_status.get(status, 0) + 1
         sms_by_priority[priority] = sms_by_priority.get(priority, 0) + 1
+        # Count as pending if not resolved or unresolved
+        if status not in ["Resolved", "Unresolved"]:
+            sms_pending += 1
     
     voice_by_status = {}
     voice_by_priority = {}
+    voice_pending = 0
     for ticket in voice_tickets:
         status = ticket.get("status", "Unknown")
         priority = ticket.get("priority", "Unknown")
         voice_by_status[status] = voice_by_status.get(status, 0) + 1
         voice_by_priority[priority] = voice_by_priority.get(priority, 0) + 1
+        # Count as pending if not resolved or unresolved
+        if status not in ["Resolved", "Unresolved"]:
+            voice_pending += 1
     
     # Recent tickets - fetch only 10 most recent from each, sorted by date
     recent_sms = await db.sms_tickets.find(query, recent_projection).sort("date", -1).limit(10).to_list(10)
@@ -2104,7 +2114,9 @@ async def get_dashboard_stats(
         voice_by_status=voice_by_status,
         sms_by_priority=sms_by_priority,
         voice_by_priority=voice_by_priority,
-        recent_tickets=recent_tickets
+        recent_tickets=recent_tickets,
+        sms_pending=sms_pending,
+        voice_pending=voice_pending
     )
 
 # ==================== AUDIT LOGS ====================
