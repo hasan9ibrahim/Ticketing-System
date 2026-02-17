@@ -638,13 +638,24 @@ export default function VoiceTicketsPage() {
         <Select value={priorityFilter} onValueChange={setPriorityFilter}>
           <SelectTrigger className="bg-zinc-900 border-zinc-700 text-white"><SelectValue placeholder="Priority" /></SelectTrigger>
           <SelectContent className="bg-zinc-800 border-zinc-700">
-            <SelectItem value="all">All Priorities</SelectItem><SelectItem value="Low">Low</SelectItem><SelectItem value="Medium">Medium</SelectItem><SelectItem value="High">High</SelectItem><SelectItem value="Urgent">Urgent</SelectItem>
+            <SelectItem value="all" className="text-white">All Priorities</SelectItem>
+            <SelectItem value="Low" className="text-white">Low</SelectItem>
+            <SelectItem value="Medium" className="text-white">Medium</SelectItem>
+            <SelectItem value="High" className="text-white">High</SelectItem>
+            <SelectItem value="Urgent" className="text-white">Urgent</SelectItem>
           </SelectContent>
         </Select>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="bg-zinc-900 border-zinc-700 text-white"><SelectValue placeholder="Status" /></SelectTrigger>
           <SelectContent className="bg-zinc-800 border-zinc-700">
-            <SelectItem value="all">All Statuses</SelectItem><SelectItem value="Unassigned">Unassigned</SelectItem><SelectItem value="Assigned">Assigned</SelectItem><SelectItem value="Awaiting Vendor">Awaiting Vendor</SelectItem><SelectItem value="Awaiting Client">Awaiting Client</SelectItem><SelectItem value="Awaiting AM">Awaiting AM</SelectItem><SelectItem value="Resolved">Resolved</SelectItem><SelectItem value="Unresolved">Unresolved</SelectItem>
+            <SelectItem value="all" className="text-white">All Statuses</SelectItem>
+            <SelectItem value="Unassigned" className="text-white">Unassigned</SelectItem>
+            <SelectItem value="Assigned" className="text-white">Assigned</SelectItem>
+            <SelectItem value="Awaiting Vendor" className="text-white">Awaiting Vendor</SelectItem>
+            <SelectItem value="Awaiting Client" className="text-white">Awaiting Client</SelectItem>
+            <SelectItem value="Awaiting AM" className="text-white">Awaiting AM</SelectItem>
+            <SelectItem value="Resolved" className="text-white">Resolved</SelectItem>
+            <SelectItem value="Unresolved" className="text-white">Unresolved</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -653,15 +664,15 @@ export default function VoiceTicketsPage() {
         <Select value={enterpriseFilter} onValueChange={setEnterpriseFilter}>
           <SelectTrigger className="bg-zinc-900 border-zinc-700 text-white"><SelectValue placeholder="Enterprise" /></SelectTrigger>
           <SelectContent className="bg-zinc-800 border-zinc-700">
-            <SelectItem value="all">All Enterprises</SelectItem>
-            {enterprises.map((e) => <SelectItem key={e.id} value={e.id}>{e.name}</SelectItem>)}
+            <SelectItem value="all" className="text-white">All Enterprises</SelectItem>
+            {enterprises.map((e) => <SelectItem key={e.id} value={e.id} className="text-white">{e.name}</SelectItem>)}
           </SelectContent>
         </Select>
         <Select value={issueTypeFilter} onValueChange={setIssueTypeFilter}>
           <SelectTrigger className="bg-zinc-900 border-zinc-700 text-white"><SelectValue placeholder="Issue Type" /></SelectTrigger>
           <SelectContent className="bg-zinc-800 border-zinc-700">
-            <SelectItem value="all">All Issue Types</SelectItem>
-            {VOICE_ISSUE_TYPES.map((type) => <SelectItem key={type} value={type}>{type}</SelectItem>)}
+            <SelectItem value="all" className="text-white">All Issue Types</SelectItem>
+            {VOICE_ISSUE_TYPES.map((type) => <SelectItem key={type} value={type} className="text-white">{type}</SelectItem>)}
           </SelectContent>
         </Select>
         <Input
@@ -676,10 +687,10 @@ export default function VoiceTicketsPage() {
             <SelectValue placeholder="Filter by Assigned To" />
           </SelectTrigger>
           <SelectContent className="bg-zinc-800 border-zinc-700">
-            <SelectItem value="all">All Assignees</SelectItem>
-            <SelectItem value="unassigned">Unassigned</SelectItem>
+            <SelectItem value="all" className="text-white">All Assignees</SelectItem>
+            <SelectItem value="unassigned" className="text-white">Unassigned</SelectItem>
             {users.map((user) => (
-              <SelectItem key={user.id} value={user.id}>{user.username}</SelectItem>
+              <SelectItem key={user.id} value={user.id} className="text-white">{user.username}</SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -792,12 +803,12 @@ export default function VoiceTicketsPage() {
             <div className="space-y-2">
               <Label>Priority *</Label>
               <Select value={formData.priority} onValueChange={(value) => setFormData({ ...formData, priority: value })} required disabled={isAM}>
-                <SelectTrigger className="bg-zinc-800 border-zinc-700"><SelectValue placeholder="Select priority" /></SelectTrigger>
+                <SelectTrigger className="bg-zinc-800 border-zinc-700 text-white"><SelectValue placeholder="Select priority" /></SelectTrigger>
                 <SelectContent className="bg-zinc-800 border-zinc-700">
-                  <SelectItem value="Low">Low</SelectItem>
-                  <SelectItem value="Medium">Medium</SelectItem>
-                  <SelectItem value="High">High</SelectItem>
-                  <SelectItem value="Urgent">Urgent</SelectItem>
+                  <SelectItem value="Low" className="text-white">Low</SelectItem>
+                  <SelectItem value="Medium" className="text-white">Medium</SelectItem>
+                  <SelectItem value="High" className="text-white">High</SelectItem>
+                  <SelectItem value="Urgent" className="text-white">Urgent</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -876,17 +887,17 @@ export default function VoiceTicketsPage() {
 
             {/* Status */}
             <div className="space-y-2">
-              <Label>Status *</Label>
+              <Label className="text-white">Status *</Label>
               <Select value={formData.status} onValueChange={(value) => setFormData({ ...formData, status: value })} required disabled={isAM}>
-                <SelectTrigger className="bg-zinc-800 border-zinc-700"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="bg-zinc-800 border-zinc-700 text-white"><SelectValue /></SelectTrigger>
                 <SelectContent className="bg-zinc-800 border-zinc-700">
-                  <SelectItem value="Unassigned">Unassigned</SelectItem>
-                  <SelectItem value="Assigned">Assigned</SelectItem>
-                  <SelectItem value="Awaiting Vendor">Awaiting Vendor</SelectItem>
-                  <SelectItem value="Awaiting Client">Awaiting Client</SelectItem>
-                  <SelectItem value="Awaiting AM">Awaiting AM</SelectItem>
-                  <SelectItem value="Resolved">Resolved</SelectItem>
-                  <SelectItem value="Unresolved">Unresolved</SelectItem>
+                  <SelectItem value="Unassigned" className="text-white">Unassigned</SelectItem>
+                  <SelectItem value="Assigned" className="text-white">Assigned</SelectItem>
+                  <SelectItem value="Awaiting Vendor" className="text-white">Awaiting Vendor</SelectItem>
+                  <SelectItem value="Awaiting Client" className="text-white">Awaiting Client</SelectItem>
+                  <SelectItem value="Awaiting AM" className="text-white">Awaiting AM</SelectItem>
+                  <SelectItem value="Resolved" className="text-white">Resolved</SelectItem>
+                  <SelectItem value="Unresolved" className="text-white">Unresolved</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -894,7 +905,7 @@ export default function VoiceTicketsPage() {
             <div className="border-t border-zinc-700 pt-4 mt-4">
               <h3 className="text-sm font-medium text-zinc-400 mb-4">Vendor & Cost</h3>
               <div className="grid grid-cols-3 gap-4">
-                <div className="space-y-2"><Label>Rate</Label><Input value={formData.rate || ""} onChange={(e) => setFormData({ ...formData, rate: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" placeholder="Rate per minute" disabled={isAM} /></div>
+                <div className="space-y-2"><Label className="text-white">Rate</Label><Input value={formData.rate || ""} onChange={(e) => setFormData({ ...formData, rate: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" placeholder="Rate per minute" disabled={isAM} /></div>
               {/* Vendor Trunks - Multi-select checklist with popover */}
               <div className="space-y-2">
                 <Label>Vendor Trunks</Label>
