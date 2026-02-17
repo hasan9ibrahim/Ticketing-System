@@ -319,7 +319,7 @@ export default function ReferencesPage() {
             placeholder="Search lists by name, destination, or traffic type..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-10 bg-zinc-800 border-zinc-700 text-white"
+            className="pl-10 bg-zinc-800 border-zinc-700 text-white placeholder:text-zinc-500"
           />
         </div>
       </div>
@@ -471,12 +471,12 @@ export default function ReferencesPage() {
 
       {/* Create/Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto bg-zinc-950 border-zinc-800">
           <DialogHeader>
-            <DialogTitle>
+            <DialogTitle className="text-white">
               {editingList ? "Edit Reference List" : "Create Reference List"}
             </DialogTitle>
-            <DialogDescription>
+            <DialogDescription className="text-zinc-400">
               {activeSection === "sms" ? "SMS" : "Voice"} reference list for backup vendors
             </DialogDescription>
           </DialogHeader>
@@ -485,27 +485,27 @@ export default function ReferencesPage() {
             {/* Basic Info */}
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="name">List Name *</Label>
+                <Label htmlFor="name" className="text-white">List Name *</Label>
                 <Input
                   id="name"
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                   placeholder="e.g., Backup Vendors USA OTP"
-                  className="bg-zinc-800 border-zinc-700"
+                  className="bg-zinc-800 border-zinc-700 text-white placeholder:text-zinc-500"
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="traffic_type">Traffic Type *</Label>
+                <Label htmlFor="traffic_type" className="text-white">Traffic Type *</Label>
                 <Select
                   value={formData.traffic_type}
                   onValueChange={(value) => setFormData({ ...formData, traffic_type: value })}
                 >
-                  <SelectTrigger className="bg-zinc-800 border-zinc-700">
-                    <SelectValue placeholder="Select traffic type" />
+                  <SelectTrigger className="bg-zinc-800 border-zinc-700 text-white">
+                    <SelectValue placeholder="Select traffic type" className="text-zinc-400" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="bg-zinc-800 border-zinc-700">
                     {TRAFFIC_TYPES.map((type) => (
-                      <SelectItem key={type} value={type}>{type}</SelectItem>
+                      <SelectItem key={type} value={type} className="text-white focus:bg-zinc-700 focus:text-white">{type}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -513,30 +513,30 @@ export default function ReferencesPage() {
             </div>
             
             <div className="space-y-2">
-              <Label htmlFor="destination">Destination *</Label>
+              <Label htmlFor="destination" className="text-white">Destination *</Label>
               <Input
                 id="destination"
                 value={formData.destination}
                 onChange={(e) => setFormData({ ...formData, destination: e.target.value })}
                 placeholder="e.g., USA, UK, UAE, etc."
-                className="bg-zinc-800 border-zinc-700"
+                className="bg-zinc-800 border-zinc-700 text-white placeholder:text-zinc-500"
               />
             </div>
 
             {/* Vendor Selection */}
             <div className="space-y-2">
-              <Label>Select Vendor Trunks *</Label>
+              <Label className="text-white">Select Vendor Trunks *</Label>
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-zinc-500" />
                 <Input
                   placeholder="Search vendor trunks..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-10 bg-zinc-800 border-zinc-700"
+                  className="pl-10 bg-zinc-800 border-zinc-700 text-white placeholder:text-zinc-500"
                 />
               </div>
               
-              <div className="border border-zinc-700 rounded-md max-h-48 overflow-y-auto mt-2">
+              <div className="border border-zinc-700 rounded-md max-h-48 overflow-y-auto mt-2 bg-zinc-900">
                 {filteredVendorTrunks.length === 0 ? (
                   <div className="p-4 text-center text-zinc-500">
                     No vendor trunks available
@@ -548,12 +548,13 @@ export default function ReferencesPage() {
                       return (
                         <div
                           key={trunk}
-                          className="flex items-center space-x-2 p-3 hover:bg-zinc-800/50 cursor-pointer"
+                          className="flex items-center space-x-2 p-3 hover:bg-zinc-800 cursor-pointer"
                           onClick={() => handleVendorToggle(trunk)}
                         >
                           <Checkbox
                             checked={isSelected}
                             onCheckedChange={() => {}}
+                            className="border-zinc-600"
                           />
                           <span className="text-sm text-white">{trunk}</span>
                         </div>
@@ -572,10 +573,10 @@ export default function ReferencesPage() {
             {/* Selected Vendors with Cost and Custom Field */}
             {formData.vendor_entries.length > 0 && (
               <div className="space-y-2">
-                <Label>Vendor Details</Label>
-                <div className="border border-zinc-700 rounded-md divide-y divide-zinc-800">
+                <Label className="text-white">Vendor Details</Label>
+                <div className="border border-zinc-700 rounded-md divide-y divide-zinc-800 bg-zinc-900">
                   {formData.vendor_entries.map((vendor, idx) => (
-                    <div key={idx} className="p-3 bg-zinc-800/30">
+                    <div key={idx} className="p-3 bg-zinc-800/50">
                       <div className="flex items-center justify-between mb-2">
                         <span className="text-sm font-medium text-white">{vendor.trunk}</span>
                         <Button
@@ -594,7 +595,7 @@ export default function ReferencesPage() {
                             value={vendor.cost || ""}
                             onChange={(e) => handleVendorFieldChange(vendor.trunk, "cost", e.target.value)}
                             placeholder="e.g., 0.005"
-                            className="bg-zinc-800 border-zinc-700 h-8 text-sm"
+                            className="bg-zinc-700 border-zinc-600 text-white placeholder:text-zinc-500 h-8 text-sm"
                           />
                         </div>
                         <div>
@@ -603,7 +604,7 @@ export default function ReferencesPage() {
                             value={vendor.custom_field || ""}
                             onChange={(e) => handleVendorFieldChange(vendor.trunk, "custom_field", e.target.value)}
                             placeholder="Additional info..."
-                            className="bg-zinc-800 border-zinc-700 h-8 text-sm"
+                            className="bg-zinc-700 border-zinc-600 text-white placeholder:text-zinc-500 h-8 text-sm"
                           />
                         </div>
                       </div>
@@ -615,10 +616,10 @@ export default function ReferencesPage() {
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>
+            <Button variant="outline" onClick={() => setDialogOpen(false)} className="bg-zinc-800 border-zinc-700 text-white hover:bg-zinc-700">
               Cancel
             </Button>
-            <Button onClick={handleSave}>
+            <Button onClick={handleSave} className="bg-emerald-600 hover:bg-emerald-700 text-white">
               {editingList ? "Update" : "Create"}
             </Button>
           </DialogFooter>
