@@ -1294,6 +1294,65 @@ export default function SMSTicketsPage() {
                                 </Select>
                               </>
                             )}
+                            {/* Cost Type Selector */}
+                            <Select
+                              value={vendorTrunk.cost_type || "fixed"}
+                              onValueChange={(value) => {
+                                const updatedTrunks = (formData.vendor_trunks || []).map((v, i) =>
+                                  i === index ? { ...v, cost_type: value } : v
+                                );
+                                setFormData({ ...formData, vendor_trunks: updatedTrunks });
+                              }}
+                              disabled={isAM}
+                            >
+                              <SelectTrigger className="bg-zinc-600 border-zinc-500 h-7 w-20"><SelectValue placeholder="Cost" /></SelectTrigger>
+                              <SelectContent className="bg-zinc-800 border-zinc-700">
+                                <SelectItem value="fixed">Fixed</SelectItem>
+                                <SelectItem value="range">Range</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            {/* Cost Input - Fixed or Range */}
+                            {vendorTrunk.cost_type === "range" ? (
+                              <>
+                                <Input
+                                  placeholder="Min"
+                                  value={vendorTrunk.min_cost || ""}
+                                  onChange={(e) => {
+                                    const updatedTrunks = (formData.vendor_trunks || []).map((v, i) =>
+                                      i === index ? { ...v, min_cost: e.target.value } : v
+                                    );
+                                    setFormData({ ...formData, vendor_trunks: updatedTrunks });
+                                  }}
+                                  className="bg-zinc-600 border-zinc-500 text-white text-xs w-16 h-7"
+                                  disabled={isAM}
+                                />
+                                <Input
+                                  placeholder="Max"
+                                  value={vendorTrunk.max_cost || ""}
+                                  onChange={(e) => {
+                                    const updatedTrunks = (formData.vendor_trunks || []).map((v, i) =>
+                                      i === index ? { ...v, max_cost: e.target.value } : v
+                                    );
+                                    setFormData({ ...formData, vendor_trunks: updatedTrunks });
+                                  }}
+                                  className="bg-zinc-600 border-zinc-500 text-white text-xs w-16 h-7"
+                                  disabled={isAM}
+                                />
+                              </>
+                            ) : (
+                              <Input
+                                placeholder="Cost"
+                                value={vendorTrunk.cost || ""}
+                                onChange={(e) => {
+                                  const updatedTrunks = (formData.vendor_trunks || []).map((v, i) =>
+                                    i === index ? { ...v, cost: e.target.value } : v
+                                  );
+                                  setFormData({ ...formData, vendor_trunks: updatedTrunks });
+                                }}
+                                className="bg-zinc-600 border-zinc-500 text-white text-xs w-20 h-7"
+                                disabled={isAM}
+                              />
+                            )}
                             <Button 
                               size="sm" 
                               variant="ghost" 
