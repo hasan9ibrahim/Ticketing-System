@@ -26,6 +26,7 @@ import {
   Settings,
   AlertTriangle,
   ClipboardList,
+  Bell,
 } from "lucide-react";
 
 export default function DashboardLayout({ user, setUser }) {
@@ -36,6 +37,7 @@ export default function DashboardLayout({ user, setUser }) {
   const [assignedReminders, setAssignedReminders] = useState([]);
   const [showReminders, setShowReminders] = useState(false);
   const [showAlerts, setShowAlerts] = useState(true);
+  const [amNotifications, setAmNotifications] = useState([]);  // AM notifications
   // Track dismissed reminders: { [reminderId]: timestamp when dismissed }
   const [dismissedReminders, setDismissedReminders] = useState(() => {
     const saved = localStorage.getItem("dismissedReminders");
@@ -91,6 +93,28 @@ export default function DashboardLayout({ user, setUser }) {
       return () => clearInterval(reminderInterval);
     }
   }, [user]);
+
+  // Fetch AM notifications for AM users
+  useEffect(() => {
+    if (user && user.role === "am") {
+      fetchAMNotifications();
+      // Refresh every 30 seconds
+      const amNotifInterval = setInterval(fetchAMNotifications, 30000);
+      return () => clearInterval(amNotifInterval);
+    }
+  }, [user]);
+
+  const fetchAMNotifications = async () => {
+    try {
+      const token = localStorage.getItem("token");
+      const response = await axios.get(`${API}/users/me/am-notifications`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setAmNotifications(response.data || []);
+    } catch (error) {
+      console.error("Failed to fetch AM notifications:", error);
+    }
+  };
 
   const fetchAlerts = async (isInitial = false) => {
     try {
@@ -228,6 +252,7 @@ export default function DashboardLayout({ user, setUser }) {
     { path: "/users", label: "Users", icon: Users, roles: ["admin"] },
     { path: "/departments", label: "Departments", icon: Settings, roles: ["admin"] },
     { path: "/audit", label: "Audit Logs", icon: ClipboardList, roles: ["admin"] },
+    { path: "/notifications", label: "Notifications", icon: Bell, roles: ["am"] },
   ];
 
   const filteredNavItems = navItems.filter((item) => {
@@ -266,6 +291,9 @@ export default function DashboardLayout({ user, setUser }) {
     const intervalMs = getPriorityIntervalMs(a.priority);
     return (now - dismissedTime) >= intervalMs;
   });
+
+  // Filter out dismissed AM notifications
+  const activeAmNotifications = amNotifications.filter(n => !n.read);
 
   return (
     <div className="flex h-screen bg-zinc-950" data-testid="dashboard-layout">
@@ -386,6 +414,49 @@ export default function DashboardLayout({ user, setUser }) {
             <p className="text-amber-200 text-xs mt-2">
               These tickets have been assigned for too long. Please update their status.
             </p>
+          </div>
+        </div>
+      )}
+
+      {/* AM Notifications - Top Left for AM users */}
+      {user?.role === "am" && activeAmNotifications.length > 0 && (
+        <div className="fixed top-4 left-4 z-50 max-w-md">
+          <div className="bg-purple-950/95 border border-purple-500/50 rounded-lg shadow-lg p-4 backdrop-blur-sm">
+            <div className="flex items-center gap-2 mb-3">
+              <Bell className="h-5 w-5 text-purple-400" />
+              <span className="text-purple-400 font-semibold">Enterprise Updates</span>
+              <span className="bg-purple-500/20 text-purple-400 text-xs px-2 py-0.5 rounded-full ml-auto">
+                {activeAmNotifications.length}
+              </span>
+            </div>
+            <div className="space-y-2 max-h-[300px] overflow-y-auto">
+              {activeAmNotifications.slice(0, 5).map((notification) => (
+                <div
+                  key={notification.id}
+                  className="flex items-start gap-2 bg-zinc-900/50 px-3 py-2 rounded text-sm"
+                >
+                  <div className="h-2 w-2 rounded-full flex-shrink-0 bg-purple-500 mt-1.5" />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-white font-medium">{notification.ticket_number}</span>
+                      <span className="text-zinc-400 text-xs">{notification.ticket_type.toUpperCase()}</span>
+                    </div>
+                    <p className="text-purple-200 text-xs mt-0.5">{notification.enterprise_name}</p>
+                    {notification.destination && (
+                      <p className="text-zinc-400 text-xs">Dest: {notification.destination}</p>
+                    )}
+                    {notification.issue && (
+                      <p className="text-zinc-400 text-xs truncate">Issue: {notification.issue}</p>
+                    )}
+                  </div>
+                </div>
+              ))}
+              {activeAmNotifications.length > 5 && (
+                <p className="text-zinc-400 text-xs text-center pt-2">
+                  +{activeAmNotifications.length - 5} more
+                </p>
+              )}
+            </div>
           </div>
         </div>
       )}
