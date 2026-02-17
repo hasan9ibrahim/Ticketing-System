@@ -205,7 +205,7 @@ export default function DashboardPage() {
 
         <Card className="bg-zinc-900/50 border-white/10 grid-border">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-zinc-400">Resolved Today</CardTitle>
+            <CardTitle className="text-sm font-medium text-zinc-400">Resolved Tickets</CardTitle>
             <TrendingUp className="h-4 w-4 text-emerald-500" />
           </CardHeader>
           <CardContent>
