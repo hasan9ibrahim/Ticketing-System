@@ -127,7 +127,7 @@ export default function DashboardLayout({ user, setUser }) {
           
           if (notificationType === "ticket_created") {
             toastType = "info";
-          } else if (notificationType === "ticket_assigned") {
+          } else if (notificationType === "ticket_assigned_to_noc") {
             toastType = "info";
           } else if (notificationType === "ticket_resolved") {
             toastType = "success";
