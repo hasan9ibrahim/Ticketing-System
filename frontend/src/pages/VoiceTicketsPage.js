@@ -1084,7 +1084,6 @@ export default function VoiceTicketsPage() {
                   </div>
                 )}
               </div>
-              <div className="space-y-2"><Label>Cost</Label><Input value={formData.cost || ""} onChange={(e) => setFormData({ ...formData, cost: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" placeholder="e.g., 0.005" disabled={isAM} /></div>
               </div>
               <div className="grid grid-cols-1 gap-4 mt-4">
                 <div className="space-y-2">
