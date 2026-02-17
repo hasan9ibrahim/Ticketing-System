@@ -193,14 +193,12 @@ export default function DashboardPage() {
 
         <Card className="bg-zinc-900/50 border-white/10 grid-border">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-zinc-400">Open Tickets</CardTitle>
+            <CardTitle className="text-sm font-medium text-zinc-400">Pending Tickets</CardTitle>
             <Activity className="h-4 w-4 text-blue-500" />
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold text-white tabular-nums">
-              {(stats?.total_sms_tickets || 0) +
-                (stats?.total_voice_tickets || 0) -
-                ((stats?.sms_by_status?.Resolved || 0) + (stats?.voice_by_status?.Resolved || 0))}
+              {(stats?.sms_pending || 0) + (stats?.voice_pending || 0)}
             </div>
           </CardContent>
         </Card>
