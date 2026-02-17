@@ -324,7 +324,7 @@ export default function VoiceTicketsPage() {
 
   const openCreateSheet = () => {
     setEditingTicket(null);
-    setFormData({ priority: "Medium", status: "Unassigned", opened_via: ["Monitoring"], is_lcr: "no", client_or_vendor: "client", volume: "0", customer_trunk: "", issue_types: [], issue_other: "", fas_type: "", vendor_trunks: [] });
+    setFormData({ priority: "Medium", status: "Unassigned", opened_via: ["Monitoring"], is_lcr: "no", volume: "0", customer_trunk: "", issue_types: [], issue_other: "", fas_type: "", vendor_trunks: [] });
     setSheetOpen(true);
   };
 
@@ -439,15 +439,6 @@ export default function VoiceTicketsPage() {
       if (currentAssignedCount >= 3) {
         const user = users.find(u => u.id === assignedToId);
         toast.error(`${user?.username || 'This member'} already has 3 assigned tickets. Maximum is 3.`);
-        return;
-      }
-    }
-
-    // ✅ Validate vendor percentage equals 100% when 2+ vendors selected
-    if ((formData.vendor_trunks || []).length >= 2) {
-      const totalPercentage = (formData.vendor_trunks || []).reduce((sum, v) => sum + (parseFloat(v.percentage) || 0), 0);
-      if (totalPercentage !== 100) {
-        toast.error(`Vendor percentages must equal 100%. Current total: ${totalPercentage}%`);
         return;
       }
     }
@@ -890,16 +881,6 @@ export default function VoiceTicketsPage() {
                 </SelectContent>
               </Select>
             </div>
-
-            {/* Enterprise Role */}
-            <div className="space-y-2">
-              <Label>Enterprise Role *</Label>
-              <RadioGroup value={formData.client_or_vendor} onValueChange={(value) => setFormData({ ...formData, client_or_vendor: value })} className="flex space-x-4" disabled={isAM}>
-                <div className="flex items-center space-x-2"><RadioGroupItem value="client" id="client-v" disabled={isAM} /><Label htmlFor="client-v" className="font-normal cursor-pointer">Client</Label></div>
-                <div className="flex items-center space-x-2"><RadioGroupItem value="vendor" id="vendor-v" disabled={isAM} /><Label htmlFor="vendor-v" className="font-normal cursor-pointer">Vendor</Label></div>
-              </RadioGroup>
-            </div>
-
 
             <div className="border-t border-zinc-700 pt-4 mt-4">
               <h3 className="text-sm font-medium text-zinc-400 mb-4">Vendor & Cost</h3>
