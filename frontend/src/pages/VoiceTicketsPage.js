@@ -423,12 +423,15 @@ export default function VoiceTicketsPage() {
       return;
     }
 
-    // Validate vendor percentages sum to 100% when multiple vendors selected
+    // Validate vendor percentages sum to 100% when multiple vendors selected (only if no positions are used)
     if (formData.vendor_trunks && formData.vendor_trunks.length > 1) {
-      const totalPercentage = formData.vendor_trunks.reduce((sum, v) => sum + (parseFloat(v.percentage) || 0), 0);
-      if (totalPercentage !== 100) {
-        toast.error(`Vendor percentages must equal 100%. Current total: ${totalPercentage}%`);
-        return;
+      const hasPositions = formData.vendor_trunks.some(v => v.position);
+      if (!hasPositions) {
+        const totalPercentage = formData.vendor_trunks.reduce((sum, v) => sum + (parseFloat(v.percentage) || 0), 0);
+        if (totalPercentage !== 100) {
+          toast.error(`Vendor percentages must equal 100%. Current total: ${totalPercentage}%`);
+          return;
+        }
       }
     }
 
