@@ -1382,12 +1382,25 @@ export default function SMSTicketsPage() {
                             </Button>
                           </div>
                         ))}
-                        {/* Total percentage when 2+ selected */}
+                        {/* Total percentage when 2+ selected - only validate if no positions are used */}
                         {((formData.vendor_trunks || []).length >= 2) && (
                           <div className="text-xs text-zinc-400 pt-1">
-                            Total: {((formData.vendor_trunks || []).reduce((sum, v) => sum + (parseFloat(v.percentage) || 0), 0))}%
-                            {((formData.vendor_trunks || []).reduce((sum, v) => sum + (parseFloat(v.percentage) || 0), 0)) !== 100 && 
-                              <span className="text-red-400 ml-1">(must equal 100%)</span>}
+                            {(() => {
+                              const hasPositions = (formData.vendor_trunks || []).some(v => v.position);
+                              if (hasPositions) {
+                                // Show positions instead of validating percentages
+                                const positions = (formData.vendor_trunks || []).map(v => v.position).filter(p => p).join(', ');
+                                return <span>Positions: {positions}</span>;
+                              }
+                              const totalPercentage = (formData.vendor_trunks || []).reduce((sum, v) => sum + (parseFloat(v.percentage) || 0), 0);
+                              return (
+                                <>
+                                  Total: {totalPercentage}%
+                                  {totalPercentage !== 100 && 
+                                    <span className="text-red-400 ml-1">(must equal 100%)</span>}
+                                </>
+                              );
+                            })()}
                           </div>
                         )}
                       </div>
