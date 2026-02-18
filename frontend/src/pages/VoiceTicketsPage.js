@@ -1214,6 +1214,9 @@ export default function VoiceTicketsPage() {
               size="sm"
               onClick={() => {
                 // Send alert to References page
+                // Extract vendor_trunk and cost from vendor_trunks array (new format)
+                const vendorTrunks = selectedTicket.vendor_trunks || [];
+                const firstVendor = vendorTrunks.length > 0 ? vendorTrunks[0] : {};
                 const alertData = {
                   ticket_id: selectedTicket.id,
                   ticket_number: selectedTicket.ticket_number,
@@ -1223,10 +1226,10 @@ export default function VoiceTicketsPage() {
                   destination: selectedTicket.destination,
                   issue_types: selectedTicket.issue_types || [],
                   issue_other: selectedTicket.issue_other,
-                  vendor_trunk: selectedTicket.vendor_trunk,
-                  vendor_trunks: selectedTicket.vendor_trunks || [],
+                  vendor_trunk: firstVendor.trunk || selectedTicket.vendor_trunk || "",
+                  vendor_trunks: vendorTrunks,
                   rate: selectedTicket.rate,
-                  cost: selectedTicket.cost
+                  cost: firstVendor.cost || selectedTicket.cost || ""
                 };
                 localStorage.setItem("pendingAlert", JSON.stringify(alertData));
                 window.location.href = "/references?tab=alerts&section=voice";
