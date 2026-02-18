@@ -187,7 +187,7 @@ class ReferenceVendorEntry(BaseModel):
     """Model for a vendor entry in a reference list"""
     trunk: str
     cost: Optional[str] = None
-    custom_field: Optional[str] = None
+    notes: Optional[str] = None
 
 
 class ReferenceList(BaseModel):
@@ -198,7 +198,7 @@ class ReferenceList(BaseModel):
     section: str  # "sms" or "voice"
     destination: str
     traffic_type: str  # OTP, Phishing, Spam, Spam and Phishing, Casino, Marketing, Banking, etc.
-    vendor_entries: List[dict] = Field(default_factory=list)  # List of {trunk, cost, custom_field} objects
+    vendor_entries: List[dict] = Field(default_factory=list)  # List of {trunk, cost, notes} objects
     created_by: str
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
