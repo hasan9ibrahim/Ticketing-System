@@ -86,6 +86,8 @@ export default function ReferencesPage() {
   const [selectedAlert, setSelectedAlert] = useState(null);
   const [commentText, setCommentText] = useState("");
   const [alternativeVendor, setAlternativeVendor] = useState("");
+  const [alertToDelete, setAlertToDelete] = useState(null);
+  const [alertToResolve, setAlertToResolve] = useState(null);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -381,12 +383,12 @@ export default function ReferencesPage() {
   };
 
   // Handle deleting an alert
-  const handleDeleteAlert = async (alertId) => {
-    if (!confirm("Are you sure you want to delete this alert?")) return;
+  const handleDeleteAlert = async () => {
+    if (!alertToDelete) return;
     
     try {
       const token = localStorage.getItem("token");
-      await axios.delete(`${API}/alerts/${alertId}`, {
+      await axios.delete(`${API}/alerts/${alertToDelete}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       
@@ -396,6 +398,7 @@ export default function ReferencesPage() {
       });
       
       setSelectedAlert(null);
+      setAlertToDelete(null);
       fetchData();
     } catch (error) {
       console.error("Failed to delete alert:", error);
@@ -408,12 +411,12 @@ export default function ReferencesPage() {
   };
 
   // Handle resolving an alert
-  const handleResolveAlert = async (alertId) => {
-    if (!confirm("Are you sure you want to resolve this alert? It will be archived.")) return;
+  const handleResolveAlert = async () => {
+    if (!alertToResolve) return;
     
     try {
       const token = localStorage.getItem("token");
-      await axios.post(`${API}/alerts/${alertId}/resolve`, {}, {
+      await axios.post(`${API}/alerts/${alertToResolve}/resolve`, {}, {
         headers: { Authorization: `Bearer ${token}` }
       });
       
@@ -422,12 +425,13 @@ export default function ReferencesPage() {
         description: "Alert resolved successfully"
       });
       
+      setAlertToResolve(null);
       fetchData();
       
       // Refresh selected alert to get updated resolved status
-      const alerts = activeSection === "sms" ? smsAlerts : voiceAlerts;
-      const updated = alerts.find(a => a.id === alertId);
-      if (updated) setSelectedAlert({...updated, resolved: true});
+      if (selectedAlert && selectedAlert.id === alertToResolve) {
+        setSelectedAlert({...selectedAlert, resolved: true});
+      }
     } catch (error) {
       console.error("Failed to resolve alert:", error);
       toast({
@@ -687,14 +691,14 @@ export default function ReferencesPage() {
               {!selectedAlert.resolved ? (
                 <>
                   <Button
-                    onClick={() => handleResolveAlert(selectedAlert.id)}
+                    onClick={() => setAlertToResolve(selectedAlert.id)}
                     className="w-full bg-emerald-500 text-black hover:bg-emerald-400 mb-2"
                   >
                     Resolve Alert
                   </Button>
                   <Button
                     variant="destructive"
-                    onClick={() => handleDeleteAlert(selectedAlert.id)}
+                    onClick={() => setAlertToDelete(selectedAlert.id)}
                     className="w-full"
                   >
                     Delete Alert
@@ -703,7 +707,7 @@ export default function ReferencesPage() {
               ) : (
                 <Button
                   variant="destructive"
-                  onClick={() => handleDeleteAlert(selectedAlert.id)}
+                  onClick={() => setAlertToDelete(selectedAlert.id)}
                   className="w-full"
                 >
                   Delete Alert
@@ -1160,6 +1164,42 @@ export default function ReferencesPage() {
           <AlertDialogFooter>
             <AlertDialogCancel className="bg-zinc-800 text-white hover:bg-zinc-700">Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={confirmDelete} className="bg-red-600 text-white hover:bg-red-700">
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      
+      {/* Resolve Alert Confirmation Dialog */}
+      <AlertDialog open={!!alertToResolve} onOpenChange={() => setAlertToResolve(null)}>
+        <AlertDialogContent className="bg-zinc-950 border-zinc-800 text-white">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Resolve Alert</AlertDialogTitle>
+            <AlertDialogDescription className="text-zinc-400">
+              Are you sure you want to resolve this alert? It will be archived.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="bg-zinc-800 text-white hover:bg-zinc-700">Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleResolveAlert} className="bg-emerald-600 text-white hover:bg-emerald-700">
+              Resolve
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      
+      {/* Delete Alert Confirmation Dialog */}
+      <AlertDialog open={!!alertToDelete} onOpenChange={() => setAlertToDelete(null)}>
+        <AlertDialogContent className="bg-zinc-950 border-zinc-800 text-white">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Alert</AlertDialogTitle>
+            <AlertDialogDescription className="text-zinc-400">
+              Are you sure you want to delete this alert? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="bg-zinc-800 text-white hover:bg-zinc-700">Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteAlert} className="bg-red-600 text-white hover:bg-red-700">
               Delete
             </AlertDialogAction>
           </AlertDialogFooter>
