@@ -372,8 +372,8 @@ export default function ReferencesPage() {
                         <div>
                           <CardTitle className="text-lg text-white">{list.name}</CardTitle>
                           <CardDescription className="mt-1">
-                            <Badge variant="outline" className="mr-2">{list.destination}</Badge>
-                            <Badge variant="secondary">{list.traffic_type}</Badge>
+                            <Badge variant="outline" className="mr-2 bg-zinc-800 text-zinc-300 border-zinc-600">{list.destination}</Badge>
+                            <Badge variant="secondary" className="bg-zinc-700 text-zinc-300">{list.traffic_type}</Badge>
                           </CardDescription>
                         </div>
                         <div className="flex gap-2">
@@ -436,8 +436,8 @@ export default function ReferencesPage() {
                         <div>
                           <CardTitle className="text-lg text-white">{list.name}</CardTitle>
                           <CardDescription className="mt-1">
-                            <Badge variant="outline" className="mr-2">{list.destination}</Badge>
-                            <Badge variant="secondary">{list.traffic_type}</Badge>
+                            <Badge variant="outline" className="mr-2 bg-zinc-800 text-zinc-300 border-zinc-600">{list.destination}</Badge>
+                            <Badge variant="secondary" className="bg-zinc-700 text-zinc-300">{list.traffic_type}</Badge>
                           </CardDescription>
                         </div>
                         <div className="flex gap-2">
