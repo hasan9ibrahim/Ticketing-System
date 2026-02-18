@@ -323,28 +323,45 @@ export default function ReferencesPage() {
 
   // Handle adding a comment to an alert
   const handleAddComment = async () => {
-    if (!selectedAlert || (!commentText.trim() && !alternativeVendor)) return;
+    if (!selectedAlert) return;
+    
+    const hasText = commentText.trim();
+    const hasAltVendor = alternativeVendor.trim();
+    
+    if (!hasText && !hasAltVendor) return;
     
     try {
       const token = localStorage.getItem("token");
+      console.log("Submitting comment with:", { text: commentText, alternative_vendor: alternativeVendor });
+      
       const response = await axios.post(
         `${API}/alerts/${selectedAlert.id}/comments`,
         { text: commentText, alternative_vendor: alternativeVendor },
         { headers: { Authorization: `Bearer ${token}` } }
       );
       
+      console.log("Comment response:", response.data);
+      
       toast({
         title: "Success",
         description: "Comment added successfully"
       });
       
-      // Create the new comment object
-      const newComment = response.data.comment;
+      // Create the new comment object directly from the request
+      const newComment = {
+        id: Date.now().toString(),
+        text: commentText,
+        alternative_vendor: alternativeVendor,
+        created_by: "current_user",
+        created_at: new Date().toISOString()
+      };
       
       // Update selectedAlert immediately with the new comment
+      const updatedComments = [...(selectedAlert.comments || []), newComment];
+      console.log("Updated comments:", updatedComments);
       setSelectedAlert({
         ...selectedAlert,
-        comments: [...(selectedAlert.comments || []), newComment]
+        comments: updatedComments
       });
       
       setCommentText("");
