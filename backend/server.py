@@ -1425,10 +1425,12 @@ async def get_reference_lists(section: str, current_user: dict = Depends(get_cur
         raise HTTPException(status_code=403, detail=f"You don't have access to {section} references")
     
     # Get all reference lists for this section
+    print(f"Fetching reference lists for section: {section}")
     lists = await db.reference_lists.find(
         {"section": section},
         {"_id": 0}
     ).sort("created_at", -1).to_list(1000)
+    print(f"Found lists: {lists}")
     
     return lists
 
@@ -1466,7 +1468,9 @@ async def create_reference_list(list_data: ReferenceListCreate, current_user: di
     await db.reference_lists.insert_one(list_dict)
     print(f"Inserted list: {list_dict}")
     
-    return reference_list
+    # Return the created list from MongoDB to ensure id is properly returned
+    created = await db.reference_lists.find_one({"id": list_dict["id"]}, {"_id": 0})
+    return created
 
 
 @api_router.put("/references/{list_id}", response_model=ReferenceList)
