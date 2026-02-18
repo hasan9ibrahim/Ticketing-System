@@ -1606,6 +1606,142 @@ async def delete_reference_list(list_id: str, current_user: dict = Depends(get_c
     
     return {"message": "Reference list deleted successfully"}
 
+# ==================== ALERT ROUTES ====================
+
+class Alert(BaseModel):
+    """Model for an alert sent from a ticket"""
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    ticket_id: str
+    ticket_number: str
+    ticket_type: str  # "sms" or "voice"
+    customer: str
+    customer_id: str
+    destination: Optional[str] = None
+    issue_types: List[str] = Field(default_factory=list)
+    issue_other: Optional[str] = None
+    vendor_trunk: Optional[str] = None
+    vendor_trunks: List[dict] = Field(default_factory=list)  # List of {trunk, percentage, position, cost}
+    sms_details: List[dict] = Field(default_factory=list)  # List of {sid, content} for SMS
+    rate: Optional[str] = None
+    cost: Optional[str] = None
+    alternative_routes: Optional[str] = None  # Alternative solutions field
+    created_by: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    comments: List[dict] = Field(default_factory=list)  # List of {id, text, created_by, created_at}
+
+
+class AlertCreate(BaseModel):
+    """Model for creating an alert"""
+    ticket_id: str
+    ticket_number: str
+    ticket_type: str  # "sms" or "voice"
+    customer: str
+    customer_id: str
+    destination: Optional[str] = None
+    issue_types: List[str] = Field(default_factory=list)
+    issue_other: Optional[str] = None
+    vendor_trunk: Optional[str] = None
+    vendor_trunks: List[dict] = Field(default_factory=list)
+    sms_details: List[dict] = Field(default_factory=list)
+    rate: Optional[str] = None
+    cost: Optional[str] = None
+    alternative_routes: Optional[str] = None
+
+
+class AlertComment(BaseModel):
+    """Model for adding a comment to an alert"""
+    text: str
+    alternative_vendor: Optional[str] = None  # Alternative vendor trunk suggestion
+
+
+@api_router.post("/alerts", response_model=Alert)
+async def create_alert(alert_data: AlertCreate, current_user: dict = Depends(get_current_user)):
+    """Create a new alert from a ticket"""
+    print(f"Creating alert from ticket: {alert_data.ticket_number}")
+    
+    # Create the alert
+    alert = Alert(
+        ticket_id=alert_data.ticket_id,
+        ticket_number=alert_data.ticket_number,
+        ticket_type=alert_data.ticket_type,
+        customer=alert_data.customer,
+        customer_id=alert_data.customer_id,
+        destination=alert_data.destination,
+        issue_types=alert_data.issue_types,
+        issue_other=alert_data.issue_other,
+        vendor_trunk=alert_data.vendor_trunk,
+        vendor_trunks=alert_data.vendor_trunks,
+        sms_details=alert_data.sms_details,
+        rate=alert_data.rate,
+        cost=alert_data.cost,
+        alternative_routes=alert_data.alternative_routes,
+        created_by=current_user.get("username", "unknown")
+    )
+    
+    alert_dict = alert.model_dump()
+    await db.alerts.insert_one(alert_dict)
+    
+    return alert
+
+
+@api_router.get("/alerts/{section}")
+async def get_alerts(section: str, current_user: dict = Depends(get_current_user)):
+    """Get all alerts for a specific section (sms or voice)"""
+    if section not in ["sms", "voice"]:
+        raise HTTPException(status_code=400, detail="Section must be 'sms' or 'voice'")
+    
+    # Check department type access
+    dept = await get_user_department(current_user)
+    ticket_type = get_user_ticket_type(dept)
+    if ticket_type != "all" and ticket_type != section:
+        raise HTTPException(status_code=403, detail=f"You don't have access to {section} alerts")
+    
+    alerts = await db.alerts.find(
+        {"ticket_type": section},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(1000)
+    
+    return alerts
+
+
+@api_router.post("/alerts/{alert_id}/comments")
+async def add_alert_comment(alert_id: str, comment: AlertComment, current_user: dict = Depends(get_current_user)):
+    """Add a comment to an alert"""
+    # Find the alert
+    alert = await db.alerts.find_one({"id": alert_id})
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    
+    # Create comment
+    comment_obj = {
+        "id": str(uuid.uuid4()),
+        "text": comment.text,
+        "alternative_vendor": comment.alternative_vendor,
+        "created_by": current_user.get("username", "unknown"),
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    # Add comment to alert
+    await db.alerts.update_one(
+        {"id": alert_id},
+        {"$push": {"comments": comment_obj}}
+    )
+    
+    return {"message": "Comment added successfully", "comment": comment_obj}
+
+
+@api_router.delete("/alerts/{alert_id}")
+async def delete_alert(alert_id: str, current_user: dict = Depends(get_current_user)):
+    """Delete an alert"""
+    alert = await db.alerts.find_one({"id": alert_id})
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    
+    await db.alerts.delete_one({"id": alert_id})
+    
+    return {"message": "Alert deleted successfully"}
+
 # ==================== SMS TICKET ROUTES ====================
 
 def generate_ticket_number(date: datetime, ticket_id: str) -> str:
