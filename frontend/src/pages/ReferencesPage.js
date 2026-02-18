@@ -503,29 +503,50 @@ export default function ReferencesPage() {
               <div className="bg-zinc-800 rounded-lg p-3">
                 <h4 className="text-sm font-medium text-zinc-400 mb-2">Vendor Information</h4>
                 <div className="space-y-2 text-sm">
-                  {/* Get vendor info from vendor_trunks array or fallback to single fields */}
-                  {(() => {
-                    const vendorTrunks = selectedAlert.vendor_trunks || [];
-                    const firstVendor = vendorTrunks.length > 0 ? vendorTrunks[0] : {};
-                    const vendorTrunk = firstVendor.trunk || selectedAlert.vendor_trunk || "-";
-                    const vendorCost = firstVendor.cost || selectedAlert.cost || "-";
-                    return (
-                      <>
+                  {/* Get vendor info from vendor_trunks array */}
+                  {(selectedAlert.vendor_trunks && selectedAlert.vendor_trunks.length > 0) ? (
+                    selectedAlert.vendor_trunks.map((vendor, idx) => (
+                      <div key={idx} className="border-b border-zinc-700 pb-2 last:border-0">
                         <div className="flex justify-between">
                           <span className="text-zinc-500">Vendor Trunk:</span>
-                          <span className="text-white">{vendorTrunk}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-zinc-500">Rate:</span>
-                          <span className="text-white">{selectedAlert.rate || "-"}</span>
+                          <span className="text-white">{vendor.trunk || "-"}</span>
                         </div>
                         <div className="flex justify-between">
                           <span className="text-zinc-500">Cost:</span>
-                          <span className="text-white">{vendorCost}</span>
+                          <span className="text-white">{vendor.cost || "-"}</span>
                         </div>
-                      </>
-                    );
-                  })()}
+                        {vendor.percentage && (
+                          <div className="flex justify-between">
+                            <span className="text-zinc-500">Percentage:</span>
+                            <span className="text-white">{vendor.percentage}%</span>
+                          </div>
+                        )}
+                        {vendor.position && (
+                          <div className="flex justify-between">
+                            <span className="text-zinc-500">Position:</span>
+                            <span className="text-white">{vendor.position}</span>
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  ) : (
+                    /* Fallback to single vendor_trunk and cost fields */
+                    <>
+                      <div className="flex justify-between">
+                        <span className="text-zinc-500">Vendor Trunk:</span>
+                        <span className="text-white">{selectedAlert.vendor_trunk || "-"}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-zinc-500">Cost:</span>
+                        <span className="text-white">{selectedAlert.cost || "-"}</span>
+                      </div>
+                    </>
+                  )}
+                  {/* Always show Rate */}
+                  <div className="flex justify-between pt-2">
+                    <span className="text-zinc-500">Rate:</span>
+                    <span className="text-white">{selectedAlert.rate || "-"}</span>
+                  </div>
                 </div>
               </div>
               
