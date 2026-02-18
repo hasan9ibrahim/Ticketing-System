@@ -192,17 +192,22 @@ export default function ReferencesPage() {
       fetchData();
     } catch (error) {
       console.error("Failed to save:", error);
+      console.error("Error response:", error.response);
+      const errorMessage = error.response?.data?.detail || error.message || "Failed to save reference list";
       toast({
         variant: "destructive",
         title: "Error",
-        description: error.response?.data?.detail || "Failed to save reference list"
+        description: errorMessage
       });
     }
   };
 
-  const handleDelete = async (listId) => {
+  const handleDelete = async (list) => {
+    // Support both passing full list object or just the id
+    const listId = list?.id || list?._id;
     if (!listId) {
-      console.error("List ID is undefined!");
+      console.error("List object:", list);
+      console.error("List ID is undefined! Both id and _id are missing");
       toast({
         variant: "destructive",
         title: "Error",
@@ -399,7 +404,7 @@ export default function ReferencesPage() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            onClick={() => handleDelete(list.id)}
+                            onClick={() => handleDelete(list)}
                           >
                             <Trash2 className="h-4 w-4 text-red-400" />
                           </Button>
@@ -463,7 +468,7 @@ export default function ReferencesPage() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            onClick={() => handleDelete(list.id)}
+                            onClick={() => handleDelete(list)}
                           >
                             <Trash2 className="h-4 w-4 text-red-400" />
                           </Button>
