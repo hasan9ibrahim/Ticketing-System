@@ -384,6 +384,37 @@ export default function ReferencesPage() {
     }
   };
 
+  // Handle resolving an alert
+  const handleResolveAlert = async (alertId) => {
+    if (!confirm("Are you sure you want to resolve this alert? It will be archived.")) return;
+    
+    try {
+      const token = localStorage.getItem("token");
+      await axios.post(`${API}/alerts/${alertId}/resolve`, {}, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      toast({
+        title: "Success",
+        description: "Alert resolved successfully"
+      });
+      
+      fetchData();
+      
+      // Refresh selected alert to get updated resolved status
+      const alerts = activeSection === "sms" ? smsAlerts : voiceAlerts;
+      const updated = alerts.find(a => a.id === alertId);
+      if (updated) setSelectedAlert({...updated, resolved: true});
+    } catch (error) {
+      console.error("Failed to resolve alert:", error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error.response?.data?.detail || "Failed to resolve alert"
+      });
+    }
+  };
+
   const handleVendorToggle = (trunk) => {
     const exists = formData.vendor_entries.find(v => v.trunk === trunk);
     if (exists) {
@@ -439,7 +470,7 @@ export default function ReferencesPage() {
         {alerts.map((alert) => (
           <Card 
             key={alert.id} 
-            className={`bg-zinc-900 border-zinc-800 cursor-pointer hover:border-zinc-600 ${selectedAlert?.id === alert.id ? 'border-amber-500' : ''}`}
+            className={`bg-zinc-900 border-zinc-800 cursor-pointer hover:border-zinc-600 ${selectedAlert?.id === alert.id ? 'border-amber-500' : ''} ${alert.resolved ? 'opacity-60' : ''}`}
             onClick={() => setSelectedAlert(alert)}
           >
             <CardHeader className="pb-3">
@@ -447,6 +478,7 @@ export default function ReferencesPage() {
                 <div>
                   <CardTitle className="text-lg text-white">
                     {alert.ticket_number}
+                    {alert.resolved && <Badge variant="outline" className="ml-2 bg-emerald-500/20 text-emerald-400 border-emerald-500">Resolved</Badge>}
                   </CardTitle>
                   <CardDescription className="mt-1">
                     <Badge variant="outline" className="mr-2 bg-zinc-800 text-zinc-300 border-zinc-600">
@@ -580,51 +612,80 @@ export default function ReferencesPage() {
                             {new Date(comment.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                           </span>
                         </div>
-                        <p className="text-white text-sm mt-1">{comment.text}</p>
-                        {comment.alternative_vendor && (
-                          <div className="mt-1 text-amber-500 text-xs">
+                        {/* Show either comment text OR alternative vendor, not both */}
+                        {comment.text && comment.text.trim() ? (
+                          <p className="text-white text-sm mt-1">{comment.text}</p>
+                        ) : comment.alternative_vendor ? (
+                          <div className="mt-1 text-amber-500 text-sm">
                             Alternative Vendor: {comment.alternative_vendor}
                           </div>
-                        )}
+                        ) : null}
                       </div>
                     ))
                   )}
                 </div>
               </div>
               
-              {/* Add Comment Form */}
-              <div className="bg-zinc-800 rounded-lg p-3">
-                <h4 className="text-sm font-medium text-zinc-400 mb-2">Add Comment</h4>
-                <Textarea
-                  value={commentText}
-                  onChange={(e) => setCommentText(e.target.value)}
-                  placeholder="Add a comment or alternative solution..."
-                  className="bg-zinc-700 border-zinc-600 text-white placeholder:text-zinc-500 mb-2"
-                  rows={3}
-                />
-                <Input
-                  value={alternativeVendor}
-                  onChange={(e) => setAlternativeVendor(e.target.value)}
-                  placeholder="Alternative vendor trunk (optional)"
-                  className="bg-zinc-700 border-zinc-600 text-white placeholder:text-zinc-500 mb-2"
-                />
-                <Button 
-                  onClick={handleAddComment} 
-                  disabled={!commentText.trim() && !alternativeVendor}
-                  className="w-full bg-amber-500 text-black hover:bg-amber-400"
-                >
-                  Add Comment
-                </Button>
-              </div>
+              {/* Add Comment Form - Only show if alert is not resolved */}
+              {!selectedAlert.resolved && (
+                <div className="bg-zinc-800 rounded-lg p-3">
+                  <h4 className="text-sm font-medium text-zinc-400 mb-2">Add Comment</h4>
+                  <Textarea
+                    value={commentText}
+                    onChange={(e) => setCommentText(e.target.value)}
+                    placeholder="Add a comment or alternative solution..."
+                    className="bg-zinc-700 border-zinc-600 text-white placeholder:text-zinc-500 mb-2"
+                    rows={3}
+                  />
+                  <Input
+                    value={alternativeVendor}
+                    onChange={(e) => setAlternativeVendor(e.target.value)}
+                    placeholder="Alternative vendor trunk (optional)"
+                    className="bg-zinc-700 border-zinc-600 text-white placeholder:text-zinc-500 mb-2"
+                  />
+                  <Button 
+                    onClick={handleAddComment} 
+                    disabled={!commentText.trim() && !alternativeVendor}
+                    className="w-full bg-amber-500 text-black hover:bg-amber-400"
+                  >
+                    Add Comment
+                  </Button>
+                </div>
+              )}
               
-              {/* Delete Alert */}
-              <Button
-                variant="destructive"
-                onClick={() => handleDeleteAlert(selectedAlert.id)}
-                className="w-full"
-              >
-                Delete Alert
-              </Button>
+              {/* Show resolved message if alert is resolved */}
+              {selectedAlert.resolved && (
+                <div className="bg-zinc-800 rounded-lg p-3">
+                  <p className="text-zinc-400 text-sm">This alert has been resolved and archived.</p>
+                </div>
+              )}
+              
+              {/* Action Buttons */}
+              {!selectedAlert.resolved ? (
+                <>
+                  <Button
+                    onClick={() => handleResolveAlert(selectedAlert.id)}
+                    className="w-full bg-emerald-500 text-black hover:bg-emerald-400 mb-2"
+                  >
+                    Resolve Alert
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    onClick={() => handleDeleteAlert(selectedAlert.id)}
+                    className="w-full"
+                  >
+                    Delete Alert
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  variant="destructive"
+                  onClick={() => handleDeleteAlert(selectedAlert.id)}
+                  className="w-full"
+                >
+                  Delete Alert
+                </Button>
+              )}
             </div>
           </div>
         )}
@@ -753,7 +814,7 @@ export default function ReferencesPage() {
                   <p className="text-zinc-400">No SMS reference lists yet</p>
                   <Button 
                     variant="outline" 
-                    className="mt-4"
+                    className="mt-4 text-white border-zinc-600 hover:bg-zinc-800"
                     onClick={() => handleOpenDialog("sms")}
                   >
                     Create your first SMS reference list
@@ -817,7 +878,7 @@ export default function ReferencesPage() {
                   <p className="text-zinc-400">No Voice reference lists yet</p>
                   <Button 
                     variant="outline" 
-                    className="mt-4"
+                    className="mt-4 text-white border-zinc-600 hover:bg-zinc-800"
                     onClick={() => handleOpenDialog("voice")}
                   >
                     Create your first Voice reference list
