@@ -1458,10 +1458,13 @@ async def create_reference_list(list_data: ReferenceListCreate, current_user: di
     
     # Include the id in the insert
     list_dict = reference_list.model_dump()
+    print(f"Creating reference list with id: {list_dict.get('id')}")
     list_dict["id"] = reference_list.id
-    del list_dict["_id"]  # Remove any auto-generated _id
+    if "_id" in list_dict:
+        del list_dict["_id"]
     
     await db.reference_lists.insert_one(list_dict)
+    print(f"Inserted list: {list_dict}")
     
     return reference_list
 
@@ -1469,10 +1472,14 @@ async def create_reference_list(list_data: ReferenceListCreate, current_user: di
 @api_router.put("/references/{list_id}", response_model=ReferenceList)
 async def update_reference_list(list_id: str, list_data: ReferenceListUpdate, current_user: dict = Depends(get_current_user)):
     """Update an existing reference list"""
+    print(f"Attempting to update list with id: {list_id}")
+    
     # Find existing list
     existing = await db.reference_lists.find_one({"id": list_id})
+    print(f"Found list: {existing}")
+    
     if not existing:
-        raise HTTPException(status_code=404, detail="Reference list not found")
+        raise HTTPException(status_code=404, detail=f"Reference list not found: {list_id}")
     
     # Check department type access
     dept = await get_user_department(current_user)
@@ -1497,10 +1504,14 @@ async def update_reference_list(list_id: str, list_data: ReferenceListUpdate, cu
 @api_router.delete("/references/{list_id}")
 async def delete_reference_list(list_id: str, current_user: dict = Depends(get_current_user)):
     """Delete a reference list"""
+    print(f"Attempting to delete list with id: {list_id}")
+    
     # Find existing list
     existing = await db.reference_lists.find_one({"id": list_id})
+    print(f"Found list: {existing}")
+    
     if not existing:
-        raise HTTPException(status_code=404, detail="Reference list not found")
+        raise HTTPException(status_code=404, detail=f"Reference list not found: {list_id}")
     
     # Check department type access
     dept = await get_user_department(current_user)
