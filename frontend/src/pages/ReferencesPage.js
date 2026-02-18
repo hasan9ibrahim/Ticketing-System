@@ -47,6 +47,8 @@ import {
   Phone,
   MessageSquare,
   GripVertical,
+  Bell,
+  X,
 } from "lucide-react";
 
 const API = `${process.env.REACT_APP_API_URL || "http://localhost:8000"}/api`;
@@ -67,9 +69,12 @@ export default function ReferencesPage() {
   const { toast } = useToast();
   const user = JSON.parse(localStorage.getItem("user") || "{}");
   const departmentType = user?.department_type || "all";
+  const [mainTab, setMainTab] = useState("references"); // "references" or "alerts"
   const [activeSection, setActiveSection] = useState(departmentType === "voice" ? "voice" : departmentType === "sms" ? "sms" : "sms");
   const [smsLists, setSmsLists] = useState([]);
   const [voiceLists, setVoiceLists] = useState([]);
+  const [smsAlerts, setSmsAlerts] = useState([]);
+  const [voiceAlerts, setVoiceAlerts] = useState([]);
   const [smsVendorTrunks, setSmsVendorTrunks] = useState([]);
   const [voiceVendorTrunks, setVoiceVendorTrunks] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -78,6 +83,9 @@ export default function ReferencesPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [listToDelete, setListToDelete] = useState(null);
+  const [selectedAlert, setSelectedAlert] = useState(null);
+  const [commentText, setCommentText] = useState("");
+  const [alternativeVendor, setAlternativeVendor] = useState("");
 
   // Form state
   const [formData, setFormData] = useState({
@@ -89,7 +97,45 @@ export default function ReferencesPage() {
 
   useEffect(() => {
     fetchData();
+    handlePendingAlert();
   }, []);
+
+  // Handle pending alert from ticket page
+  const handlePendingAlert = async () => {
+    const pendingAlert = localStorage.getItem("pendingAlert");
+    if (pendingAlert) {
+      try {
+        const alertData = JSON.parse(pendingAlert);
+        const token = localStorage.getItem("token");
+        
+        // Create the alert in the backend
+        await axios.post(`${API}/alerts`, alertData, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        
+        toast({
+          title: "Success",
+          description: "Alert sent to References page"
+        });
+        
+        // Clear pending alert and switch to alerts tab
+        localStorage.removeItem("pendingAlert");
+        setMainTab("alerts");
+        setActiveSection(alertData.ticket_type);
+        
+        // Refresh data
+        fetchData();
+      } catch (error) {
+        console.error("Failed to create alert:", error);
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: "Failed to send alert"
+        });
+        localStorage.removeItem("pendingAlert");
+      }
+    }
+  };
 
   const fetchData = async () => {
     try {
@@ -107,6 +153,12 @@ export default function ReferencesPage() {
       console.log("SMS Lists response:", smsListsRes.data);
       setSmsLists(smsListsRes.data || []);
       
+      // Fetch SMS Alerts
+      const smsAlertsRes = await axios.get(`${API}/alerts/sms`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setSmsAlerts(smsAlertsRes.data || []);
+      
       // Fetch Voice data
       const voiceTrunksRes = await axios.get(`${API}/references/trunks/voice`, {
         headers: { Authorization: `Bearer ${token}` }
@@ -117,6 +169,12 @@ export default function ReferencesPage() {
         headers: { Authorization: `Bearer ${token}` }
       });
       setVoiceLists(voiceListsRes.data || []);
+      
+      // Fetch Voice Alerts
+      const voiceAlertsRes = await axios.get(`${API}/alerts/voice`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setVoiceAlerts(voiceAlertsRes.data || []);
       
     } catch (error) {
       console.error("Failed to fetch data:", error);
@@ -263,6 +321,69 @@ export default function ReferencesPage() {
     }
   };
 
+  // Handle adding a comment to an alert
+  const handleAddComment = async () => {
+    if (!selectedAlert || !commentText.trim()) return;
+    
+    try {
+      const token = localStorage.getItem("token");
+      await axios.post(
+        `${API}/alerts/${selectedAlert.id}/comments`,
+        { text: commentText, alternative_vendor: alternativeVendor },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      
+      toast({
+        title: "Success",
+        description: "Comment added successfully"
+      });
+      
+      setCommentText("");
+      setAlternativeVendor("");
+      fetchData();
+      
+      // Refresh selected alert
+      const alerts = activeSection === "sms" ? smsAlerts : voiceAlerts;
+      const updated = alerts.find(a => a.id === selectedAlert.id);
+      if (updated) setSelectedAlert(updated);
+      
+    } catch (error) {
+      console.error("Failed to add comment:", error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error.response?.data?.detail || "Failed to add comment"
+      });
+    }
+  };
+
+  // Handle deleting an alert
+  const handleDeleteAlert = async (alertId) => {
+    if (!confirm("Are you sure you want to delete this alert?")) return;
+    
+    try {
+      const token = localStorage.getItem("token");
+      await axios.delete(`${API}/alerts/${alertId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      toast({
+        title: "Success",
+        description: "Alert deleted successfully"
+      });
+      
+      setSelectedAlert(null);
+      fetchData();
+    } catch (error) {
+      console.error("Failed to delete alert:", error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error.response?.data?.detail || "Failed to delete alert"
+      });
+    }
+  };
+
   const handleVendorToggle = (trunk) => {
     const exists = formData.vendor_entries.find(v => v.trunk === trunk);
     if (exists) {
@@ -298,6 +419,187 @@ export default function ReferencesPage() {
     );
   };
 
+  const renderAlertsTab = (section) => {
+    const alerts = section === "sms" ? smsAlerts : voiceAlerts;
+    
+    if (alerts.length === 0) {
+      return (
+        <Card className="bg-zinc-900 border-zinc-800">
+          <CardContent className="flex flex-col items-center justify-center py-12">
+            <Bell className="h-12 w-12 text-zinc-600 mb-4" />
+            <p className="text-zinc-400">No alerts yet</p>
+            <p className="text-zinc-500 text-sm mt-2">Send alerts from ticket pages to see them here</p>
+          </CardContent>
+        </Card>
+      );
+    }
+    
+    return (
+      <div className="grid gap-4">
+        {alerts.map((alert) => (
+          <Card 
+            key={alert.id} 
+            className={`bg-zinc-900 border-zinc-800 cursor-pointer hover:border-zinc-600 ${selectedAlert?.id === alert.id ? 'border-amber-500' : ''}`}
+            onClick={() => setSelectedAlert(alert)}
+          >
+            <CardHeader className="pb-3">
+              <div className="flex items-start justify-between">
+                <div>
+                  <CardTitle className="text-lg text-white">
+                    {alert.ticket_number}
+                  </CardTitle>
+                  <CardDescription className="mt-1">
+                    <Badge variant="outline" className="mr-2 bg-zinc-800 text-zinc-300 border-zinc-600">
+                      {alert.customer}
+                    </Badge>
+                    <Badge variant="secondary" className="bg-zinc-700 text-zinc-300">
+                      {alert.destination || "No destination"}
+                    </Badge>
+                  </CardDescription>
+                </div>
+                <div className="text-xs text-zinc-500">
+                  {new Date(alert.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                </div>
+              </div>
+            </CardHeader>
+          </Card>
+        ))}
+        
+        {/* Alert Details Sidebar */}
+        {selectedAlert && (
+          <div className="fixed inset-y-0 right-0 w-96 bg-zinc-900 border-l border-zinc-800 p-4 overflow-y-auto shadow-lg z-50">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold text-white">Alert Details</h3>
+              <Button variant="ghost" size="icon" onClick={() => setSelectedAlert(null)}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+            
+            <div className="space-y-4">
+              {/* Ticket Info */}
+              <div className="bg-zinc-800 rounded-lg p-3">
+                <h4 className="text-sm font-medium text-zinc-400 mb-2">Ticket Information</h4>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-zinc-500">Ticket:</span>
+                    <span className="text-white">{selectedAlert.ticket_number}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-zinc-500">Customer:</span>
+                    <span className="text-white">{selectedAlert.customer}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-zinc-500">Destination:</span>
+                    <span className="text-white">{selectedAlert.destination || "-"}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-zinc-500">Issue Types:</span>
+                    <span className="text-white">{selectedAlert.issue_types?.join(", ") || "-"}</span>
+                  </div>
+                </div>
+              </div>
+              
+              {/* Vendor Info */}
+              <div className="bg-zinc-800 rounded-lg p-3">
+                <h4 className="text-sm font-medium text-zinc-400 mb-2">Vendor Information</h4>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-zinc-500">Vendor Trunk:</span>
+                    <span className="text-white">{selectedAlert.vendor_trunk || "-"}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-zinc-500">Rate:</span>
+                    <span className="text-white">{selectedAlert.rate || "-"}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-zinc-500">Cost:</span>
+                    <span className="text-white">{selectedAlert.cost || "-"}</span>
+                  </div>
+                </div>
+              </div>
+              
+              {/* SMS Details for SMS alerts */}
+              {selectedAlert.ticket_type === "sms" && selectedAlert.sms_details?.length > 0 && (
+                <div className="bg-zinc-800 rounded-lg p-3">
+                  <h4 className="text-sm font-medium text-zinc-400 mb-2">SMS Details</h4>
+                  <div className="space-y-2 text-sm">
+                    {selectedAlert.sms_details.map((sms, idx) => (
+                      <div key={idx} className="border-b border-zinc-700 pb-2 last:border-0">
+                        <div className="text-zinc-500">SID: <span className="text-white">{sms.sid || "-"}</span></div>
+                        <div className="text-zinc-500">Content: <span className="text-white">{sms.content || "-"}</span></div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              
+              {/* Comments */}
+              <div className="bg-zinc-800 rounded-lg p-3">
+                <h4 className="text-sm font-medium text-zinc-400 mb-2">Comments ({selectedAlert.comments?.length || 0})</h4>
+                <div className="space-y-2 max-h-40 overflow-y-auto">
+                  {selectedAlert.comments?.length === 0 ? (
+                    <p className="text-zinc-500 text-sm">No comments yet</p>
+                  ) : (
+                    selectedAlert.comments?.map((comment, idx) => (
+                      <div key={idx} className="border-b border-zinc-700 pb-2 last:border-0">
+                        <div className="flex justify-between items-start">
+                          <span className="text-emerald-500 text-sm">{comment.created_by}</span>
+                          <span className="text-zinc-500 text-xs">
+                            {new Date(comment.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                          </span>
+                        </div>
+                        <p className="text-white text-sm mt-1">{comment.text}</p>
+                        {comment.alternative_vendor && (
+                          <div className="mt-1 text-amber-500 text-xs">
+                            Alternative Vendor: {comment.alternative_vendor}
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+              
+              {/* Add Comment Form */}
+              <div className="bg-zinc-800 rounded-lg p-3">
+                <h4 className="text-sm font-medium text-zinc-400 mb-2">Add Comment</h4>
+                <Textarea
+                  value={commentText}
+                  onChange={(e) => setCommentText(e.target.value)}
+                  placeholder="Add a comment or alternative solution..."
+                  className="bg-zinc-700 border-zinc-600 text-white placeholder:text-zinc-500 mb-2"
+                  rows={3}
+                />
+                <Input
+                  value={alternativeVendor}
+                  onChange={(e) => setAlternativeVendor(e.target.value)}
+                  placeholder="Alternative vendor trunk (optional)"
+                  className="bg-zinc-700 border-zinc-600 text-white placeholder:text-zinc-500 mb-2"
+                />
+                <Button 
+                  onClick={handleAddComment} 
+                  disabled={!commentText.trim()}
+                  className="w-full bg-amber-500 text-black hover:bg-amber-400"
+                >
+                  Add Comment
+                </Button>
+              </div>
+              
+              {/* Delete Alert */}
+              <Button
+                variant="destructive"
+                onClick={() => handleDeleteAlert(selectedAlert.id)}
+                className="w-full"
+              >
+                Delete Alert
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+  
   const renderReferenceTable = (list) => (
     <Table>
       <TableHeader>
@@ -366,8 +668,29 @@ export default function ReferencesPage() {
         </div>
       </div>
 
-      <Tabs defaultValue={activeSection} onValueChange={setActiveSection} className="bg-zinc-900">
+      {/* Main Tabs: References vs Alerts */}
+      <Tabs defaultValue={mainTab} onValueChange={setMainTab} className="bg-zinc-900">
         <TabsList className="mb-4 bg-zinc-800">
+          <TabsTrigger value="references" className="gap-2 text-zinc-300 data-[state=active]:bg-zinc-700 data-[state=active]:text-white">
+            <Database className="h-4 w-4" />
+            References
+          </TabsTrigger>
+          <TabsTrigger value="alerts" className="gap-2 text-zinc-300 data-[state=active]:bg-zinc-700 data-[state=active]:text-white">
+            <Bell className="h-4 w-4" />
+            Alerts
+            {(smsAlerts.length + voiceAlerts.length) > 0 && (
+              <Badge variant="destructive" className="ml-1 h-5 px-1.5 text-xs">
+                {smsAlerts.length + voiceAlerts.length}
+              </Badge>
+            )}
+          </TabsTrigger>
+        </TabsList>
+        
+        {/* References Tab */}
+        {mainTab === "references" && (
+          <>
+          <Tabs defaultValue={activeSection} onValueChange={setActiveSection} className="bg-zinc-900">
+            <TabsList className="mb-4 bg-zinc-800">
           {(departmentType === "all" || departmentType === "sms") && (
             <TabsTrigger value="sms" className="gap-2 text-zinc-300 data-[state=active]:bg-zinc-700 data-[state=active]:text-white">
               <MessageSquare className="h-4 w-4" />
@@ -510,6 +833,47 @@ export default function ReferencesPage() {
           </TabsContent>
         )}
       </Tabs>
+      </>
+      )}
+      
+      {/* Alerts Tab Content */}
+      {mainTab === "alerts" && (
+        <>
+        <Tabs defaultValue={activeSection} onValueChange={setActiveSection} className="bg-zinc-900">
+          <TabsList className="mb-4 bg-zinc-800">
+            {(departmentType === "all" || departmentType === "sms") && (
+              <TabsTrigger value="sms" className="gap-2 text-zinc-300 data-[state=active]:bg-zinc-700 data-[state=active]:text-white">
+                <MessageSquare className="h-4 w-4" />
+                SMS Alerts
+                {smsAlerts.length > 0 && (
+                  <Badge variant="destructive" className="ml-1 h-5 px-1.5 text-xs">{smsAlerts.length}</Badge>
+                )}
+              </TabsTrigger>
+            )}
+            {(departmentType === "all" || departmentType === "voice") && (
+              <TabsTrigger value="voice" className="gap-2 text-zinc-300 data-[state=active]:bg-zinc-700 data-[state=active]:text-white">
+                <Phone className="h-4 w-4" />
+                Voice Alerts
+                {voiceAlerts.length > 0 && (
+                  <Badge variant="destructive" className="ml-1 h-5 px-1.5 text-xs">{voiceAlerts.length}</Badge>
+                )}
+              </TabsTrigger>
+            )}
+          </TabsList>
+          
+          {(departmentType === "all" || departmentType === "sms") && (
+            <TabsContent value="sms" className="bg-zinc-900 p-4 rounded-md">
+              {renderAlertsTab("sms")}
+            </TabsContent>
+          )}
+          
+          {(departmentType === "all" || departmentType === "voice") && (
+            <TabsContent value="voice" className="bg-zinc-900 p-4 rounded-md">
+              {renderAlertsTab("voice")}
+            </TabsContent>
+          )}
+        </Tabs>
+      </>)}
 
       {/* Create/Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -685,6 +1049,7 @@ export default function ReferencesPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      </Tabs>
     </div>
   );
 }
