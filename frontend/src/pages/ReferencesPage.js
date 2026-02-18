@@ -323,7 +323,7 @@ export default function ReferencesPage() {
 
   // Handle adding a comment to an alert
   const handleAddComment = async () => {
-    if (!selectedAlert || !commentText.trim()) return;
+    if (!selectedAlert || (!commentText.trim() && !alternativeVendor)) return;
     
     try {
       const token = localStorage.getItem("token");
@@ -578,7 +578,7 @@ export default function ReferencesPage() {
                 />
                 <Button 
                   onClick={handleAddComment} 
-                  disabled={!commentText.trim()}
+                  disabled={!commentText.trim() && !alternativeVendor}
                   className="w-full bg-amber-500 text-black hover:bg-amber-400"
                 >
                   Add Comment
@@ -835,7 +835,7 @@ export default function ReferencesPage() {
       </Tabs>
       </>
       )}
-      
+
       {/* Alerts Tab Content */}
       {mainTab === "alerts" && (
         <>
