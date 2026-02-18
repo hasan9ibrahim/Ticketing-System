@@ -1438,6 +1438,8 @@ async def get_reference_lists(section: str, current_user: dict = Depends(get_cur
 @api_router.post("/references", response_model=ReferenceList)
 async def create_reference_list(list_data: ReferenceListCreate, current_user: dict = Depends(get_current_user)):
     """Create a new reference list"""
+    print(f"Received request to create reference list: {list_data}")
+    print(f"User: {current_user}")
     # Validate section
     if list_data.section not in ["sms", "voice"]:
         raise HTTPException(status_code=400, detail="Section must be 'sms' or 'voice'")
@@ -1478,8 +1480,15 @@ async def update_reference_list(list_id: str, list_data: ReferenceListUpdate, cu
     """Update an existing reference list"""
     print(f"Attempting to update list with id: {list_id}")
     
-    # Find existing list
-    existing = await db.reference_lists.find_one({"id": list_id})
+    # Find existing list - check both id and _id
+    from bson import ObjectId
+    try:
+        existing = await db.reference_lists.find_one({"id": list_id})
+        if not existing:
+            existing = await db.reference_lists.find_one({"_id": ObjectId(list_id)})
+    except:
+        existing = await db.reference_lists.find_one({"id": list_id})
+    
     print(f"Found list: {existing}")
     
     if not existing:
@@ -1495,13 +1504,15 @@ async def update_reference_list(list_id: str, list_data: ReferenceListUpdate, cu
     update_data = list_data.model_dump(exclude_unset=True)
     update_data["updated_at"] = datetime.now(timezone.utc)
     
+    # Use the correct key for update
+    update_key = "id" if "id" in existing else "_id"
     await db.reference_lists.update_one(
-        {"id": list_id},
+        {update_key: existing.get(update_key)},
         {"$set": update_data}
     )
     
     # Return updated list
-    updated = await db.reference_lists.find_one({"id": list_id}, {"_id": 0})
+    updated = await db.reference_lists.find_one({update_key: existing.get(update_key)}, {"_id": 0})
     return updated
 
 
@@ -1510,8 +1521,18 @@ async def delete_reference_list(list_id: str, current_user: dict = Depends(get_c
     """Delete a reference list"""
     print(f"Attempting to delete list with id: {list_id}")
     
-    # Find existing list
-    existing = await db.reference_lists.find_one({"id": list_id})
+    # Find existing list - check both id and _id
+    from bson import ObjectId
+    try:
+        # Try to find by id field first
+        existing = await db.reference_lists.find_one({"id": list_id})
+        if not existing:
+            # Try to find by _id (MongoDB's ObjectId)
+            existing = await db.reference_lists.find_one({"_id": ObjectId(list_id)})
+    except:
+        # If list_id is not a valid ObjectId, just search by id field
+        existing = await db.reference_lists.find_one({"id": list_id})
+    
     print(f"Found list: {existing}")
     
     if not existing:
@@ -1523,7 +1544,9 @@ async def delete_reference_list(list_id: str, current_user: dict = Depends(get_c
     if ticket_type != "all" and ticket_type != existing.get("section"):
         raise HTTPException(status_code=403, detail=f"You don't have access to {existing.get('section')} references")
     
-    await db.reference_lists.delete_one({"id": list_id})
+    # Delete using the found document's id field or _id
+    delete_key = "id" if "id" in existing else "_id"
+    await db.reference_lists.delete_one({delete_key: existing.get(delete_key)})
     
     return {"message": "Reference list deleted successfully"}
 
