@@ -503,18 +503,29 @@ export default function ReferencesPage() {
               <div className="bg-zinc-800 rounded-lg p-3">
                 <h4 className="text-sm font-medium text-zinc-400 mb-2">Vendor Information</h4>
                 <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-zinc-500">Vendor Trunk:</span>
-                    <span className="text-white">{selectedAlert.vendor_trunk || "-"}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-zinc-500">Rate:</span>
-                    <span className="text-white">{selectedAlert.rate || "-"}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-zinc-500">Cost:</span>
-                    <span className="text-white">{selectedAlert.cost || "-"}</span>
-                  </div>
+                  {/* Get vendor info from vendor_trunks array or fallback to single fields */}
+                  {(() => {
+                    const vendorTrunks = selectedAlert.vendor_trunks || [];
+                    const firstVendor = vendorTrunks.length > 0 ? vendorTrunks[0] : {};
+                    const vendorTrunk = firstVendor.trunk || selectedAlert.vendor_trunk || "-";
+                    const vendorCost = firstVendor.cost || selectedAlert.cost || "-";
+                    return (
+                      <>
+                        <div className="flex justify-between">
+                          <span className="text-zinc-500">Vendor Trunk:</span>
+                          <span className="text-white">{vendorTrunk}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-zinc-500">Rate:</span>
+                          <span className="text-white">{selectedAlert.rate || "-"}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-zinc-500">Cost:</span>
+                          <span className="text-white">{vendorCost}</span>
+                        </div>
+                      </>
+                    );
+                  })()}
                 </div>
               </div>
               
