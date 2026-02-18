@@ -515,18 +515,18 @@ export default function ReferencesPage() {
                           <span className="text-zinc-500">Cost:</span>
                           <span className="text-white">{vendor.cost || "-"}</span>
                         </div>
-                        {vendor.percentage && (
-                          <div className="flex justify-between">
-                            <span className="text-zinc-500">Percentage:</span>
-                            <span className="text-white">{vendor.percentage}%</span>
-                          </div>
-                        )}
-                        {vendor.position && (
+                        {/* Show position instead of percentage when position is available */}
+                        {vendor.position ? (
                           <div className="flex justify-between">
                             <span className="text-zinc-500">Position:</span>
                             <span className="text-white">{vendor.position}</span>
                           </div>
-                        )}
+                        ) : vendor.percentage ? (
+                          <div className="flex justify-between">
+                            <span className="text-zinc-500">Percentage:</span>
+                            <span className="text-white">{vendor.percentage}%</span>
+                          </div>
+                        ) : null}
                       </div>
                     ))
                   ) : (
