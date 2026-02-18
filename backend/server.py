@@ -1426,6 +1426,19 @@ async def get_reference_lists(section: str, current_user: dict = Depends(get_cur
     
     # Get all reference lists for this section
     print(f"Fetching reference lists for section: {section}")
+    
+    # First, migrate any lists that don't have an id field
+    async for doc in db.reference_lists.find({"section": section, "id": {"$exists": False}}):
+        # Add id field using the _id or generate a new one
+        import uuid
+        new_id = str(uuid.uuid4())
+        await db.reference_lists.update_one(
+            {"_id": doc["_id"]},
+            {"$set": {"id": new_id}}
+        )
+        print(f"Migrated list {doc['_id']} with new id: {new_id}")
+    
+    # Now get all lists
     lists = await db.reference_lists.find(
         {"section": section},
         {"_id": 0}
@@ -1489,6 +1502,27 @@ async def update_reference_list(list_id: str, list_data: ReferenceListUpdate, cu
     except:
         existing = await db.reference_lists.find_one({"id": list_id})
     
+    # If still not found, try to find by name+destination+section (fallback for legacy data)
+    if not existing and '-' in list_id:
+        parts = list_id.rsplit('-', 2)
+        if len(parts) >= 3:
+            section = parts[-1]
+            destination = parts[-2]
+            name = '-'.join(parts[:-2])
+            existing = await db.reference_lists.find_one({
+                "name": name,
+                "destination": destination,
+                "section": section
+            })
+            if existing and "id" not in existing:
+                import uuid
+                new_id = str(uuid.uuid4())
+                await db.reference_lists.update_one(
+                    {"_id": existing["_id"]},
+                    {"$set": {"id": new_id}}
+                )
+                existing["id"] = new_id
+    
     print(f"Found list: {existing}")
     
     if not existing:
@@ -1532,6 +1566,28 @@ async def delete_reference_list(list_id: str, current_user: dict = Depends(get_c
     except:
         # If list_id is not a valid ObjectId, just search by id field
         existing = await db.reference_lists.find_one({"id": list_id})
+    
+    # If still not found, try to find by name+destination+section (fallback for legacy data)
+    if not existing and '-' in list_id:
+        parts = list_id.rsplit('-', 2)
+        if len(parts) >= 3:
+            section = parts[-1]
+            destination = parts[-2]
+            name = '-'.join(parts[:-2])
+            existing = await db.reference_lists.find_one({
+                "name": name,
+                "destination": destination,
+                "section": section
+            })
+            if existing and "id" not in existing:
+                # Add id to the existing record
+                import uuid
+                new_id = str(uuid.uuid4())
+                await db.reference_lists.update_one(
+                    {"_id": existing["_id"]},
+                    {"$set": {"id": new_id}}
+                )
+                existing["id"] = new_id
     
     print(f"Found list: {existing}")
     
