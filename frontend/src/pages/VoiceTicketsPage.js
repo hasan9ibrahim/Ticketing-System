@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import axios from "axios";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, Search, Phone, Calendar, Trash2, MessageSquare, X, ListChecks, Pencil } from "lucide-react";
+import { Plus, Search, Phone, Calendar, Trash2, MessageSquare, X, ListChecks, Pencil, Bell } from "lucide-react";
 import { toast } from "sonner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -1208,6 +1208,35 @@ export default function VoiceTicketsPage() {
           <DialogHeader>
             <DialogTitle>Ticket Actions - {selectedTicket?.ticket_number}</DialogTitle>
           </DialogHeader>
+          {/* Send Alert Button */}
+          <div className="flex justify-end">
+            <Button
+              size="sm"
+              onClick={() => {
+                // Send alert to References page
+                const alertData = {
+                  ticket_id: selectedTicket.id,
+                  ticket_number: selectedTicket.ticket_number,
+                  ticket_type: "voice",
+                  customer: selectedTicket.customer,
+                  customer_id: selectedTicket.customer_id,
+                  destination: selectedTicket.destination,
+                  issue_types: selectedTicket.issue_types || [],
+                  issue_other: selectedTicket.issue_other,
+                  vendor_trunk: selectedTicket.vendor_trunk,
+                  vendor_trunks: selectedTicket.vendor_trunks || [],
+                  rate: selectedTicket.rate,
+                  cost: selectedTicket.cost
+                };
+                localStorage.setItem("pendingAlert", JSON.stringify(alertData));
+                window.location.href = "/references?tab=alerts&section=voice";
+              }}
+              className="bg-amber-500 text-black hover:bg-amber-400"
+            >
+              <Bell className="h-4 w-4 mr-2" />
+              Send Alert
+            </Button>
+          </div>
           <div className="space-y-4 max-h-[400px] overflow-y-auto">
             {ticketActions.length === 0 ? (
               <p className="text-zinc-500 text-center py-4">No actions recorded yet</p>
