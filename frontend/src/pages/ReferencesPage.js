@@ -20,6 +20,17 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import {
   Table,
   TableBody,
   TableCell,
@@ -65,6 +76,8 @@ export default function ReferencesPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingList, setEditingList] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [listToDelete, setListToDelete] = useState(null);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -216,7 +229,16 @@ export default function ReferencesPage() {
       });
       return;
     }
-    if (!confirm("Are you sure you want to delete this reference list?")) return;
+    
+    // Use custom dialog instead of browser confirm()
+    setListToDelete(list);
+    setDeleteDialogOpen(true);
+  };
+  
+  const confirmDelete = async () => {
+    if (!listToDelete) return;
+    
+    const listId = listToDelete?.id || listToDelete?._id || `${listToDelete?.name}-${listToDelete?.destination}-${listToDelete?.section}`;
     
     try {
       const token = localStorage.getItem("token");
@@ -228,6 +250,8 @@ export default function ReferencesPage() {
         title: "Success",
         description: "Reference list deleted successfully"
       });
+      setDeleteDialogOpen(false);
+      setListToDelete(null);
       fetchData();
     } catch (error) {
       console.error("Failed to delete:", error);
@@ -249,7 +273,7 @@ export default function ReferencesPage() {
     } else {
       setFormData({
         ...formData,
-        vendor_entries: [...formData.vendor_entries, { trunk, cost: "", custom_field: "" }]
+        vendor_entries: [...formData.vendor_entries, { trunk, cost: "", notes: "" }]
       });
     }
   };
@@ -283,7 +307,7 @@ export default function ReferencesPage() {
           </TableHead>
           <TableHead className="text-zinc-300">Vendor Trunk</TableHead>
           <TableHead className="text-zinc-300">Cost</TableHead>
-          <TableHead className="text-zinc-300">Custom Field</TableHead>
+          <TableHead className="text-zinc-300">Notes</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -294,7 +318,7 @@ export default function ReferencesPage() {
             </TableCell>
             <TableCell className="font-medium text-white">{vendor.trunk}</TableCell>
             <TableCell className="text-zinc-300">{vendor.cost || "-"}</TableCell>
-            <TableCell className="text-zinc-300">{vendor.custom_field || "-"}</TableCell>
+            <TableCell className="text-zinc-300">{vendor.notes || "-"}</TableCell>
           </TableRow>
         ))}
         {(list.vendor_entries || []).length === 0 && (
@@ -620,8 +644,8 @@ export default function ReferencesPage() {
                           <Label className="text-xs text-zinc-400">Note</Label>
                           <Input
                             value={vendor.custom_field || ""}
-                            onChange={(e) => handleVendorFieldChange(vendor.trunk, "custom_field", e.target.value)}
-                            placeholder="Additional info..."
+                            onChange={(e) => handleVendorFieldChange(vendor.trunk, "notes", e.target.value)}
+                            placeholder="Notes..."
                             className="bg-zinc-700 border-zinc-600 text-white placeholder:text-zinc-500 h-8 text-sm"
                           />
                         </div>
@@ -643,6 +667,24 @@ export default function ReferencesPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent className="bg-zinc-950 border-zinc-800 text-white">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Reference List</AlertDialogTitle>
+            <AlertDialogDescription className="text-zinc-400">
+              Are you sure you want to delete "{listToDelete?.name}"? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="bg-zinc-800 text-white hover:bg-zinc-700">Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete} className="bg-red-600 text-white hover:bg-red-700">
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
