@@ -91,6 +91,7 @@ export default function ReferencesPage() {
       const smsListsRes = await axios.get(`${API}/references/sms`, {
         headers: { Authorization: `Bearer ${token}` }
       });
+      console.log("SMS Lists response:", smsListsRes.data);
       setSmsLists(smsListsRes.data || []);
       
       // Fetch Voice data
@@ -119,6 +120,7 @@ export default function ReferencesPage() {
   const handleOpenDialog = (section, list = null) => {
     setActiveSection(section);
     if (list) {
+      console.log("Editing list:", list);
       setEditingList(list);
       setFormData({
         name: list.name,
@@ -199,10 +201,20 @@ export default function ReferencesPage() {
   };
 
   const handleDelete = async (listId) => {
+    if (!listId) {
+      console.error("List ID is undefined!");
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Cannot delete: List ID is missing"
+      });
+      return;
+    }
     if (!confirm("Are you sure you want to delete this reference list?")) return;
     
     try {
       const token = localStorage.getItem("token");
+      console.log("Deleting list with id:", listId);
       await axios.delete(`${API}/references/${listId}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -216,7 +228,7 @@ export default function ReferencesPage() {
       toast({
         variant: "destructive",
         title: "Error",
-        description: "Failed to delete reference list"
+        description: error.response?.data?.detail || "Failed to delete reference list"
       });
     }
   };
@@ -259,24 +271,24 @@ export default function ReferencesPage() {
   const renderReferenceTable = (list) => (
     <Table>
       <TableHeader>
-        <TableRow>
+        <TableRow className="hover:bg-zinc-800 border-zinc-700">
           <TableHead className="w-8">
             <GripVertical className="h-4 w-4 text-zinc-500" />
           </TableHead>
-          <TableHead>Vendor Trunk</TableHead>
-          <TableHead>Cost</TableHead>
-          <TableHead>Custom Field</TableHead>
+          <TableHead className="text-zinc-300">Vendor Trunk</TableHead>
+          <TableHead className="text-zinc-300">Cost</TableHead>
+          <TableHead className="text-zinc-300">Custom Field</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
         {(list.vendor_entries || []).map((vendor, idx) => (
-          <TableRow key={idx}>
+          <TableRow key={idx} className="border-zinc-700">
             <TableCell className="w-8">
               <GripVertical className="h-4 w-4 text-zinc-500 cursor-grab" />
             </TableCell>
-            <TableCell className="font-medium">{vendor.trunk}</TableCell>
-            <TableCell>{vendor.cost || "-"}</TableCell>
-            <TableCell>{vendor.custom_field || "-"}</TableCell>
+            <TableCell className="font-medium text-white">{vendor.trunk}</TableCell>
+            <TableCell className="text-zinc-300">{vendor.cost || "-"}</TableCell>
+            <TableCell className="text-zinc-300">{vendor.custom_field || "-"}</TableCell>
           </TableRow>
         ))}
         {(list.vendor_entries || []).length === 0 && (
@@ -366,7 +378,7 @@ export default function ReferencesPage() {
             ) : (
               <div className="grid gap-4">
                 {filterLists(smsLists).map((list) => (
-                  <Card key={list.id} className="bg-zinc-900 border-zinc-800">
+                  <Card key={list.id || list._id} className="bg-zinc-900 border-zinc-800">
                     <CardHeader className="pb-3">
                       <div className="flex items-start justify-between">
                         <div>
