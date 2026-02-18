@@ -204,14 +204,15 @@ export default function ReferencesPage() {
 
   const handleDelete = async (list) => {
     // Support both passing full list object or just the id
-    const listId = list?.id || list?._id;
-    if (!listId) {
+    // Generate id from list properties if missing (fallback)
+    const listId = list?.id || list?._id || `${list?.name}-${list?.destination}-${list?.section}`;
+    if (!listId || listId.includes('undefined')) {
       console.error("List object:", list);
       console.error("List ID is undefined! Both id and _id are missing");
       toast({
         variant: "destructive",
         title: "Error",
-        description: "Cannot delete: List ID is missing"
+        description: "Cannot delete: List ID is missing. Please refresh the page and try again."
       });
       return;
     }
