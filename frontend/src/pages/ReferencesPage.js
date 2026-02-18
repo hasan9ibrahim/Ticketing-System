@@ -327,7 +327,7 @@ export default function ReferencesPage() {
     
     try {
       const token = localStorage.getItem("token");
-      await axios.post(
+      const response = await axios.post(
         `${API}/alerts/${selectedAlert.id}/comments`,
         { text: commentText, alternative_vendor: alternativeVendor },
         { headers: { Authorization: `Bearer ${token}` } }
@@ -338,14 +338,20 @@ export default function ReferencesPage() {
         description: "Comment added successfully"
       });
       
+      // Create the new comment object
+      const newComment = response.data.comment;
+      
+      // Update selectedAlert immediately with the new comment
+      setSelectedAlert({
+        ...selectedAlert,
+        comments: [...(selectedAlert.comments || []), newComment]
+      });
+      
       setCommentText("");
       setAlternativeVendor("");
-      fetchData();
       
-      // Refresh selected alert
-      const alerts = activeSection === "sms" ? smsAlerts : voiceAlerts;
-      const updated = alerts.find(a => a.id === selectedAlert.id);
-      if (updated) setSelectedAlert(updated);
+      // Also refresh all alerts in background
+      fetchData();
       
     } catch (error) {
       console.error("Failed to add comment:", error);
