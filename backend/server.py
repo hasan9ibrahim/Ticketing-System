@@ -1629,6 +1629,7 @@ class Alert(BaseModel):
     created_by: str
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     comments: List[dict] = Field(default_factory=list)  # List of {id, text, created_by, created_at}
+    resolved: bool = False  # Whether the alert has been resolved/archived
 
 
 class AlertCreate(BaseModel):
@@ -1741,6 +1742,22 @@ async def delete_alert(alert_id: str, current_user: dict = Depends(get_current_u
     await db.alerts.delete_one({"id": alert_id})
     
     return {"message": "Alert deleted successfully"}
+
+
+@api_router.post("/alerts/{alert_id}/resolve")
+async def resolve_alert(alert_id: str, current_user: dict = Depends(get_current_user)):
+    """Resolve an alert - marks it as archived/resolved"""
+    alert = await db.alerts.find_one({"id": alert_id})
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    
+    await db.alerts.update_one(
+        {"id": alert_id},
+        {"$set": {"resolved": True}}
+    )
+    
+    return {"message": "Alert resolved successfully"}
+
 
 # ==================== SMS TICKET ROUTES ====================
 
