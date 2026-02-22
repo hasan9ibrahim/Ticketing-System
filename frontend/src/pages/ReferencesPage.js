@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import axios from "axios";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -10,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
+import MultiFilter from "@/components/custom/MultiFilter";
 import {
   Dialog,
   DialogContent,
@@ -53,34 +55,53 @@ import {
 
 const API = `${process.env.REACT_APP_API_URL || "http://localhost:8000"}/api`;
 
-// Traffic types as per backend
-const TRAFFIC_TYPES = [
+// Traffic types - different for SMS and Voice
+const SMS_TRAFFIC_TYPES = [
   "OTP",
-  "Phishing",
-  "Spam",
-  "Spam and Phishing",
+  "Promo",
   "Casino",
   "Clean Marketing",
   "Banking",
   "Other"
 ];
 
+const VOICE_TRAFFIC_TYPES = [
+  "CLI",
+  "NCLI",
+  "CC",
+  "TDM",
+  "Other"
+];
+
+// Get traffic types based on section (sms or voice)
+const getTrafficTypes = (section) => section === "voice" ? VOICE_TRAFFIC_TYPES : SMS_TRAFFIC_TYPES;
+
 export default function ReferencesPage() {
   const { toast } = useToast();
   const user = JSON.parse(localStorage.getItem("user") || "{}");
   const departmentType = user?.department_type || "all";
   const [mainTab, setMainTab] = useState("references"); // "references" or "alerts"
-  const [activeSection, setActiveSection] = useState(departmentType === "voice" ? "voice" : departmentType === "sms" ? "sms" : "sms");
+  const [activeSection, setActiveSection] = useState(() => {
+    // Ensure activeSection is always a valid value ("sms" or "voice")
+    const deptType = user?.department_type;
+    return deptType === "voice" ? "voice" : "sms";
+  });
   const [smsLists, setSmsLists] = useState([]);
   const [voiceLists, setVoiceLists] = useState([]);
   const [smsAlerts, setSmsAlerts] = useState([]);
   const [voiceAlerts, setVoiceAlerts] = useState([]);
+  
+  // Compute unresolved alert counts (exclude resolved alerts from badge count)
+  const unresolvedSmsAlerts = smsAlerts.filter(a => !a.resolved);
+  const unresolvedVoiceAlerts = voiceAlerts.filter(a => !a.resolved);
+  const totalUnresolvedAlerts = unresolvedSmsAlerts.length + unresolvedVoiceAlerts.length;
   const [smsVendorTrunks, setSmsVendorTrunks] = useState([]);
   const [voiceVendorTrunks, setVoiceVendorTrunks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingList, setEditingList] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [filters, setFilters] = useState([]);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [listToDelete, setListToDelete] = useState(null);
   const [selectedAlert, setSelectedAlert] = useState(null);
@@ -88,12 +109,14 @@ export default function ReferencesPage() {
   const [alternativeVendor, setAlternativeVendor] = useState("");
   const [alertToDelete, setAlertToDelete] = useState(null);
   const [alertToResolve, setAlertToResolve] = useState(null);
+  const [searchParams] = useSearchParams();
 
   // Form state
   const [formData, setFormData] = useState({
     name: "",
     destination: "",
     traffic_type: "",
+    custom_traffic_type: "",
     vendor_entries: []
   });
 
@@ -101,6 +124,53 @@ export default function ReferencesPage() {
     fetchData();
     handlePendingAlert();
   }, []);
+
+  // Clear filters when switching between SMS and Voice sections
+  useEffect(() => {
+    setFilters([]);
+    setSearchQuery("");
+  }, [activeSection]);
+
+  // Handle alert query parameter - open specific alert when navigating from notification
+  useEffect(() => {
+    const alertParam = searchParams.get("alert");
+    // Also check localStorage for direct navigation
+    const storedParam = localStorage.getItem('openTicketParam');
+    const paramToUse = alertParam || (storedParam?.startsWith('alert=') ? storedParam.replace('alert=', '').split('&')[0] : null);
+    
+    if (paramToUse || alertParam) {
+      // Switch to alerts tab
+      setMainTab("alerts");
+      
+      // Find the alert in either smsAlerts or voiceAlerts
+      const findAlert = (alerts) => alerts.find(a => 
+        a.ticket_number === (paramToUse || alertParam) || 
+        a.id === (paramToUse || alertParam) || 
+        a.alert_id === (paramToUse || alertParam)
+      );
+      const foundAlert = findAlert(smsAlerts) || findAlert(voiceAlerts);
+      
+      if (foundAlert) {
+        setSelectedAlert(foundAlert);
+        // Set the active section based on alert type
+        setActiveSection(foundAlert.ticket_type || "sms");
+      } else if (smsAlerts.length > 0 || voiceAlerts.length > 0) {
+        // Alerts might not be loaded yet, try again after a short delay
+        const timer = setTimeout(() => {
+          const retryAlert = findAlert(smsAlerts) || findAlert(voiceAlerts);
+          if (retryAlert) {
+            setSelectedAlert(retryAlert);
+            setActiveSection(retryAlert.ticket_type || "sms");
+          }
+        }, 500);
+        return () => clearTimeout(timer);
+      }
+      // Clear localStorage after use
+      if (storedParam) {
+        localStorage.removeItem('openTicketParam');
+      }
+    }
+  }, [searchParams, smsAlerts, voiceAlerts]);
 
   // Handle pending alert from ticket page
   const handlePendingAlert = async () => {
@@ -142,41 +212,68 @@ export default function ReferencesPage() {
   const fetchData = async () => {
     try {
       const token = localStorage.getItem("token");
+      const user = JSON.parse(localStorage.getItem("user") || "{}");
+      const deptType = user?.department_type || "all";
       
-      // Fetch SMS data
-      const smsTrunksRes = await axios.get(`${API}/references/trunks/sms`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setSmsVendorTrunks(smsTrunksRes.data.vendor_trunks || []);
+      // Fetch SMS data - only if user has access
+      if (deptType === "all" || deptType === "sms") {
+        try {
+          const smsTrunksRes = await axios.get(`${API}/references/trunks/sms`, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          setSmsVendorTrunks(smsTrunksRes.data.vendor_trunks || []);
+          
+          const smsListsRes = await axios.get(`${API}/references/sms`, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          setSmsLists(smsListsRes.data || []);
+        } catch (e) {
+          console.log("SMS data fetch error:", e.message);
+        }
+      }
       
-      const smsListsRes = await axios.get(`${API}/references/sms`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      console.log("SMS Lists response:", smsListsRes.data);
-      setSmsLists(smsListsRes.data || []);
+      // Fetch SMS Alerts - only if user has access to SMS
+      if (deptType === "all" || deptType === "sms") {
+        try {
+          const smsAlertsRes = await axios.get(`${API}/alerts/sms`, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          setSmsAlerts(smsAlertsRes.data || []);
+        } catch (e) {
+          console.log("SMS alerts fetch error (may be access denied):", e.message);
+          setSmsAlerts([]);
+        }
+      }
       
-      // Fetch SMS Alerts
-      const smsAlertsRes = await axios.get(`${API}/alerts/sms`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setSmsAlerts(smsAlertsRes.data || []);
+      // Fetch Voice data - only if user has access
+      if (deptType === "all" || deptType === "voice") {
+        try {
+          const voiceTrunksRes = await axios.get(`${API}/references/trunks/voice`, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          setVoiceVendorTrunks(voiceTrunksRes.data.vendor_trunks || []);
+          
+          const voiceListsRes = await axios.get(`${API}/references/voice`, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          setVoiceLists(voiceListsRes.data || []);
+        } catch (e) {
+          console.log("Voice data fetch error:", e.message);
+        }
+      }
       
-      // Fetch Voice data
-      const voiceTrunksRes = await axios.get(`${API}/references/trunks/voice`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setVoiceVendorTrunks(voiceTrunksRes.data.vendor_trunks || []);
-      
-      const voiceListsRes = await axios.get(`${API}/references/voice`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setVoiceLists(voiceListsRes.data || []);
-      
-      // Fetch Voice Alerts
-      const voiceAlertsRes = await axios.get(`${API}/alerts/voice`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setVoiceAlerts(voiceAlertsRes.data || []);
+      // Fetch Voice Alerts - only if user has access to Voice
+      if (deptType === "all" || deptType === "voice") {
+        try {
+          const voiceAlertsRes = await axios.get(`${API}/alerts/voice`, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          setVoiceAlerts(voiceAlertsRes.data || []);
+        } catch (e) {
+          console.log("Voice alerts fetch error:", e.response?.data || e.message);
+          setVoiceAlerts([]);
+        }
+      }
       
     } catch (error) {
       console.error("Failed to fetch data:", error);
@@ -199,6 +296,7 @@ export default function ReferencesPage() {
         name: list.name,
         destination: list.destination,
         traffic_type: list.traffic_type,
+        custom_traffic_type: list.custom_traffic_type || "",
         vendor_entries: list.vendor_entries || []
       });
     } else {
@@ -207,6 +305,7 @@ export default function ReferencesPage() {
         name: "",
         destination: "",
         traffic_type: "",
+        custom_traffic_type: "",
         vendor_entries: []
       });
     }
@@ -217,11 +316,25 @@ export default function ReferencesPage() {
     try {
       const token = localStorage.getItem("token");
       
+      // For "Other", require custom_traffic_type
+      const finalTrafficType = formData.traffic_type === "Other" 
+        ? formData.custom_traffic_type 
+        : formData.traffic_type;
+      
       if (!formData.name || !formData.destination || !formData.traffic_type) {
         toast({
           variant: "destructive",
           title: "Error",
           description: "Please fill in all required fields"
+        });
+        return;
+      }
+      
+      if (formData.traffic_type === "Other" && !formData.custom_traffic_type) {
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: "Please enter custom traffic type"
         });
         return;
       }
@@ -233,7 +346,8 @@ export default function ReferencesPage() {
           {
             name: formData.name,
             destination: formData.destination,
-            traffic_type: formData.traffic_type,
+            traffic_type: finalTrafficType,
+            custom_traffic_type: formData.custom_traffic_type,
             vendor_entries: formData.vendor_entries
           },
           { headers: { Authorization: `Bearer ${token}` } }
@@ -250,7 +364,8 @@ export default function ReferencesPage() {
             name: formData.name,
             section: activeSection,
             destination: formData.destination,
-            traffic_type: formData.traffic_type,
+            traffic_type: finalTrafficType,
+            custom_traffic_type: formData.custom_traffic_type,
             vendor_entries: formData.vendor_entries
           },
           { headers: { Authorization: `Bearer ${token}` } }
@@ -470,11 +585,44 @@ export default function ReferencesPage() {
     .filter(trunk => trunk.toLowerCase().includes(searchQuery.toLowerCase()));
 
   const filterLists = (lists) => {
-    return lists.filter(list => 
-      list.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      list.destination.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      list.traffic_type.toLowerCase().includes(searchQuery.toLowerCase())
-    );
+    let filtered = lists;
+    
+    // Apply search query
+    if (searchQuery) {
+      filtered = filtered.filter(list =>
+        list.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        list.destination.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        list.traffic_type.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+    }
+    
+    // Apply MultiFilter filters
+    filters.forEach((filter) => {
+      if (filter.field === "list_name" && filter.values.length > 0) {
+        const searchValue = filter.values[0].toLowerCase();
+        filtered = filtered.filter(list => 
+          list.name?.toLowerCase().includes(searchValue)
+        );
+      }
+      if (filter.field === "traffic_type" && filter.values.length > 0) {
+        filtered = filtered.filter(list => 
+          filter.values.includes(list.traffic_type)
+        );
+      }
+      if (filter.field === "destination" && filter.values.length > 0) {
+        const searchValue = filter.values[0].toLowerCase();
+        filtered = filtered.filter(list => 
+          list.destination?.toLowerCase().includes(searchValue)
+        );
+      }
+      if (filter.field === "vendor_trunk_ref" && filter.values.length > 0) {
+        filtered = filtered.filter(list => 
+          list.vendor_entries?.some(v => filter.values.includes(v.trunk))
+        );
+      }
+    });
+    
+    return filtered;
   };
 
   const renderAlertsTab = (section) => {
@@ -660,16 +808,19 @@ export default function ReferencesPage() {
                   <Textarea
                     value={commentText}
                     onChange={(e) => setCommentText(e.target.value)}
-                    placeholder="Add a comment or alternative solution..."
+                    placeholder="Add a comment..."
                     className="bg-zinc-700 border-zinc-600 text-white placeholder:text-zinc-500 mb-2"
                     rows={3}
                   />
-                  <Input
-                    value={alternativeVendor}
-                    onChange={(e) => setAlternativeVendor(e.target.value)}
-                    placeholder="Alternative vendor trunk (optional)"
-                    className="bg-zinc-700 border-zinc-600 text-white placeholder:text-zinc-500 mb-2"
-                  />
+                  {/* Alternative vendor trunk - Only for NOC and Admin, not for AMs */}
+                  {user?.role !== "am" && (
+                    <Input
+                      value={alternativeVendor}
+                      onChange={(e) => setAlternativeVendor(e.target.value)}
+                      placeholder="Alternative vendor trunk (optional)"
+                      className="bg-zinc-700 border-zinc-600 text-white placeholder:text-zinc-500 mb-2"
+                    />
+                  )}
                   <Button 
                     onClick={handleAddComment} 
                     disabled={!commentText.trim() && !alternativeVendor}
@@ -687,31 +838,35 @@ export default function ReferencesPage() {
                 </div>
               )}
               
-              {/* Action Buttons */}
-              {!selectedAlert.resolved ? (
+              {/* Action Buttons - Only show for NOC and Admin, not for AMs */}
+              {user?.role !== "am" && (
                 <>
-                  <Button
-                    onClick={() => setAlertToResolve(selectedAlert.id)}
-                    className="w-full bg-emerald-500 text-black hover:bg-emerald-400 mb-2"
-                  >
-                    Resolve Alert
-                  </Button>
-                  <Button
-                    variant="destructive"
-                    onClick={() => setAlertToDelete(selectedAlert.id)}
-                    className="w-full"
-                  >
-                    Delete Alert
-                  </Button>
+                  {!selectedAlert.resolved ? (
+                    <>
+                      <Button
+                        onClick={() => setAlertToResolve(selectedAlert.id)}
+                        className="w-full bg-emerald-500 text-black hover:bg-emerald-400 mb-2"
+                      >
+                        Resolve Alert
+                      </Button>
+                      <Button
+                        variant="destructive"
+                        onClick={() => setAlertToDelete(selectedAlert.id)}
+                        className="w-full"
+                      >
+                        Delete Alert
+                      </Button>
+                    </>
+                  ) : (
+                    <Button
+                      variant="destructive"
+                      onClick={() => setAlertToDelete(selectedAlert.id)}
+                      className="w-full"
+                    >
+                      Delete Alert
+                    </Button>
+                  )}
                 </>
-              ) : (
-                <Button
-                  variant="destructive"
-                  onClick={() => setAlertToDelete(selectedAlert.id)}
-                  className="w-full"
-                >
-                  Delete Alert
-                </Button>
               )}
             </div>
           </div>
@@ -776,14 +931,25 @@ export default function ReferencesPage() {
         </div>
       </div>
 
-      <div className="mb-4">
-        <div className="relative">
+      <div className="mb-4 flex gap-4 items-start">
+        <div className="flex-1 relative">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-zinc-500" />
           <Input
             placeholder="Search lists by name, destination, or traffic type..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-10 bg-zinc-800 border-zinc-700 text-white placeholder:text-zinc-500"
+          />
+        </div>
+        <div className="w-[300px]">
+          <MultiFilter
+            filters={filters}
+            onFilterChange={setFilters}
+            fields={["list_name", "traffic_type", "destination", "vendor_trunk_ref"]}
+            customOptions={{
+              traffic_types: activeSection === "voice" ? VOICE_TRAFFIC_TYPES : SMS_TRAFFIC_TYPES,
+              vendor_trunks: activeSection === "voice" ? voiceVendorTrunks : smsVendorTrunks
+            }}
           />
         </div>
       </div>
@@ -798,9 +964,9 @@ export default function ReferencesPage() {
           <TabsTrigger value="alerts" className="gap-2 text-zinc-300 data-[state=active]:bg-zinc-700 data-[state=active]:text-white">
             <Bell className="h-4 w-4" />
             Alerts
-            {(smsAlerts.length + voiceAlerts.length) > 0 && (
+            {(totalUnresolvedAlerts) > 0 && (
               <Badge variant="destructive" className="ml-1 h-5 px-1.5 text-xs">
-                {smsAlerts.length + voiceAlerts.length}
+                {totalUnresolvedAlerts}
               </Badge>
             )}
           </TabsTrigger>
@@ -965,8 +1131,8 @@ export default function ReferencesPage() {
               <TabsTrigger value="sms" className="gap-2 text-zinc-300 data-[state=active]:bg-zinc-700 data-[state=active]:text-white">
                 <MessageSquare className="h-4 w-4" />
                 SMS Alerts
-                {smsAlerts.length > 0 && (
-                  <Badge variant="destructive" className="ml-1 h-5 px-1.5 text-xs">{smsAlerts.length}</Badge>
+                {unresolvedSmsAlerts.length > 0 && (
+                  <Badge variant="destructive" className="ml-1 h-5 px-1.5 text-xs">{unresolvedSmsAlerts.length}</Badge>
                 )}
               </TabsTrigger>
             )}
@@ -974,8 +1140,8 @@ export default function ReferencesPage() {
               <TabsTrigger value="voice" className="gap-2 text-zinc-300 data-[state=active]:bg-zinc-700 data-[state=active]:text-white">
                 <Phone className="h-4 w-4" />
                 Voice Alerts
-                {voiceAlerts.length > 0 && (
-                  <Badge variant="destructive" className="ml-1 h-5 px-1.5 text-xs">{voiceAlerts.length}</Badge>
+                {unresolvedVoiceAlerts.length > 0 && (
+                  <Badge variant="destructive" className="ml-1 h-5 px-1.5 text-xs">{unresolvedVoiceAlerts.length}</Badge>
                 )}
               </TabsTrigger>
             )}
@@ -1030,11 +1196,19 @@ export default function ReferencesPage() {
                     <SelectValue placeholder="Select traffic type" className="text-zinc-400" />
                   </SelectTrigger>
                   <SelectContent className="bg-zinc-800 border-zinc-700">
-                    {TRAFFIC_TYPES.map((type) => (
+                    {getTrafficTypes(activeSection).map((type) => (
                       <SelectItem key={type} value={type} className="text-white focus:bg-zinc-700 focus:text-white">{type}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
+                {formData.traffic_type === "Other" && (
+                  <Input
+                    value={formData.custom_traffic_type || ""}
+                    onChange={(e) => setFormData({ ...formData, custom_traffic_type: e.target.value })}
+                    placeholder="Enter custom traffic type"
+                    className="bg-zinc-800 border-zinc-700 text-white placeholder:text-zinc-500 mt-2"
+                  />
+                )}
               </div>
             </div>
             
@@ -1044,7 +1218,7 @@ export default function ReferencesPage() {
                 id="destination"
                 value={formData.destination}
                 onChange={(e) => setFormData({ ...formData, destination: e.target.value })}
-                placeholder="e.g., USA, UK, UAE, etc."
+                placeholder="Country - Network (e.g., USA - Verizon, UK - Vodafone)"
                 className="bg-zinc-800 border-zinc-700 text-white placeholder:text-zinc-500"
               />
             </div>
@@ -1127,7 +1301,7 @@ export default function ReferencesPage() {
                         <div>
                           <Label className="text-xs text-zinc-400">Note</Label>
                           <Input
-                            value={vendor.custom_field || ""}
+                            value={vendor.notes || ""}
                             onChange={(e) => handleVendorFieldChange(vendor.trunk, "notes", e.target.value)}
                             placeholder="Notes..."
                             className="bg-zinc-700 border-zinc-600 text-white placeholder:text-zinc-500 h-8 text-sm"

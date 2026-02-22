@@ -13,6 +13,7 @@ import AuditPage from "./pages/AuditPage";
 import NotificationSettingsPage from "./pages/NotificationSettingsPage";
 import DepartmentsPage from "./pages/DepartmentsPage";
 import ReferencesPage from "./pages/ReferencesPage";
+import RequestsPage from "./pages/RequestsPage";
 import { Toaster } from "@/components/ui/sonner";
 import axios from "axios";
 
@@ -95,7 +96,7 @@ function App() {
       <BrowserRouter>
         <PathTracker />
         <Routes>
-          <Route path="/login" element={!user ? <LoginPage setUser={setUser} /> : <Navigate to={localStorage.getItem("lastPath") || "/"} />} />
+          <Route path="/login" element={!user ? <LoginPage setUser={setUser} /> : <Navigate to="/" />} />
           <Route path="/" element={user ? <DashboardLayout user={user} setUser={setUser} /> : <Navigate to="/login" />}>
             <Route index element={<DashboardPage />} />
             <Route path="sms-tickets" element={<SMSTicketsPage />} />
@@ -105,8 +106,9 @@ function App() {
             <Route path="users" element={user?.role === "admin" || user?.department?.can_edit_users ? <UsersPage /> : <Navigate to="/" />} />
             <Route path="departments" element={user?.role === "admin" ? <DepartmentsPage /> : <Navigate to="/" />} />
             <Route path="audit" element={user?.role === "admin" ? <AuditPage /> : <Navigate to="/" />} />
-            <Route path="notifications" element={user?.role === "am" ? <NotificationSettingsPage /> : <Navigate to="/" />} />
+            <Route path="notifications" element={user?.role === "admin" ? <NotificationSettingsPage /> : <Navigate to="/" />} />
             <Route path="references" element={<ReferencesPage />} />
+            <Route path="requests" element={<RequestsPage />} />
           </Route>
         </Routes>
       </BrowserRouter>

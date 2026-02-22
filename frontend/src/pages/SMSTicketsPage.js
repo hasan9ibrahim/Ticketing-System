@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
+import { useSearchParams, useNavigate } from "react-router-dom";
+import { startOfWeek, endOfWeek } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, Search, ArrowUpDown, Calendar, Trash2, MessageSquare, ListChecks, X, Pencil, Bell } from "lucide-react";
+import { Plus, Search, ArrowUpDown, Calendar, Trash2, MessageSquare, ListChecks, X, Pencil, Bell, User } from "lucide-react";
 import { toast } from "sonner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -18,14 +20,17 @@ import { Checkbox } from "@/components/ui/checkbox";
 import StatusBadge from "@/components/custom/StatusBadge";
 import PriorityIndicator from "@/components/custom/PriorityIndicator";
 import SearchableSelect from "@/components/custom/SearchableSelect";
-import DateRangePickerWithRange from "@/components/custom/DateRangePickerWithRange";
+import { DateRangePickerWithRange } from "@/components/custom/DateRangePickerWithRange";
 import IssueTypeSelect, { SMS_ISSUE_TYPES } from "@/components/custom/IssueTypeSelect";
 import OpenedViaSelect, { OPENED_VIA_OPTIONS } from "@/components/custom/OpenedViaSelect";
+import MultiFilter from "@/components/custom/MultiFilter";
 
 const BACKEND_URL = process.env.REACT_APP_API_URL;
 const API = `${BACKEND_URL}/api`;
 
 export default function SMSTicketsPage() {
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const [tickets, setTickets] = useState([]);
   const [filteredTickets, setFilteredTickets] = useState([]);
   const [enterprises, setEnterprises] = useState([]);
@@ -39,7 +44,17 @@ export default function SMSTicketsPage() {
   const [issueTypeFilter, setIssueTypeFilter] = useState("all");
   const [destinationFilter, setDestinationFilter] = useState("");
   const [assignedToFilter, setAssignedToFilter] = useState("all");
-  const [dateRange, setDateRange] = useState({ from: new Date(), to: new Date() });
+  const [dateRange, setDateRange] = useState(() => {
+    const today = new Date();
+    return { 
+      from: startOfWeek(today, { weekStartsOn: 1 }), 
+      to: endOfWeek(today, { weekStartsOn: 1 }) 
+    };
+  });
+  const [multiFilters, setMultiFilters] = useState([]);
+  
+  // Hardcoded filter options from ticket creation form
+  const STATUS_OPTIONS = ["Unassigned", "Assigned", "Awaiting Vendor", "Awaiting Client", "Awaiting AM", "Resolved", "Unresolved"];
   const [sortBy, setSortBy] = useState("priority-volume-opened");
   const [activeTab, setActiveTab] = useState("unassigned");
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -87,7 +102,30 @@ export default function SMSTicketsPage() {
 
   useEffect(() => {
     filterAndSortTickets();
-  }, [searchTerm, priorityFilter, statusFilter, enterpriseFilter, issueTypeFilter, destinationFilter, assignedToFilter, dateRange, sortBy, activeTab, tickets]);
+  }, [searchTerm, priorityFilter, statusFilter, enterpriseFilter, issueTypeFilter, destinationFilter, assignedToFilter, dateRange, sortBy, activeTab, tickets, multiFilters]);
+
+  // Handle ticket query parameter - open specific ticket when navigating from notification
+  useEffect(() => {
+    const ticketParam = searchParams.get("ticket");
+    // Also check localStorage for direct navigation
+    const storedParam = localStorage.getItem('openTicketParam');
+    const paramToUse = ticketParam || (storedParam?.startsWith('ticket=') ? storedParam.replace('ticket=', '').split('&')[0] : null);
+    
+    if ((paramToUse || ticketParam) && tickets.length > 0) {
+      const ticket = tickets.find(t => 
+        t.ticket_number === (paramToUse || ticketParam) || 
+        t.id === (paramToUse || ticketParam) || 
+        t.ticket_id === (paramToUse || ticketParam)
+      );
+      if (ticket) {
+        openEditSheet(ticket);
+      }
+      // Clear localStorage after use
+      if (storedParam) {
+        localStorage.removeItem('openTicketParam');
+      }
+    }
+  }, [searchParams, tickets]);
 
   // Helper to get display text for issues
   const getIssueDisplayText = (ticket) => {
@@ -230,6 +268,72 @@ export default function SMSTicketsPage() {
         const ticketDate = new Date(ticket.date);
         const ticketDay = new Date(ticketDate.getFullYear(), ticketDate.getMonth(), ticketDate.getDate());
         return ticketDay >= fromDay && ticketDay <= toDay;
+      });
+    }
+
+    // Multi-filters (from the new MultiFilter component)
+    // OR logic within same field, AND logic between different fields
+    if (multiFilters.length > 0) {
+      multiFilters.forEach((filter) => {
+        const { field, values } = filter; // values is now an array
+        
+        if (field === "ticket_number") {
+          // For text fields, use the first value
+          const value = values[0];
+          filtered = filtered.filter((ticket) => 
+            ticket.ticket_number?.toLowerCase().includes(value.toLowerCase())
+          );
+        } else if (field === "priority") {
+          // OR logic: match any of the selected priorities
+          filtered = filtered.filter((ticket) => 
+            values.includes(ticket.priority)
+          );
+        } else if (field === "status") {
+          // OR logic: match any of the selected statuses
+          filtered = filtered.filter((ticket) => 
+            values.includes(ticket.status)
+          );
+        } else if (field === "enterprise") {
+          // For enterprise, usually single select but handle array
+          filtered = filtered.filter((ticket) => 
+            values.includes(ticket.customer_id)
+          );
+        } else if (field === "issue_type") {
+          // OR logic: match if any of the selected issue types match
+          filtered = filtered.filter((ticket) => {
+            const types = ticket.issue_types || [];
+            return values.some(v => types.includes(v));
+          });
+        } else if (field === "destination") {
+          // For text fields, use the first value
+          const value = values[0];
+          filtered = filtered.filter((ticket) => 
+            ticket.destination?.toLowerCase().includes(value.toLowerCase())
+          );
+        } else if (field === "assigned_to") {
+          // OR logic for assigned_to
+          filtered = filtered.filter((ticket) => {
+            // Check if any of the selected values match
+            return values.some(v => {
+              if (v === "unassigned") {
+                return !ticket.assigned_to;
+              } else {
+                return ticket.assigned_to === v;
+              }
+            });
+          });
+        } else if (field === "enterprise_trunk") {
+          // OR logic: match any of the selected enterprise trunks
+          filtered = filtered.filter((ticket) => 
+            values.includes(ticket.customer_trunk)
+          );
+        } else if (field === "vendor_trunk") {
+          // OR logic: match if any of the selected vendor trunks match
+          filtered = filtered.filter((ticket) => {
+            const trunks = ticket.vendor_trunks || [];
+            return values.some(v => trunks.some(t => t.trunk === v));
+          });
+        }
       });
     }
 
@@ -378,7 +482,8 @@ export default function SMSTicketsPage() {
   };
 
   const isAM = currentUser?.role === "am";
-  const canModify = !isAM;
+  const isNOC = currentUser?.role === "noc";
+  const canModify = currentUser?.role === "admin" || currentUser?.role === "noc";
 
   const formatApiError = (error, fallback = "Request failed") => {
   const detail = error?.response?.data?.detail;
@@ -717,6 +822,68 @@ export default function SMSTicketsPage() {
     }
   };
 
+  // Handle informing AM about a ticket
+  const handleInformAM = async () => {
+    if (!selectedTicket) return;
+
+    try {
+      const token = localStorage.getItem("token");
+      const headers = { Authorization: `Bearer ${token}` };
+
+      // Get the enterprise for this ticket
+      const enterprise = enterprises.find(e => e.id === selectedTicket.customer_id);
+      if (!enterprise) {
+        toast.error("Enterprise not found for this ticket");
+        return;
+      }
+
+      // Get the AM assigned to this enterprise
+      const amId = enterprise.assigned_am_id;
+      if (!amId) {
+        toast.error("No Account Manager assigned to this enterprise");
+        return;
+      }
+
+      // Get AM details from users (use allUsers since users only contains NOC)
+      const amUser = allUsers.find(u => u.id === amId);
+      if (!amUser) {
+        toast.error("Account Manager user not found");
+        return;
+      }
+
+      // Create a conversation with the AM
+      const conversationResponse = await axios.post(
+        `${API}/chat/conversations`,
+        { participant_id: amId },
+        { headers }
+      );
+
+      const conversation = conversationResponse.data;
+
+      // Build the ticket details URL
+      const ticketUrl = `${window.location.origin}/sms-tickets?ticket=${selectedTicket.id}`;
+
+      // Create the message
+      const messageContent = `Dear ${amUser.name || amUser.username}, Kindly note that the ticket with ticket number: ${selectedTicket.ticket_number} requires your attention. Please check it at your own convenience: ${ticketUrl}`;
+
+      // Send the message
+      await axios.post(
+        `${API}/chat/messages`,
+        {
+          conversation_id: conversation.id,
+          content: messageContent,
+          message_type: "text"
+        },
+        { headers }
+      );
+
+      toast.success(`Informed ${amUser.name || amUser.username} about ticket ${selectedTicket.ticket_number}`);
+    } catch (error) {
+      console.error("Error informing AM:", error);
+      toast.error(error.response?.data?.detail || "Failed to inform Account Manager");
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -750,23 +917,45 @@ export default function SMSTicketsPage() {
       </div>
 
       {/* Search and Filters */}
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-        <div className="md:col-span-2 relative">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-zinc-500" />
-          <Input
-            placeholder="Search tickets by number, enterprise, or issue..."
-            data-testid="search-sms-tickets-input"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10 bg-zinc-900 border-zinc-700 text-white placeholder:text-zinc-500"
+      <div className="flex flex-wrap gap-2 items-start">
+        <div className="w-[280px] flex-shrink-0">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-zinc-500" />
+            <Input
+              placeholder="Search tickets by number, enterprise, or issue..."
+              data-testid="search-sms-tickets-input"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-10 bg-zinc-900 border-zinc-700 text-white placeholder:text-zinc-500 w-full"
+            />
+          </div>
+        </div>
+        <div className="flex-shrink-0">
+          <DateRangePickerWithRange
+            dateRange={dateRange}
+            onDateRangeChange={setDateRange}
           />
         </div>
 
-        <DateRangePickerWithRange
-          dateRange={dateRange}
-          onDateRangeChange={setDateRange}
-        />
+        {/* Multi-Filter Component */}
+        <div className="flex-shrink-0">
+          <MultiFilter
+            filters={multiFilters}
+            onFilterChange={setMultiFilters}
+            enterprises={enterprises.filter(e => e.enterprise_type === "sms")}
+            users={users}
+            statusOptions={STATUS_OPTIONS}
+            issueTypeOptions={SMS_ISSUE_TYPES}
+            customerTrunkOptions={customerTrunkOptions}
+            vendorTrunkOptions={vendorTrunkOptions}
+            fields={["ticket_number", "priority", "status", "enterprise", "enterprise_trunk", "vendor_trunk", "issue_type", "destination", "assigned_to"]}
+          />
+        </div>
+      </div>
 
+      {/* Legacy filters hidden - using MultiFilter instead */}
+      {/* 
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Select value={priorityFilter} onValueChange={setPriorityFilter}>
           <SelectTrigger className="bg-zinc-900 border-zinc-700 text-white" data-testid="filter-priority">
             <SelectValue placeholder="Filter by Priority" />
@@ -847,29 +1036,43 @@ export default function SMSTicketsPage() {
           </SelectContent>
         </Select>
       </div>
+      */}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="text-zinc-400 text-sm flex items-center">
               Sorted by: Date → Priority → Volume → Opened Via
         </div>
 
-        <Button
-          variant="outline"
-          onClick={() => {
-            setSearchTerm("");
-            setPriorityFilter("all");
-            setStatusFilter("all");
-            setEnterpriseFilter("all");
-            setIssueTypeFilter("all");
-            setDestinationFilter("");
-            setAssignedToFilter("all");
-            setDateRange({ from: new Date(), to: new Date() });
-          }}
-          className="border-zinc-700 text-zinc-400 hover:text-white hover:bg-zinc-800"
-          data-testid="clear-filters-button"
-        >
-          Reset to Today
-        </Button>
+        <div className="flex gap-2 justify-end">
+          <Button
+            variant="outline"
+            onClick={() => {
+              const today = new Date();
+              setDateRange({ from: today, to: today });
+            }}
+            className="border-zinc-700 text-zinc-400 hover:text-white hover:bg-zinc-800 h-7 px-2 text-xs"
+          >
+            Show Today
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => {
+              setSearchTerm("");
+              setPriorityFilter("all");
+              setStatusFilter("all");
+              setEnterpriseFilter("all");
+              setIssueTypeFilter("all");
+              setDestinationFilter("");
+              setAssignedToFilter("all");
+              const today = new Date();
+              setDateRange({ from: startOfWeek(today, { weekStartsOn: 1 }), to: endOfWeek(today, { weekStartsOn: 1 }) });
+            }}
+            className="border-zinc-700 text-zinc-400 hover:text-white hover:bg-zinc-800 h-7 px-2 text-xs"
+            data-testid="clear-filters-button"
+          >
+            Reset to This Week
+          </Button>
+        </div>
       </div>
 
       {/* Status Tabs */}
@@ -1066,7 +1269,7 @@ export default function SMSTicketsPage() {
             </div>
 
             {/* Destination */}
-            <div className="space-y-2"><Label>Destination *</Label><Input value={formData.destination || ""} onChange={(e) => setFormData({ ...formData, destination: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" placeholder="Enter destination" required disabled={isAM} /></div>
+            <div className="space-y-2"><Label>Destination *</Label><Input value={formData.destination || ""} onChange={(e) => setFormData({ ...formData, destination: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" placeholder="Country - Network (e.g., USA - Verizon, UK - Vodafone)" required disabled={isAM} /></div>
 
             {/* Issue Types - Multi-select checklist */}
             <IssueTypeSelect
@@ -1461,6 +1664,30 @@ export default function SMSTicketsPage() {
                   Delete
                 </Button>
               )}
+              {/* Create Request Button - for AM users when viewing a ticket */}
+              {isAM && editingTicket && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    // Save ticket number before closing
+                    const ticketNum = editingTicket?.ticket_number;
+                    console.log('SMSTicketsPage: Creating request for ticket:', ticketNum);
+                    // Close the ticket sheet first, then navigate
+                    setSheetOpen(false);
+                    // Small delay to allow sheet to close before navigating
+                    setTimeout(() => {
+                      const url = `/requests?ticket_id=${encodeURIComponent(ticketNum)}&ticket_type=sms`;
+                      console.log('SMSTicketsPage: Navigating to:', url);
+                      navigate(url);
+                    }, 300);
+                  }}
+                  className="border-amber-500/50 text-amber-500 hover:bg-amber-500/10"
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Create Request
+                </Button>
+              )}
               <Button type="button" variant="outline" onClick={() => setSheetOpen(false)} className="border-zinc-700 text-white hover:bg-zinc-800">{isAM ? "Close" : "Cancel"}</Button>
             </div>
           </form>
@@ -1513,9 +1740,18 @@ export default function SMSTicketsPage() {
           <DialogHeader>
             <DialogTitle>Ticket Actions - {selectedTicket?.ticket_number}</DialogTitle>
           </DialogHeader>
-          {/* Send Alert Button */}
-          <div className="flex justify-end">
-            <Button
+          {/* Send Alert Button - Only show for NOC and Admin, not for AMs */}
+          {currentUser?.role !== "am" && (
+            <div className="flex justify-end gap-2">
+              <Button
+                size="sm"
+                onClick={handleInformAM}
+                className="bg-blue-500 text-white hover:bg-blue-600"
+              >
+                <User className="h-4 w-4 mr-2" />
+                Inform AM
+              </Button>
+              <Button
               size="sm"
               onClick={() => {
                 // Send alert to References page
@@ -1546,6 +1782,7 @@ export default function SMSTicketsPage() {
               Send Alert
             </Button>
           </div>
+          )}
           <div className="space-y-4 max-h-[400px] overflow-y-auto">
             {ticketActions.length === 0 ? (
               <p className="text-zinc-500 text-center py-4">No actions recorded yet</p>
@@ -1565,8 +1802,8 @@ export default function SMSTicketsPage() {
                           ? `Edited: ${new Date(action.edited_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}`
                           : new Date(action.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                       </span>
-                      {/* Show edit/delete buttons only for own actions */}
-                      {currentUser && action.created_by === currentUser.id && (
+                      {/* Show edit/delete buttons only for Admin */}
+                      {currentUser?.role === "admin" && (
                         <div className="flex gap-1">
                           <Button
                             size="sm"

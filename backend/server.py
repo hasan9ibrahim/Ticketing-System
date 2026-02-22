@@ -1,7 +1,8 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, status
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, UploadFile, File, WebSocket, WebSocketDisconnect
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
+from starlette.websockets import WebSocketState
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
@@ -13,6 +14,8 @@ from datetime import datetime, timezone, timedelta
 from passlib.context import CryptContext
 from jose import JWTError, jwt
 import re
+import pandas as pd
+import io
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -58,6 +61,72 @@ class User(BaseModel):
     notify_on_ticket_awaiting_am: bool = True  # Notify when ticket awaiting AM
     notify_on_ticket_resolved: bool = True  # Notify when ticket resolved
     notify_on_ticket_unresolved: bool = True  # Notify when ticket unresolved
+    # Notification preferences for NOC users
+    notify_on_am_action: bool = True  # Notify when AM adds action to assigned ticket
+    notify_on_noc_ticket_modification: bool = True  # Notify when another NOC modifies assigned ticket
+
+# ==================== CHAT MODELS ====================
+
+class ChatMessage(BaseModel):
+    """Chat message model for real-time messaging"""
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    conversation_id: str  # ID of the conversation
+    sender_id: str  # ID of the sender
+    sender_name: str  # Name of the sender for quick display
+    content: str  # Message content (text)
+    message_type: str = "text"  # "text", "image", "file", "link"
+    file_url: Optional[str] = None  # URL for file/image
+    file_name: Optional[str] = None  # Original file name
+    file_size: Optional[int] = None  # File size in bytes
+    file_mime_type: Optional[str] = None  # MIME type
+    is_read: bool = False  # Whether message has been read
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class Conversation(BaseModel):
+    """Conversation model representing a chat between two users"""
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    participant_ids: List[str]  # List of user IDs in this conversation
+    last_message: Optional[str] = None  # Preview of last message
+    last_message_time: Optional[datetime] = None  # Timestamp of last message
+    last_message_sender_id: Optional[str] = None  # Who sent the last message
+    unread_counts: dict = Field(default_factory=dict)  # {user_id: count}
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class ConversationCreate(BaseModel):
+    """Request model to create or get a conversation"""
+    participant_id: str  # The other user's ID
+
+class MessageCreate(BaseModel):
+    """Request model to create a message"""
+    conversation_id: str
+    content: str
+    message_type: str = "text"
+    file_url: Optional[str] = None
+    file_name: Optional[str] = None
+    file_size: Optional[int] = None
+    file_mime_type: Optional[str] = None
+
+class ChatUser(BaseModel):
+    """User info for chat list"""
+    id: str
+    username: str
+    name: str
+    last_active: Optional[datetime] = None
+    is_online: bool = False
+
+class ConversationResponse(BaseModel):
+    """Response model for conversation with participant info"""
+    id: str
+    participants: List[ChatUser]
+    last_message: Optional[str] = None
+    last_message_time: Optional[datetime] = None
+    last_message_sender_id: Optional[str] = None
+    unread_count: int = 0
+    created_at: datetime
+    updated_at: datetime
 
 class Department(BaseModel):
     """Department model with configurable permissions"""
@@ -141,12 +210,14 @@ class UserResponse(BaseModel):
 
 class UserUpdate(BaseModel):
     """Model for updating user - only allows updating certain fields"""
+    username: Optional[str] = None  # Admin can change username
     name: Optional[str] = None
     email: Optional[str] = None
     phone: Optional[str] = None
     department_id: Optional[str] = None
     role: Optional[str] = None  # Deprecated
     am_type: Optional[str] = None  # Deprecated
+    password: Optional[str] = None  # Admin can change password
 
 class TicketModificationNotification(BaseModel):
     """Model for ticket modification notifications"""
@@ -158,24 +229,6 @@ class TicketModificationNotification(BaseModel):
     assigned_to: str  # User ID who was assigned
     modified_by: str  # User ID who modified the ticket
     modified_by_username: str  # Username who modified
-    message: str  # Notification message
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    read: bool = False
-
-
-class AMNotification(BaseModel):
-    """Model for AM (Account Manager) notifications about their enterprises"""
-    model_config = ConfigDict(extra="ignore")
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    am_id: str  # Account Manager user ID
-    ticket_id: str
-    ticket_number: str
-    ticket_type: str  # "sms" or "voice"
-    enterprise_id: str  # Enterprise ID
-    enterprise_name: str  # Enterprise name
-    destination: Optional[str] = None
-    issue: Optional[str] = None
-    notification_type: str  # "created", "assigned", "awaiting_vendor", "resolved", "unresolved", "other"
     message: str  # Notification message
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     read: bool = False
@@ -197,7 +250,7 @@ class ReferenceList(BaseModel):
     name: str
     section: str  # "sms" or "voice"
     destination: str
-    traffic_type: str  # OTP, Phishing, Spam, Spam and Phishing, Casino, Marketing, Banking, etc.
+    traffic_type: str  # OTP, Promo, Casino, Clean Marketing, Banking, etc.
     vendor_entries: List[dict] = Field(default_factory=list)  # List of {trunk, cost, notes} objects
     created_by: str
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -210,6 +263,7 @@ class ReferenceListCreate(BaseModel):
     section: str  # "sms" or "voice"
     destination: str
     traffic_type: str
+    custom_traffic_type: Optional[str] = None  # For Voice "Other" option
     vendor_entries: List[dict] = Field(default_factory=list)
 
 
@@ -218,118 +272,9 @@ class ReferenceListUpdate(BaseModel):
     name: Optional[str] = None
     destination: Optional[str] = None
     traffic_type: Optional[str] = None
+    custom_traffic_type: Optional[str] = None
     vendor_entries: Optional[List[dict]] = None
 
-
-async def create_am_notification(
-    am_id: str,
-    ticket_id: str,
-    ticket_number: str,
-    ticket_type: str,
-    enterprise_id: str,
-    enterprise_name: str,
-    destination: Optional[str],
-    issue: Optional[str],
-    notification_type: str
-):
-    """Create a notification for an AM about their enterprise's ticket"""
-    # Build message based on notification type
-    messages = {
-        "created": f"New ticket {ticket_number} created for {enterprise_name}",
-        "assigned": f"Ticket {ticket_number} assigned to NOC for {enterprise_name}",
-        "awaiting_vendor": f"Ticket {ticket_number} awaiting vendor for {enterprise_name}",
-        "awaiting_client": f"Ticket {ticket_number} awaiting client for {enterprise_name}",
-        "awaiting_am": f"Ticket {ticket_number} awaiting your response for {enterprise_name}",
-        "resolved": f"Ticket {ticket_number} resolved for {enterprise_name}",
-        "unresolved": f"Ticket {ticket_number} unresolved for {enterprise_name}",
-        "other": f"Ticket {ticket_number} status updated for {enterprise_name}"
-    }
-    
-    notification = AMNotification(
-        am_id=am_id,
-        ticket_id=ticket_id,
-        ticket_number=ticket_number,
-        ticket_type=ticket_type,
-        enterprise_id=enterprise_id,
-        enterprise_name=enterprise_name,
-        destination=destination,
-        issue=issue,
-        notification_type=notification_type,
-        message=messages.get(notification_type, f"Ticket {ticket_number} updated for {enterprise_name}")
-    )
-    doc = notification.model_dump()
-    doc['created_at'] = doc['created_at'].isoformat()
-    await db.am_notifications.insert_one(doc)
-
-
-async def notify_ams_for_ticket(
-    customer_id: str,
-    ticket_id: str,
-    ticket_number: str,
-    ticket_type: str,
-    enterprise_name: str,
-    destination: Optional[str],
-    issue: Optional[str],
-    notification_type: str
-):
-    """Notify AMs based on their notification preferences"""
-    # Find AMs assigned to this enterprise
-    ams = await db.users.find({
-        "assigned_am_id": customer_id  # This won't work - need to find by enterprise
-    }).to_list(10)
-    
-    # Actually, we need to find the enterprise to get the assigned AM
-    enterprise = await db.clients.find_one({"id": customer_id}, {"_id": 0, "assigned_am_id": 1})
-    if not enterprise or not enterprise.get("assigned_am_id"):
-        return  # No AM assigned to this enterprise
-    
-    am_id = enterprise["assigned_am_id"]
-    
-    # Get AM's notification preferences
-    am = await db.users.find_one({"id": am_id}, {"_id": 0, 
-        "notify_on_ticket_created": 1,
-        "notify_on_ticket_assigned": 1,
-        "notify_on_ticket_awaiting_vendor": 1,
-        "notify_on_ticket_awaiting_client": 1,
-        "notify_on_ticket_awaiting_am": 1,
-        "notify_on_ticket_resolved": 1,
-        "notify_on_ticket_unresolved": 1
-    })
-    
-    if not am:
-        return
-    
-    # Check if AM wants this type of notification
-    pref_map = {
-        "created": "notify_on_ticket_created",
-        "assigned": "notify_on_ticket_assigned",
-        "awaiting_vendor": "notify_on_ticket_awaiting_vendor",
-        "awaiting_client": "notify_on_ticket_awaiting_client",
-        "awaiting_am": "notify_on_ticket_awaiting_am",
-        "resolved": "notify_on_ticket_resolved",
-        "unresolved": "notify_on_ticket_unresolved"
-    }
-    
-    pref_key = pref_map.get(notification_type)
-    if not pref_key:
-        return
-    
-    # Check preference (default to True if not set)
-    if am.get(pref_key, True) is False:
-        return
-    
-    # Create the notification
-    await create_am_notification(
-        am_id=am_id,
-        ticket_id=ticket_id,
-        ticket_number=ticket_number,
-        ticket_type=ticket_type,
-        enterprise_id=customer_id,
-        enterprise_name=enterprise_name,
-        destination=destination,
-        issue=issue,
-        notification_type=notification_type
-    )
 
 
 async def create_ticket_modification_notification(
@@ -351,8 +296,384 @@ async def create_ticket_modification_notification(
         message=f"Ticket {ticket_number} was modified by {modified_by_username}"
     )
     doc = notification.model_dump()
+    # Add event_type for filtering
+    doc['event_type'] = 'ticket_modification'
     doc['created_at'] = doc['created_at'].isoformat()
     await db.ticket_notifications.insert_one(doc)
+
+
+async def notify_ams_about_ticket(ticket, event_type, ticket_type="sms", created_by=None):
+    """Notify AMs about ticket events based on their notification preferences"""
+    customer_id = ticket.get("customer_id")
+    if not customer_id:
+        return
+    
+    # Get the client/enterprise to find assigned AM
+    client = await db.clients.find_one({"id": customer_id}, {"_id": 0, "assigned_am_id": 1})
+    if not client or not client.get("assigned_am_id"):
+        return
+    
+    am_id = client["assigned_am_id"]
+    
+    # Don't notify the same user who created the action
+    if created_by and am_id == created_by:
+        return
+    
+    # Get AM's notification preferences and type
+    am_user = await db.users.find_one({"id": am_id}, {"_id": 0})
+    if not am_user:
+        return
+    
+    # Check if AM's type matches the ticket type (SMS AM gets SMS tickets, Voice AM gets Voice tickets)
+    am_type = am_user.get("am_type")
+    if am_type and am_type != ticket_type:
+        # AM type doesn't match ticket type, skip notification
+        return
+    
+    # Check if AM wants to be notified for this event type
+    preference_map = {
+        "created": "notify_on_ticket_created",
+        "assigned": "notify_on_ticket_assigned",
+        "awaiting_vendor": "notify_on_ticket_awaiting_vendor",
+        "awaiting_client": "notify_on_ticket_awaiting_client",
+        "awaiting_am": "notify_on_ticket_awaiting_am",
+        "resolved": "notify_on_ticket_resolved",
+        "unresolved": "notify_on_ticket_unresolved",
+    }
+    
+    preference_key = preference_map.get(event_type)
+    if not preference_key:
+        return
+    
+    # Check if AM has this preference enabled (default to True if not set)
+    if not am_user.get(preference_key, True):
+        return
+    
+    # Create notification for the AM
+    notification_id = str(uuid.uuid4())
+    ticket_number = ticket.get("ticket_number", "")
+    customer_name = ticket.get("customer", "")
+    
+    # Get the assigned NOC user info for more descriptive messages
+    assigned_to = ticket.get("assigned_to")
+    noc_name = "NOC"
+    if assigned_to:
+        noc_user = await db.users.find_one({"id": assigned_to}, {"_id": 0, "username": 1, "name": 1})
+        if noc_user:
+            noc_name = noc_user.get("name") or noc_user.get("username") or "NOC"
+    
+    message_map = {
+        "created": f"New ticket {ticket_number} for {customer_name} - Waiting for NOC assignment",
+        "assigned": f"Ticket {ticket_number} for {customer_name} has been assigned to {noc_name}",
+        "awaiting_vendor": f"Ticket {ticket_number} for {customer_name} is awaiting vendor response",
+        "awaiting_client": f"Ticket {ticket_number} for {customer_name} is awaiting client response",
+        "awaiting_am": f"Ticket {ticket_number} for {customer_name} requires your attention",
+        "resolved": f"Ticket {ticket_number} for {customer_name} has been resolved by {noc_name}",
+        "unresolved": f"Ticket {ticket_number} for {customer_name} has become unresolved",
+    }
+    
+    doc = {
+        "id": notification_id,
+        "ticket_id": ticket.get("id"),
+        "ticket_number": ticket_number,
+        "ticket_type": ticket_type,
+        "assigned_to": am_id,
+        "assigned_noc": assigned_to,
+        "modified_by": None,
+        "modified_by_username": None,
+        "message": message_map.get(event_type, f"Ticket {ticket_number} updated"),
+        "event_type": event_type,
+        "read": False,
+        "created_at": datetime.now(timezone.utc)
+    }
+    doc['created_at'] = doc['created_at'].isoformat()
+    await db.ticket_notifications.insert_one(doc)
+
+
+# ==================== NOC NOTIFICATIONS ====================
+
+
+async def notify_noc_about_am_action(ticket, action_text, action_created_by, ticket_type="sms"):
+    """Notify ALL NOC users when an AM adds an action to any ticket"""
+    # Get NOC department to find users with that department_id
+    noc_dept = await db.departments.find_one({"name": "NOC"}, {"_id": 0, "id": 1})
+    
+    if not noc_dept:
+        return
+    
+    noc_dept_id = noc_dept.get("id")
+    # Get all NOC users using department_id
+    noc_users = await db.users.find(
+        {"department_id": noc_dept_id},
+        {"_id": 0, "id": 1, "username": 1, "name": 1, "notify_on_am_action": 1}
+    ).to_list(100)
+    
+    if not noc_users:
+        return
+    
+    # Get AM name
+    am_user = await db.users.find_one({"id": action_created_by}, {"_id": 0, "username": 1, "name": 1})
+    am_name = (am_user.get("name") or am_user.get("username") or "AM") if am_user else "AM"
+    
+    ticket_number = ticket.get("ticket_number", "")
+    customer_name = ticket.get("customer", "")
+    
+    # Create notification for each NOC user
+    for noc_user in noc_users:
+        # Check if NOC wants to be notified for AM actions (default True)
+        if not noc_user.get("notify_on_am_action", True):
+            continue
+        
+        noc_id = noc_user.get("id")
+        if not noc_id:
+            continue
+        
+        notification_id = str(uuid.uuid4())
+        
+        doc = {
+            "id": notification_id,
+            "ticket_id": ticket.get("id"),
+            "ticket_number": ticket_number,
+            "ticket_type": ticket_type,
+            "assigned_to": noc_id,
+            "modified_by": action_created_by,
+            "modified_by_username": am_name,
+            "message": f"AM {am_name} added action to ticket {ticket_number} for {customer_name}: {action_text[:50]}..." if len(action_text) > 50 else f"AM {am_name} added action to ticket {ticket_number} for {customer_name}: {action_text}",
+            "event_type": "am_action",
+            "action_text": action_text,
+            "read": False,
+            "created_at": datetime.now(timezone.utc)
+        }
+        doc['created_at'] = doc['created_at'].isoformat()
+        await db.ticket_notifications.insert_one(doc)
+
+
+async def notify_noc_about_noc_modification(ticket, modified_by_user, modified_by_username, changes, ticket_type="sms"):
+    """Notify ALL NOC users when a NOC modifies any ticket"""
+    # Get NOC department to find users with that department_id
+    noc_dept = await db.departments.find_one({"name": "NOC"}, {"_id": 0, "id": 1})
+    
+    if not noc_dept:
+        return
+    
+    noc_dept_id = noc_dept.get("id")
+    # Get all NOC users using department_id
+    noc_users = await db.users.find(
+        {"department_id": noc_dept_id},
+        {"_id": 0, "id": 1, "username": 1, "name": 1, "notify_on_noc_ticket_modification": 1}
+    ).to_list(100)
+    
+    if not noc_users:
+        return
+    
+    ticket_number = ticket.get("ticket_number", "")
+    customer_name = ticket.get("customer", "")
+    
+    # Build change description
+    change_details = []
+    for field, (old_val, new_val) in changes.items():
+        change_details.append(f"{field}: {old_val} → {new_val}")
+    
+    change_str = "; ".join(change_details[:3])  # Limit to 3 changes for readability
+    if len(change_details) > 3:
+        change_str += f"... (+{len(change_details) - 3} more)"
+    
+    # Create notification for each NOC user
+    for noc_user in noc_users:
+        # Check if NOC wants to be notified for NOC modifications (default True)
+        if not noc_user.get("notify_on_noc_ticket_modification", True):
+            continue
+        
+        noc_id = noc_user.get("id")
+        if not noc_id:
+            continue
+        
+        # Don't notify if the modifier is the same as the NOC
+        if modified_by_user == noc_id:
+            continue
+        
+        notification_id = str(uuid.uuid4())
+        
+        doc = {
+            "id": notification_id,
+            "ticket_id": ticket.get("id"),
+            "ticket_number": ticket_number,
+            "ticket_type": ticket_type,
+            "assigned_to": noc_id,
+            "modified_by": modified_by_user,
+            "modified_by_username": modified_by_username,
+            "message": f"Ticket {ticket_number} for {customer_name} was modified by {modified_by_username}: {change_str}",
+            "event_type": "noc_modification",
+            "changes": changes,
+            "read": False,
+            "created_at": datetime.now(timezone.utc)
+        }
+        doc['created_at'] = doc['created_at'].isoformat()
+        await db.ticket_notifications.insert_one(doc)
+
+
+# ==================== ALERT NOTIFICATIONS ====================
+
+class AlertNotification(BaseModel):
+    """Model for alert notifications"""
+    model_config = ConfigDict(extra="ignore")
+    
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    alert_id: str
+    alert_ticket_number: str
+    customer: str
+    customer_id: str
+    ticket_type: str  # "sms" or "voice"
+    notification_type: str  # "created", "commented", "alt_vendor", "resolved"
+    message: str
+    created_by: str
+    assigned_to: Optional[str] = None  # AM user ID who should receive this notification
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    read: bool = False
+
+
+async def create_alert_notification(
+    alert_id: str,
+    alert_ticket_number: str,
+    customer: str,
+    customer_id: str,
+    ticket_type: str,
+    notification_type: str,
+    message: str,
+    created_by: str,
+    assigned_to: Optional[str] = None
+):
+    """Create a notification for an alert event"""
+    notification = AlertNotification(
+        alert_id=alert_id,
+        alert_ticket_number=alert_ticket_number,
+        customer=customer,
+        customer_id=customer_id,
+        ticket_type=ticket_type,
+        notification_type=notification_type,
+        message=message,
+        created_by=created_by,
+        assigned_to=assigned_to
+    )
+    doc = notification.model_dump()
+    doc['created_at'] = doc['created_at'].isoformat()
+    await db.alert_notifications.insert_one(doc)
+
+
+async def notify_users_about_alert(
+    alert_id: str,
+    alert_ticket_number: str,
+    customer: str,
+    customer_id: str,
+    ticket_type: str,
+    notification_type: str,
+    created_by: str
+):
+    """Notify AMs and ALL NOC users about an alert event based on their preferences"""
+    # Get the alert to include more details
+    alert = await db.alerts.find_one({"id": alert_id}, {"_id": 0, "assigned_to": 1, "resolved": 1})
+    
+    # Get the assigned NOC user info
+    noc_name = "NOC"
+    if alert and alert.get("assigned_to"):
+        noc_user = await db.users.find_one({"id": alert["assigned_to"]}, {"_id": 0, "username": 1, "name": 1})
+        if noc_user:
+            noc_name = noc_user.get("name") or noc_user.get("username") or "NOC"
+    
+    # Build message based on notification type
+    messages = {
+        "created": f"New alert {alert_ticket_number} for {customer} - Assigned to {noc_name}",
+        "commented": f"New comment on alert {alert_ticket_number} for {customer} by {noc_name}",
+        "alt_vendor": f"Alternative vendor trunk submitted for alert {alert_ticket_number} ({customer})",
+        "resolved": f"Alert {alert_ticket_number} for {customer} has been resolved by {noc_name}"
+    }
+    
+    message = messages.get(notification_type, f"Alert {alert_ticket_number} updated for {customer}")
+    
+    # Get the client/enterprise to find assigned AM
+    client = await db.clients.find_one({"id": customer_id}, {"_id": 0, "assigned_am_id": 1})
+    
+    # If there's an assigned AM, create notification for them
+    if client and client.get("assigned_am_id"):
+        am_id = client["assigned_am_id"]
+        
+        # Don't notify the same user who created the action
+        if created_by and am_id == created_by:
+            pass  # Skip AM notification but still notify NOC
+        else:
+            # Get AM's notification preferences
+            am_user = await db.users.find_one({"id": am_id}, {"_id": 0})
+            if am_user:
+                # Check if AM wants to be notified for this event type
+                preference_key = f"notify_on_alert_{notification_type}"
+                if am_user.get(preference_key, True):
+                    await create_alert_notification(
+                        alert_id=alert_id,
+                        alert_ticket_number=alert_ticket_number,
+                        customer=customer,
+                        customer_id=customer_id,
+                        ticket_type=ticket_type,
+                        notification_type=notification_type,
+                        message=message,
+                        created_by=created_by,
+                        assigned_to=am_id
+                    )
+    
+    # Notify ALL NOC users about the alert event (for commented, alt_vendor, created, and resolved types)
+    if notification_type in ["commented", "alt_vendor", "created", "resolved"]:
+        # Get NOC department to find users with that department_id
+        noc_dept = await db.departments.find_one({"name": "NOC"}, {"_id": 0, "id": 1})
+        
+        if not noc_dept:
+            print("NOC department not found, cannot send notifications")
+        else:
+            noc_dept_id = noc_dept.get("id")
+            # Get all NOC users using department_id
+            noc_users = await db.users.find(
+                {"department_id": noc_dept_id},
+                {"_id": 0, "id": 1, "username": 1, "name": 1}
+            ).to_list(100)
+        
+        # Get creator info
+        creator_user = await db.users.find_one({"id": created_by}, {"_id": 0, "username": 1, "name": 1})
+        creator_name = (creator_user.get("name") or creator_user.get("username") or "User") if creator_user else "User"
+        
+        # Get user role to include in message
+        dept = await get_user_department(current_user if (current_user := await db.users.find_one({"id": created_by})) else {})
+        user_role = get_user_role_from_department(dept) if dept else ""
+        creator_role = f" ({user_role})" if user_role else ""
+        
+        # Create notification for each NOC user
+        for noc_user in noc_users:
+            noc_id = noc_user.get("id")
+            if not noc_id:
+                continue
+            
+            # Don't notify the NOC user who created the alert
+            if created_by and noc_id == created_by:
+                continue
+            
+            # Build NOC-specific message
+            noc_message = f"{creator_name}{creator_role} added comment to alert {alert_ticket_number} for {customer}"
+            if notification_type == "alt_vendor":
+                noc_message = f"{creator_name}{creator_role} submitted alternative vendor trunk for alert {alert_ticket_number} ({customer})"
+            elif notification_type == "created":
+                noc_message = f"New alert {alert_ticket_number} created for {customer}"
+            elif notification_type == "resolved":
+                noc_message = f"Alert {alert_ticket_number} for {customer} has been resolved"
+            
+            await create_alert_notification(
+                alert_id=alert_id,
+                alert_ticket_number=alert_ticket_number,
+                customer=customer,
+                customer_id=customer_id,
+                ticket_type=ticket_type,
+                notification_type=notification_type,
+                message=noc_message,
+                created_by=created_by,
+                assigned_to=noc_id
+            )
+
 
 class Token(BaseModel):
     access_token: str
@@ -513,6 +834,7 @@ class VoiceTicket(BaseModel):
     client_or_vendor: str = "client"
     customer_trunk: str = ""
     destination: Optional[str] = None
+    ani: Optional[str] = None  # ANI/Origination for Voice tickets
     issue_types: Optional[List[str]] = []  # Predefined issue types checklist
     issue_other: Optional[str] = None  # Custom "Other" issue text
     fas_type: Optional[str] = None  # FAS type specification for Voice tickets
@@ -539,6 +861,7 @@ class VoiceTicketCreate(BaseModel):
     client_or_vendor: str = "client"
     customer_trunk: str
     destination: Optional[str] = None
+    ani: Optional[str] = None  # ANI/Origination for Voice tickets
     issue_types: Optional[List[str]] = []
     issue_other: Optional[str] = None
     fas_type: Optional[str] = None
@@ -560,6 +883,7 @@ class VoiceTicketUpdate(BaseModel):
     volume: Optional[str] = None
     customer_trunk: Optional[str] = None
     destination: Optional[str] = None
+    ani: Optional[str] = None  # ANI/Origination for Voice tickets
     issue_types: Optional[List[str]] = None
     issue_other: Optional[str] = None
     fas_type: Optional[str] = None
@@ -627,6 +951,15 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         dept = await db.departments.find_one({"id": user["department_id"]}, {"_id": 0})
         if dept:
             user["department"] = dept
+            # Calculate role from department permissions
+            if dept.get("can_edit_users"):
+                user["role"] = "admin"
+            elif dept.get("can_create_tickets") and not dept.get("can_edit_enterprises"):
+                user["role"] = "am"
+            elif dept.get("can_edit_tickets"):
+                user["role"] = "noc"
+            else:
+                user["role"] = "unknown"
     
     return user
 
@@ -817,6 +1150,14 @@ class NotificationPreferencesUpdate(BaseModel):
     notify_on_ticket_awaiting_am: Optional[bool] = None
     notify_on_ticket_resolved: Optional[bool] = None
     notify_on_ticket_unresolved: Optional[bool] = None
+    # Alert notifications
+    notify_on_alert_created: Optional[bool] = None
+    notify_on_alert_commented: Optional[bool] = None
+    notify_on_alert_alt_vendor: Optional[bool] = None
+    notify_on_alert_resolved: Optional[bool] = None
+    # NOC notifications
+    notify_on_am_action: Optional[bool] = None
+    notify_on_noc_ticket_modification: Optional[bool] = None
 
 
 @api_router.get("/users/me/notification-preferences")
@@ -830,6 +1171,14 @@ async def get_notification_preferences(current_user: dict = Depends(get_current_
         "notify_on_ticket_awaiting_am": current_user.get("notify_on_ticket_awaiting_am", True),
         "notify_on_ticket_resolved": current_user.get("notify_on_ticket_resolved", True),
         "notify_on_ticket_unresolved": current_user.get("notify_on_ticket_unresolved", True),
+        # Alert notifications
+        "notify_on_alert_created": current_user.get("notify_on_alert_created", True),
+        "notify_on_alert_commented": current_user.get("notify_on_alert_commented", True),
+        "notify_on_alert_alt_vendor": current_user.get("notify_on_alert_alt_vendor", True),
+        "notify_on_alert_resolved": current_user.get("notify_on_alert_resolved", True),
+        # NOC notifications
+        "notify_on_am_action": current_user.get("notify_on_am_action", True),
+        "notify_on_noc_ticket_modification": current_user.get("notify_on_noc_ticket_modification", True),
     }
 
 
@@ -846,32 +1195,159 @@ async def update_notification_preferences(prefs: NotificationPreferencesUpdate, 
     return {"message": "Notification preferences updated successfully"}
 
 
-@api_router.get("/users/me/am-notifications")
-async def get_am_notifications(current_user: dict = Depends(get_current_user)):
-    """Get notifications for AM about their enterprises"""
-    current_user_id = current_user.get("id")
-    
-    # Get unread notifications for the current user
-    notifications = await db.am_notifications.find({
-        "am_id": current_user_id,
-        "read": False
-    }).sort("created_at", -1).limit(50).to_list(50)
-    
-    # Convert datetime fields to ISO format strings for JSON serialization
-    for notification in notifications:
-        if "created_at" in notification and hasattr(notification["created_at"], "isoformat"):
-            notification["created_at"] = notification["created_at"].isoformat()
-    
-    return notifications
+# ==================== ADMIN NOTIFICATION MANAGEMENT ====================
 
 
-@api_router.post("/users/me/am-notifications/{notification_id}/read")
-async def mark_am_notification_as_read(notification_id: str, current_user: dict = Depends(get_current_user)):
-    """Mark an AM notification as read"""
+@api_router.get("/users/notification-preferences")
+async def get_all_users_notification_preferences(current_user: dict = Depends(get_current_user)):
+    """Get all users' notification preferences - admin only"""
+    user_role = get_user_role_from_department(current_user.get("department"))
+    if user_role != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can access this resource")
+    
+    # Get all AM users
+    am_users = await db.users.find(
+        {"am_type": {"$in": ["sms", "voice"]}},
+        {"password_hash": 0}
+    ).to_list(100)
+    
+    # Get all NOC users
+    # First find the NOC department
+    noc_dept = await db.departments.find_one({"name": "NOC"}, {"_id": 0, "id": 1})
+    noc_users = []
+    if noc_dept:
+        noc_users = await db.users.find(
+            {"department_id": noc_dept.get("id")},
+            {"password_hash": 0}
+        ).to_list(100)
+    
+    result = []
+    for user in am_users:
+        result.append({
+            "id": user.get("id"),
+            "username": user.get("username"),
+            "name": user.get("name"),
+            "am_type": user.get("am_type"),
+            "role": "am",
+            "notify_on_ticket_created": user.get("notify_on_ticket_created", True),
+            "notify_on_ticket_assigned": user.get("notify_on_ticket_assigned", True),
+            "notify_on_ticket_awaiting_vendor": user.get("notify_on_ticket_awaiting_vendor", True),
+            "notify_on_ticket_awaiting_client": user.get("notify_on_ticket_awaiting_client", True),
+            "notify_on_ticket_awaiting_am": user.get("notify_on_ticket_awaiting_am", True),
+            "notify_on_ticket_resolved": user.get("notify_on_ticket_resolved", True),
+            "notify_on_ticket_unresolved": user.get("notify_on_ticket_unresolved", True),
+            "notify_on_alert_created": user.get("notify_on_alert_created", True),
+            "notify_on_alert_commented": user.get("notify_on_alert_commented", True),
+            "notify_on_alert_alt_vendor": user.get("notify_on_alert_alt_vendor", True),
+            "notify_on_alert_resolved": user.get("notify_on_alert_resolved", True),
+            # NOC notifications
+            "notify_on_am_action": user.get("notify_on_am_action", True),
+            "notify_on_noc_ticket_modification": user.get("notify_on_noc_ticket_modification", True),
+        })
+    
+    # Add NOC users to result
+    for user in noc_users:
+        result.append({
+            "id": user.get("id"),
+            "username": user.get("username"),
+            "name": user.get("name"),
+            "am_type": None,
+            "role": "noc",
+            "notify_on_ticket_created": user.get("notify_on_ticket_created", True),
+            "notify_on_ticket_assigned": user.get("notify_on_ticket_assigned", True),
+            "notify_on_ticket_awaiting_vendor": user.get("notify_on_ticket_awaiting_vendor", True),
+            "notify_on_ticket_awaiting_client": user.get("notify_on_ticket_awaiting_client", True),
+            "notify_on_ticket_awaiting_am": user.get("notify_on_ticket_awaiting_am", True),
+            "notify_on_ticket_resolved": user.get("notify_on_ticket_resolved", True),
+            "notify_on_ticket_unresolved": user.get("notify_on_ticket_unresolved", True),
+            "notify_on_alert_created": user.get("notify_on_alert_created", True),
+            "notify_on_alert_commented": user.get("notify_on_alert_commented", True),
+            "notify_on_alert_alt_vendor": user.get("notify_on_alert_alt_vendor", True),
+            "notify_on_alert_resolved": user.get("notify_on_alert_resolved", True),
+            # NOC notifications
+            "notify_on_am_action": user.get("notify_on_am_action", True),
+            "notify_on_noc_ticket_modification": user.get("notify_on_noc_ticket_modification", True),
+        })
+    
+    return result
+
+
+@api_router.put("/users/{user_id}/notification-preferences")
+async def update_user_notification_preferences(user_id: str, prefs: NotificationPreferencesUpdate, current_user: dict = Depends(get_current_user)):
+    """Update a specific user's notification preferences - admin only"""
+    user_role = get_user_role_from_department(current_user.get("department"))
+    if user_role != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can access this resource")
+    
+    # Check if user exists
+    target_user = await db.users.find_one({"id": user_id})
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    update_dict = {k: v for k, v in prefs.model_dump().items() if v is not None}
+    
+    await db.users.update_one(
+        {"id": user_id},
+        {"$set": update_dict}
+    )
+    
+    return {"message": f"Notification preferences updated for user {target_user.get('username')}"}
+
+
+# ==================== ALERT NOTIFICATION ENDPOINTS ====================
+
+@api_router.get("/users/me/alert-notifications")
+async def get_alert_notifications(current_user: dict = Depends(get_current_user)):
+    """Get alert notifications for the current user based on role and department"""
+    try:
+        current_user_id = current_user.get("id")
+        
+        # Get alert notifications for this user - return ALL (read and unread)
+        # Frontend handles read status filtering via readNotificationIds in localStorage
+        notifications = await db.alert_notifications.find(
+            {"assigned_to": current_user_id},
+            {"_id": 0}
+        ).sort("created_at", -1).limit(20).to_list(20)
+        
+        return notifications
+    except Exception as e:
+        print(f"Error fetching alert notifications: {str(e)}")
+        return []
+
+
+@api_router.get("/users/me/request-notifications")
+async def get_request_notifications(current_user: dict = Depends(get_current_user)):
+    """Get request update notifications for the current user (AM)"""
+    try:
+        current_user_id = current_user.get("id")
+        
+        # Get request notifications for this user
+        notifications = await db.notifications.find(
+            {"assigned_to": current_user_id, "type": "request_update"},
+            {"_id": 0}
+        ).sort("created_at", -1).limit(20).to_list(20)
+        
+        # Convert datetime fields to ISO format strings for JSON serialization
+        for notification in notifications:
+            if "created_at" in notification:
+                if hasattr(notification["created_at"], "isoformat"):
+                    notification["created_at"] = notification["created_at"].isoformat()
+                elif notification["created_at"] is not None:
+                    pass
+        
+        return notifications
+    except Exception as e:
+        print(f"Error fetching request notifications: {str(e)}")
+        return []
+
+
+@api_router.post("/users/me/alert-notifications/{notification_id}/read")
+async def mark_alert_notification_as_read(notification_id: str, current_user: dict = Depends(get_current_user)):
+    """Mark an alert notification as read"""
     current_user_id = current_user.get("id")
     
-    result = await db.am_notifications.find_one_and_update(
-        {"id": notification_id, "am_id": current_user_id},
+    result = await db.alert_notifications.find_one_and_update(
+        {"id": notification_id, "assigned_to": current_user_id},
         {"$set": {"read": True}},
         return_document=True
     )
@@ -880,6 +1356,47 @@ async def mark_am_notification_as_read(notification_id: str, current_user: dict 
         raise HTTPException(status_code=404, detail="Notification not found")
     
     return {"message": "Notification marked as read"}
+
+
+@api_router.post("/users/me/alert-notifications/read-all")
+async def mark_all_alert_notifications_as_read(current_user: dict = Depends(get_current_user)):
+    """Mark all alert notifications as read"""
+    result = await db.alert_notifications.update_many(
+        {"read": False},
+        {"$set": {"read": True}}
+    )
+    
+    return {"message": f"Marked {result.modified_count} notifications as read"}
+
+
+@api_router.post("/users/me/request-notifications/{notification_id}/read")
+async def mark_request_notification_as_read(notification_id: str, current_user: dict = Depends(get_current_user)):
+    """Mark a request notification as read"""
+    current_user_id = current_user.get("id")
+    
+    result = await db.notifications.find_one_and_update(
+        {"id": notification_id, "assigned_to": current_user_id},
+        {"$set": {"read": True}},
+        return_document=True
+    )
+    
+    if not result:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    
+    return {"message": "Notification marked as read"}
+
+
+@api_router.post("/users/me/request-notifications/read-all")
+async def mark_all_request_notifications_as_read(current_user: dict = Depends(get_current_user)):
+    """Mark all request notifications as read"""
+    current_user_id = current_user.get("id")
+    
+    result = await db.notifications.update_many(
+        {"assigned_to": current_user_id, "type": "request_update", "read": False},
+        {"$set": {"read": True}}
+    )
+    
+    return {"message": f"Marked {result.modified_count} notifications as read"}
 
 # ==================== USER ROUTES ====================
 
@@ -900,6 +1417,12 @@ async def update_user(user_id: str, user_data: UserUpdate, current_admin: dict =
     
     if not update_dict:
         raise HTTPException(status_code=400, detail="No fields to update")
+    
+    # Hash password if provided
+    if "password" in update_dict and update_dict["password"]:
+        from passlib.context import CryptContext
+        pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+        update_dict["password_hash"] = pwd_context.hash(update_dict.pop("password"))
     
     # Get the user before update for audit
     user_before = await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})
@@ -984,7 +1507,7 @@ async def init_default_departments():
             "can_create_enterprises": False,
             "can_delete_enterprises": False,
             "can_view_tickets": True,
-            "can_create_tickets": False,
+            "can_create_tickets": True,
             "can_edit_tickets": False,
             "can_delete_tickets": False,
             "can_view_users": False,
@@ -1001,7 +1524,7 @@ async def init_default_departments():
             "can_create_enterprises": False,
             "can_delete_enterprises": False,
             "can_view_tickets": True,
-            "can_create_tickets": False,
+            "can_create_tickets": True,
             "can_edit_tickets": False,
             "can_delete_tickets": False,
             "can_view_users": False,
@@ -1031,6 +1554,12 @@ async def init_default_departments():
         existing = await db.departments.find_one({"id": dept["id"]})
         if not existing:
             await db.departments.insert_one(dept)
+        else:
+            # Update existing department with correct permissions
+            await db.departments.update_one(
+                {"id": dept["id"]},
+                {"$set": dept}
+            )
 
 async def migrate_users_to_departments():
     """Assign existing users to departments based on their role"""
@@ -1332,6 +1861,126 @@ async def delete_client(client_id: str, current_admin: dict = Depends(get_curren
     
     return {"message": "Client deleted successfully"}
 
+@api_router.post("/clients/import")
+async def import_clients(
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Import enterprises from a CSV file.
+    Required columns: name, enterprise_type, tier, contact_email, noc_emails
+    Optional columns: contact_person, contact_phone, notes, customer_trunks, vendor_trunks
+    """
+    # Check if user has permission to create clients
+    dept = await get_user_department(current_user)
+    role = get_user_role_from_department(dept)
+    if role not in ["admin", "noc"]:
+        raise HTTPException(status_code=403, detail="You don't have permission to import enterprises")
+    
+    # Validate file type
+    if not file.filename.endswith('.csv'):
+        raise HTTPException(status_code=400, detail="Only CSV files are supported")
+    
+    try:
+        # Read and parse CSV
+        contents = await file.read()
+        df = pd.read_csv(io.BytesIO(contents))
+        
+        # Validate required columns
+        required_columns = ['name', 'enterprise_type', 'tier', 'contact_email', 'noc_emails']
+        missing_columns = [col for col in required_columns if col not in df.columns]
+        if missing_columns:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Missing required columns: {', '.join(missing_columns)}"
+            )
+        
+        imported_count = 0
+        errors = []
+        
+        for index, row in df.iterrows():
+            try:
+                # Validate required fields
+                if pd.isna(row['name']) or pd.isna(row['enterprise_type']) or pd.isna(row['tier']):
+                    errors.append(f"Row {index + 2}: Missing required fields (name, enterprise_type, tier)")
+                    continue
+                    
+                if pd.isna(row['contact_email']) or pd.isna(row['noc_emails']):
+                    errors.append(f"Row {index + 2}: Missing required fields (contact_email, noc_emails)")
+                    continue
+                
+                # Validate enterprise_type
+                if row['enterprise_type'] not in ['sms', 'voice']:
+                    errors.append(f"Row {index + 2}: enterprise_type must be 'sms' or 'voice'")
+                    continue
+                
+                # Validate tier
+                valid_tiers = ['Tier 1', 'Tier 2', 'Tier 3', 'Tier 4']
+                if row['tier'] not in valid_tiers:
+                    errors.append(f"Row {index + 2}: tier must be one of {valid_tiers}")
+                    continue
+                
+                # Parse trunks (semicolon-separated)
+                customer_trunks = []
+                if 'customer_trunks' in df.columns and not pd.isna(row.get('customer_trunks')):
+                    customer_trunks = [t.strip() for t in str(row['customer_trunks']).split(';') if t.strip()]
+                
+                vendor_trunks = []
+                if 'vendor_trunks' in df.columns and not pd.isna(row.get('vendor_trunks')):
+                    vendor_trunks = [t.strip() for t in str(row['vendor_trunks']).split(';') if t.strip()]
+                
+                # Create client document
+                client_doc = {
+                    "id": str(uuid.uuid4()),
+                    "name": str(row['name']).strip(),
+                    "enterprise_type": str(row['enterprise_type']).strip().lower(),
+                    "tier": str(row['tier']).strip(),
+                    "contact_email": str(row['contact_email']).strip(),
+                    "contact_person": str(row.get('contact_person', '')).strip() if not pd.isna(row.get('contact_person')) else None,
+                    "contact_phone": str(row.get('contact_phone', '')).strip() if not pd.isna(row.get('contact_phone')) else None,
+                    "noc_emails": str(row['noc_emails']).strip(),
+                    "notes": str(row.get('notes', '')).strip() if not pd.isna(row.get('notes')) else None,
+                    "customer_trunks": customer_trunks,
+                    "vendor_trunks": vendor_trunks,
+                    "assigned_am_id": None,
+                    "created_at": datetime.now(timezone.utc)
+                }
+                
+                # Insert into database
+                await db.clients.insert_one(client_doc)
+                imported_count += 1
+                
+                # Create audit log for imported enterprise
+                await create_audit_log(
+                    user_id=current_user.get("id"),
+                    username=current_user.get("username", "user"),
+                    action="create",
+                    entity_type="client",
+                    entity_id=client_doc["id"],
+                    entity_name=client_doc["name"],
+                    changes={"imported": True, "enterprise_type": client_doc["enterprise_type"], "tier": client_doc["tier"]}
+                )
+                
+            except Exception as e:
+                errors.append(f"Row {index + 2}: {str(e)}")
+        
+        if errors and imported_count == 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Import failed. Errors: {'; '.join(errors[:5])}"
+            )
+        
+        return {
+            "imported_count": imported_count,
+            "message": f"Successfully imported {imported_count} enterprises",
+            "errors": errors if errors else None
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to parse CSV: {str(e)}")
+
 @api_router.get("/trunks/{enterprise_type}")
 async def get_trunks_by_type(enterprise_type: str, current_user: dict = Depends(get_current_user)):
     """Get all customer and vendor trunks for a specific enterprise type (sms or voice)"""
@@ -1371,12 +2020,18 @@ async def get_trunks_by_type(enterprise_type: str, current_user: dict = Depends(
 
 TRAFFIC_TYPES = [
     "OTP",
-    "Phishing",
-    "Spam",
-    "Spam and Phishing",
+    "Promo",
     "Casino",
     "Clean Marketing",
     "Banking",
+    "Other"
+]
+
+VOICE_TRAFFIC_TYPES = [
+    "CLI",
+    "NCLI",
+    "CC",
+    "TDM",
     "Other"
 ]
 
@@ -1407,7 +2062,7 @@ async def get_reference_trunks(section: str, current_user: dict = Depends(get_cu
     
     return {
         "vendor_trunks": vendor_trunks,
-        "traffic_types": TRAFFIC_TYPES
+        "traffic_types": VOICE_TRAFFIC_TYPES if section == "voice" else TRAFFIC_TYPES
     }
 
 
@@ -1481,6 +2136,18 @@ async def create_reference_list(list_data: ReferenceListCreate, current_user: di
         del list_dict["_id"]
     
     await db.reference_lists.insert_one(list_dict)
+    
+    # Create audit log for reference list creation
+    await create_audit_log(
+        user_id=current_user.get("id"),
+        username=current_user.get("username", "Unknown"),
+        action="create",
+        entity_type="reference_list",
+        entity_id=list_dict.get("id"),
+        entity_name=f"{list_data.name} ({list_data.section})",
+        changes=list_dict
+    )
+    
     print(f"Inserted list: {list_dict}")
     
     # Return the created list from MongoDB to ensure id is properly returned
@@ -1545,8 +2212,21 @@ async def update_reference_list(list_id: str, list_data: ReferenceListUpdate, cu
         {"$set": update_data}
     )
     
-    # Return updated list
+    # Get updated list for audit log
     updated = await db.reference_lists.find_one({update_key: existing.get(update_key)}, {"_id": 0})
+    
+    # Create audit log for reference list update
+    await create_audit_log(
+        user_id=current_user.get("id"),
+        username=current_user.get("username", "Unknown"),
+        action="update",
+        entity_type="reference_list",
+        entity_id=list_id,
+        entity_name=f"{existing.get('name', '')} ({existing.get('section', '')})",
+        changes={"before": existing, "after": updated}
+    )
+    
+    # Return updated list
     return updated
 
 
@@ -1604,6 +2284,17 @@ async def delete_reference_list(list_id: str, current_user: dict = Depends(get_c
     delete_key = "id" if "id" in existing else "_id"
     await db.reference_lists.delete_one({delete_key: existing.get(delete_key)})
     
+    # Create audit log for reference list deletion
+    await create_audit_log(
+        user_id=current_user.get("id"),
+        username=current_user.get("username", "Unknown"),
+        action="delete",
+        entity_type="reference_list",
+        entity_id=list_id,
+        entity_name=f"{existing.get('name', '')} ({existing.get('section', '')})",
+        changes={"deleted_reference_list": existing}
+    )
+    
     return {"message": "Reference list deleted successfully"}
 
 # ==================== ALERT ROUTES ====================
@@ -1659,6 +2350,10 @@ class AlertComment(BaseModel):
 @api_router.post("/alerts", response_model=Alert)
 async def create_alert(alert_data: AlertCreate, current_user: dict = Depends(get_current_user)):
     """Create a new alert from a ticket"""
+    # AMs cannot create alerts - only NOC can
+    if current_user.get("role") == "am":
+        raise HTTPException(status_code=403, detail="Account Managers cannot create alerts")
+    
     print(f"Creating alert from ticket: {alert_data.ticket_number}")
     
     # Create the alert
@@ -1682,6 +2377,28 @@ async def create_alert(alert_data: AlertCreate, current_user: dict = Depends(get
     
     alert_dict = alert.model_dump()
     await db.alerts.insert_one(alert_dict)
+    
+    # Create audit log for alert creation
+    await create_audit_log(
+        user_id=current_user.get("id"),
+        username=current_user.get("username", "Unknown"),
+        action="create",
+        entity_type="alert",
+        entity_id=alert_dict.get("id"),
+        entity_name=alert_data.ticket_number,
+        changes=alert_dict
+    )
+    
+    # Notify AMs and NOC about the new alert
+    await notify_users_about_alert(
+        alert_id=alert_dict.get("id"),
+        alert_ticket_number=alert_data.ticket_number,
+        customer=alert_data.customer,
+        customer_id=alert_data.customer_id,
+        ticket_type=alert_data.ticket_type,
+        notification_type="created",
+        created_by=current_user.get("id")
+    )
     
     return alert
 
@@ -1709,6 +2426,10 @@ async def get_alerts(section: str, current_user: dict = Depends(get_current_user
 @api_router.post("/alerts/{alert_id}/comments")
 async def add_alert_comment(alert_id: str, comment: AlertComment, current_user: dict = Depends(get_current_user)):
     """Add a comment to an alert"""
+    # AMs cannot submit alternative vendor trunks - only text comments
+    if current_user.get("role") == "am" and comment.alternative_vendor and comment.alternative_vendor.strip():
+        raise HTTPException(status_code=403, detail="Account Managers cannot submit alternative vendor trunks")
+    
     # Find the alert
     alert = await db.alerts.find_one({"id": alert_id})
     if not alert:
@@ -1729,17 +2450,59 @@ async def add_alert_comment(alert_id: str, comment: AlertComment, current_user: 
         {"$push": {"comments": comment_obj}}
     )
     
+    # Create audit log for alert comment
+    await create_audit_log(
+        user_id=current_user.get("id"),
+        username=current_user.get("username", "Unknown"),
+        action="create",
+        entity_type="alert_comment",
+        entity_id=comment_obj["id"],
+        entity_name=f"{alert.get('ticket_number', alert_id)} - Comment",
+        changes=comment_obj
+    )
+    
+    # Determine notification type based on comment content
+    notification_type = "commented"
+    if comment.alternative_vendor and comment.alternative_vendor.strip():
+        notification_type = "alt_vendor"
+    
+    # Notify AMs and NOC about the comment/alternative vendor
+    await notify_users_about_alert(
+        alert_id=alert_id,
+        alert_ticket_number=alert.get("ticket_number", ""),
+        customer=alert.get("customer", ""),
+        customer_id=alert.get("customer_id", ""),
+        ticket_type=alert.get("ticket_type", "sms"),
+        notification_type=notification_type,
+        created_by=current_user.get("id")
+    )
+    
     return {"message": "Comment added successfully", "comment": comment_obj}
 
 
 @api_router.delete("/alerts/{alert_id}")
 async def delete_alert(alert_id: str, current_user: dict = Depends(get_current_user)):
     """Delete an alert"""
+    # AMs cannot delete alerts - only NOC can
+    if current_user.get("role") == "am":
+        raise HTTPException(status_code=403, detail="Account Managers cannot delete alerts")
+    
     alert = await db.alerts.find_one({"id": alert_id})
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found")
     
     await db.alerts.delete_one({"id": alert_id})
+    
+    # Create audit log for alert deletion
+    await create_audit_log(
+        user_id=current_user.get("id"),
+        username=current_user.get("username", "Unknown"),
+        action="delete",
+        entity_type="alert",
+        entity_id=alert_id,
+        entity_name=alert.get("ticket_number", alert_id),
+        changes={"deleted_alert": alert}
+    )
     
     return {"message": "Alert deleted successfully"}
 
@@ -1747,6 +2510,10 @@ async def delete_alert(alert_id: str, current_user: dict = Depends(get_current_u
 @api_router.post("/alerts/{alert_id}/resolve")
 async def resolve_alert(alert_id: str, current_user: dict = Depends(get_current_user)):
     """Resolve an alert - marks it as archived/resolved"""
+    # AMs cannot resolve alerts - only NOC can
+    if current_user.get("role") == "am":
+        raise HTTPException(status_code=403, detail="Account Managers cannot resolve alerts")
+    
     alert = await db.alerts.find_one({"id": alert_id})
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found")
@@ -1756,7 +2523,481 @@ async def resolve_alert(alert_id: str, current_user: dict = Depends(get_current_
         {"$set": {"resolved": True}}
     )
     
+    # Notify AMs and NOC about the resolved alert
+    await notify_users_about_alert(
+        alert_id=alert_id,
+        alert_ticket_number=alert.get("ticket_number", ""),
+        customer=alert.get("customer", ""),
+        customer_id=alert.get("customer_id", ""),
+        ticket_type=alert.get("ticket_type", "sms"),
+        notification_type="resolved",
+        created_by=current_user.get("id")
+    )
+    
     return {"message": "Alert resolved successfully"}
+
+
+# ==================== AM REQUEST ROUTES ====================
+
+class AMRequest(BaseModel):
+    """Model for AM requests (Rating, Routing, Testing, Translation, Investigation)"""
+    model_config = ConfigDict(extra="ignore")
+    
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    request_type: str  # "rating_routing", "testing", "translation", "investigation"
+    request_type_label: str  # Display label for the request type
+    department: str  # "sms" or "voice"
+    priority: str  # "Low", "Medium", "High", "Urgent"
+    
+    # Client info
+    customer: Optional[str] = None
+    customer_id: Optional[str] = None
+    customer_ids: List[str] = Field(default_factory=list)  # List of customer IDs for rating/routing
+    ticket_id: Optional[str] = None  # Optional ticket reference
+    
+    # Rating/Routing fields
+    rating: Optional[str] = None
+    customer_trunk: Optional[str] = None
+    customer_trunks: List[dict] = Field(default_factory=list)  # List of {trunk, destination, rate}
+    destination: Optional[str] = None
+    by_loss: bool = False  # By Loss option for rating/routing
+    enable_mnp_hlr: bool = False  # Enable MNP/HLR for SMS
+    mnp_hlr_type: Optional[str] = None  # MNP or HLR
+    enable_threshold: bool = False  # Enable threshold for SMS
+    threshold_count: Optional[str] = None  # Threshold count
+    enable_whitelisting: bool = False  # Enable numbers whitelisting for SMS
+    rating_vendor_trunks: List[dict] = Field(default_factory=list)  # List of {trunk, percentage, position, cost_type, cost_min, cost_max}
+    
+    # Testing fields
+    vendor_trunks: List[dict] = Field(default_factory=list)  # List of {trunk, sid, content}
+    
+    # Translation fields
+    translation_type: Optional[str] = None  # "sid_change", "content_change", "sid_content_change", "remove"
+    trunk_type: Optional[str] = None  # "customer", "vendor"
+    trunk_name: Optional[str] = None
+    old_value: Optional[str] = None
+    new_value: Optional[str] = None
+    old_sid: Optional[str] = None
+    new_sid: Optional[str] = None
+    word_to_remove: Optional[str] = None
+    translation_destination: Optional[str] = None
+    
+    # Testing fields - for Voice
+    test_type: Optional[str] = None  # "tool_test", "manual_test"
+    test_description: Optional[str] = None  # Optional description for voice testing
+    
+    # LCR fields - for Voice
+    lcr_type: Optional[str] = None  # "PRM", "STD", "CC"
+    lcr_change: Optional[str] = None  # "add", "drop"
+    
+    # Investigation fields
+    investigation_type: Optional[str] = None
+    investigation_destination: Optional[str] = None
+    issue_description: Optional[str] = None
+    
+    # Status
+    status: str = "pending"  # "pending", "in_progress", "completed", "rejected"
+    created_by: str
+    created_by_username: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: Optional[datetime] = None
+    response: Optional[str] = None
+    responded_by: Optional[str] = None
+    responded_at: Optional[datetime] = None
+    claimed_by: Optional[str] = None
+    claimed_by_username: Optional[str] = None
+    test_result_image: Optional[str] = None  # URL to uploaded test result image
+
+
+class AMRequestCreate(BaseModel):
+    """Model for creating an AM request"""
+    request_type: str
+    request_type_label: str
+    department: str
+    priority: str
+    customer: Optional[str] = None
+    customer_id: Optional[str] = None
+    customer_ids: List[str] = Field(default_factory=list)  # List of customer IDs for rating/routing
+    ticket_id: Optional[str] = None  # Optional ticket reference
+    rating: Optional[str] = None
+    customer_trunk: Optional[str] = None
+    customer_trunks: List[dict] = Field(default_factory=list)  # List of {trunk, destination, rate}
+    destination: Optional[str] = None
+    by_loss: bool = False  # By Loss option for rating/routing
+    enable_mnp_hlr: bool = False  # Enable MNP/HLR for SMS
+    mnp_hlr_type: Optional[str] = None  # MNP or HLR
+    enable_threshold: bool = False  # Enable threshold for SMS
+    threshold_count: Optional[str] = None  # Threshold count
+    enable_whitelisting: bool = False  # Enable numbers whitelisting for SMS
+    rating_vendor_trunks: List[dict] = Field(default_factory=list)
+    vendor_trunks: List[dict] = Field(default_factory=list)
+    translation_type: Optional[str] = None
+    trunk_type: Optional[str] = None
+    trunk_name: Optional[str] = None
+    old_value: Optional[str] = None
+    new_value: Optional[str] = None
+    old_sid: Optional[str] = None
+    new_sid: Optional[str] = None
+    word_to_remove: Optional[str] = None
+    translation_destination: Optional[str] = None
+    
+    # Testing fields - for Voice
+    test_type: Optional[str] = None  # "tool_test", "manual_test"
+    test_description: Optional[str] = None  # Optional description for voice testing
+    
+    # LCR fields - for Voice
+    lcr_type: Optional[str] = None  # "PRM", "STD", "CC"
+    lcr_change: Optional[str] = None  # "add", "drop"
+
+    investigation_type: Optional[str] = None
+    investigation_destination: Optional[str] = None
+    issue_description: Optional[str] = None
+
+
+@api_router.get("/requests", response_model=List[AMRequest])
+async def get_requests(
+    department: Optional[str] = None,
+    request_type: Optional[str] = None,
+    status: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get all requests - filtered by user's department and role"""
+    user_role = current_user.get("role")
+    user_id = current_user.get("id")
+    
+    # Get user's department
+    user_dept = current_user.get("department")
+    if user_dept and isinstance(user_dept, dict):
+        user_dept_name = user_dept.get("name", "").lower()
+    elif user_dept and isinstance(user_dept, str):
+        user_dept_name = user_dept.lower()
+    else:
+        user_dept_name = ""
+    
+    # Build query
+    query = {}
+    
+    # Filter by department based on user role
+    if user_role == "am":
+        # AMs only see their own requests
+        # Use flexible matching to handle different department name formats
+        if user_dept_name.startswith("sms") or user_dept_name == "sms":
+            query["department"] = "sms"
+        elif user_dept_name.startswith("voice") or user_dept_name == "voice":
+            query["department"] = "voice"
+        # Filter by the AM's user ID to show only their own requests
+        query["created_by"] = user_id
+    elif department:
+        # NOC/Admin can filter by department
+        query["department"] = department
+    
+    # Filter by request type
+    if request_type:
+        query["request_type"] = request_type
+    
+    # Filter by status
+    if status:
+        query["status"] = status
+    
+    requests = await db.am_requests.find(query).sort("created_at", -1).to_list(100)
+    
+    # Convert datetime fields
+    for req in requests:
+        if req.get("created_at") and hasattr(req["created_at"], "isoformat"):
+            req["created_at"] = req["created_at"].isoformat()
+        if req.get("updated_at") and hasattr(req["updated_at"], "isoformat"):
+            req["updated_at"] = req["updated_at"].isoformat()
+        if req.get("responded_at") and hasattr(req["responded_at"], "isoformat"):
+            req["responded_at"] = req["responded_at"].isoformat()
+    
+    return requests
+
+
+@api_router.get("/requests/{request_id}", response_model=AMRequest)
+async def get_request(request_id: str, current_user: dict = Depends(get_current_user)):
+    """Get a single request by ID - for navigation from notifications"""
+    user_role = current_user.get("role")
+    user_id = current_user.get("id")
+    
+    # Find the request
+    request_obj = await db.am_requests.find_one({"id": request_id})
+    if not request_obj:
+        raise HTTPException(status_code=404, detail="Request not found")
+    
+    # Check access - AMs can only view their own requests
+    if user_role == "am" and request_obj.get("created_by") != user_id:
+        raise HTTPException(status_code=403, detail="You can only view your own requests")
+    
+    # Convert datetime fields
+    if request_obj.get("created_at") and hasattr(request_obj["created_at"], "isoformat"):
+        request_obj["created_at"] = request_obj["created_at"].isoformat()
+    if request_obj.get("updated_at") and hasattr(request_obj["updated_at"], "isoformat"):
+        request_obj["updated_at"] = request_obj["updated_at"].isoformat()
+    if request_obj.get("responded_at") and hasattr(request_obj["responded_at"], "isoformat"):
+        request_obj["responded_at"] = request_obj["responded_at"].isoformat()
+    
+    return request_obj
+
+
+@api_router.post("/requests", response_model=AMRequest)
+async def create_request(request_data: AMRequestCreate, current_user: dict = Depends(get_current_user)):
+    """Create a new AM request"""
+    user_role = current_user.get("role")
+    
+    # Log for debugging
+    logging.info(f"User {current_user.get('username')} - role: {user_role}, department: {current_user.get('department')}")
+    
+    # Only AMs can create requests
+    if user_role != "am":
+        raise HTTPException(status_code=403, detail=f"Only Account Managers can create requests. Your role: {user_role}")
+    
+    # Get user's department
+    user_dept = current_user.get("department")
+    if user_dept and isinstance(user_dept, dict):
+        # Use department_type instead of name for comparison
+        user_dept_type = user_dept.get("department_type", "").lower()
+    else:
+        user_dept_type = ""
+    
+    # Verify department matches - compare with department_type
+    if request_data.department.lower() != user_dept_type and user_dept_type != "all":
+        raise HTTPException(status_code=403, detail="You can only create requests for your department")
+    
+    # Create the request
+    request_obj = AMRequest(
+        request_type=request_data.request_type,
+        request_type_label=request_data.request_type_label,
+        department=request_data.department,
+        priority=request_data.priority,
+        customer=request_data.customer,
+        customer_id=request_data.customer_id,
+        customer_ids=request_data.customer_ids,
+        rating=request_data.rating,
+        customer_trunk=request_data.customer_trunk,
+        customer_trunks=request_data.customer_trunks,
+        destination=request_data.destination,
+        by_loss=request_data.by_loss,
+        enable_mnp_hlr=request_data.enable_mnp_hlr,
+        mnp_hlr_type=request_data.mnp_hlr_type,
+        enable_threshold=request_data.enable_threshold,
+        threshold_count=request_data.threshold_count,
+        enable_whitelisting=request_data.enable_whitelisting,
+        rating_vendor_trunks=request_data.rating_vendor_trunks,
+        vendor_trunks=request_data.vendor_trunks,
+        translation_type=request_data.translation_type,
+        trunk_type=request_data.trunk_type,
+        trunk_name=request_data.trunk_name,
+        old_value=request_data.old_value,
+        new_value=request_data.new_value,
+        old_sid=request_data.old_sid,
+        new_sid=request_data.new_sid,
+        word_to_remove=request_data.word_to_remove,
+        translation_destination=request_data.translation_destination,
+        lcr_type=request_data.lcr_type,
+        lcr_change=request_data.lcr_change,
+        investigation_type=request_data.investigation_type,
+        investigation_destination=request_data.investigation_destination,
+        issue_description=request_data.issue_description,
+        created_by=current_user.get("id"),
+        created_by_username=current_user.get("username", "Unknown")
+    )
+    
+    doc = request_obj.model_dump()
+    doc['created_at'] = doc['created_at'].isoformat()
+    await db.am_requests.insert_one(doc)
+    
+    # Create audit log for request creation
+    await create_audit_log(
+        user_id=current_user.get("id"),
+        username=current_user.get("username", "Unknown"),
+        action="create",
+        entity_type="request",
+        entity_id=doc.get("id"),
+        entity_name=f"{request_data.request_type_label} - {request_data.customer}",
+        changes=doc
+    )
+    
+    return request_obj
+
+
+@api_router.put("/requests/{request_id}", response_model=AMRequest)
+async def update_request(request_id: str, request_data: dict, current_user: dict = Depends(get_current_user)):
+    """Update a request - can be response from NOC or edit from AM"""
+    user_role = current_user.get("role")
+    user_id = current_user.get("id")
+    
+    # Find the request first
+    request_obj = await db.am_requests.find_one({"id": request_id})
+    if not request_obj:
+        raise HTTPException(status_code=404, detail="Request not found")
+    
+    # Check if AM is editing their own request
+    is_am_editing_own = user_role == "am" and request_obj.get("created_by") == user_id
+    
+    # Only NOC can respond to requests, OR AM can edit their own request
+    if user_role == "am" and not is_am_editing_own:
+        raise HTTPException(status_code=403, detail="You can only edit your own requests")
+    
+    if is_am_editing_own:
+        # AM editing their own request - update the request fields (not response)
+        # Only allow editing certain fields
+        allowed_fields = [
+            "priority", "customer", "customer_id", "customer_ids", "rating", "routing",
+            "customer_trunk", "customer_trunks", "destination", "by_loss",
+            "enable_mnp_hlr", "mnp_hlr_type", "enable_threshold", "threshold_count", "enable_whitelisting",
+            "rating_vendor_trunks",
+            "vendor_trunks", "translation_type", "trunk_type", "trunk_name",
+            "old_value", "new_value", "old_sid", "new_sid", "word_to_remove", "translation_destination",
+            "test_type", "test_description",
+            "lcr_type", "lcr_change",
+            "investigation_type", "investigation_destination", "issue_description"
+        ]
+        
+        update_data = {}
+        for field in allowed_fields:
+            if request_data.get(field) is not None:
+                update_data[field] = request_data[field]
+        
+        update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+        
+        await db.am_requests.update_one({"id": request_id}, {"$set": update_data})
+    else:
+        # NOC responding to request - can be claim (set claimed_by) or response
+        update_data = {
+            "status": request_data.get("status", request_obj.get("status")),
+            "response": request_data.get("response"),
+            "responded_by": current_user.get("id"),
+            "responded_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }
+        
+        # Handle test result image for testing requests
+        if request_data.get("test_result_image"):
+            update_data["test_result_image"] = request_data["test_result_image"]
+        
+        # Handle claim - set claimed_by when status changes to in_progress
+        if request_data.get("claimed_by"):
+            update_data["claimed_by"] = request_data["claimed_by"]
+            update_data["claimed_by_username"] = current_user.get("username", "Unknown")
+        elif request_obj.get("claimed_by"):
+            update_data["claimed_by"] = request_obj.get("claimed_by")
+            update_data["claimed_by_username"] = request_obj.get("claimed_by_username", "Unknown")
+        
+        await db.am_requests.update_one({"id": request_id}, {"$set": update_data})
+    
+    # Get updated request for audit log
+    updated_request = await db.am_requests.find_one({"id": request_id})
+    
+    # Create audit log for request update
+    await create_audit_log(
+        user_id=current_user.get("id"),
+        username=current_user.get("username", "Unknown"),
+        action="update",
+        entity_type="request",
+        entity_id=request_id,
+        entity_name=f"{request_obj.get('request_type_label', 'Request')} - {request_obj.get('customer', '')}",
+        changes={"before": request_obj, "after": updated_request}
+    )
+    
+    # Check if request was completed or rejected - notify the AM who created it
+    new_status = request_data.get("status")
+    old_status = request_obj.get("status")
+    
+    if new_status in ["completed", "rejected"] and old_status != new_status:
+        # Get the AM who created the request
+        am_id = request_obj.get("created_by")
+        if am_id and am_id != user_id:  # Don't notify if NOC is updating their own
+            # Get AM user info
+            am_user = await db.users.find_one({"id": am_id}, {"_id": 0, "username": 1, "name": 1})
+            if am_user:
+                am_name = am_user.get("name") or am_user.get("username") or "AM"
+                noc_name = current_user.get("name") or current_user.get("username") or "NOC"
+                # Use request id (last 8 chars for readability) or generate a number
+                request_display = request_obj.get("id", "Unknown")[-8:]
+                
+                # Create notification message
+                status_text = "completed" if new_status == "completed" else "rejected"
+                notification_message = f"Your request #{request_display} has been {status_text} by {noc_name}"
+                
+                if request_data.get("response"):
+                    notification_message += f": {request_data.get('response')}"
+                
+                # Create notification in database
+                notification_doc = {
+                    "id": f"request_{request_id}_{new_status}_{int(datetime.now(timezone.utc).timestamp())}",
+                    "type": "request_update",
+                    "message": notification_message,
+                    "request_id": request_id,
+                    "request_number": request_obj.get("request_number"),
+                    "status": new_status,
+                    "response": request_data.get("response", ""),
+                    "created_by": user_id,
+                    "assigned_to": am_id,
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "read": False
+                }
+                await db.notifications.insert_one(notification_doc)
+    
+    # Return updated request
+    updated = await db.am_requests.find_one({"id": request_id})
+    return updated
+
+
+@api_router.delete("/requests/{request_id}")
+async def delete_request(request_id: str, current_user: dict = Depends(get_current_user)):
+    """Delete a request - AMs can delete their own pending requests, Admins can delete any request"""
+    user_role = current_user.get("role")
+    user_id = current_user.get("id")
+    
+    # Find the request
+    request_obj = await db.am_requests.find_one({"id": request_id})
+    if not request_obj:
+        raise HTTPException(status_code=404, detail="Request not found")
+    
+    # Admins can delete any request in any state
+    if user_role == "admin":
+        await db.am_requests.delete_one({"id": request_id})
+        # Create audit log for request deletion
+        await create_audit_log(
+            user_id=current_user.get("id"),
+            username=current_user.get("username", "Unknown"),
+            action="delete",
+            entity_type="request",
+            entity_id=request_id,
+            entity_name=f"{request_obj.get('request_type_label', 'Request')} - {request_obj.get('customer', '')}",
+            changes={"deleted_request": request_obj}
+        )
+        return {"message": "Request deleted successfully"}
+    
+    # Only AMs can delete their own requests
+    if user_role != "am":
+        raise HTTPException(status_code=403, detail="Only Account Managers can delete requests")
+    
+    if request_obj.get("created_by") != user_id:
+        raise HTTPException(status_code=403, detail="You can only delete your own requests")
+    
+    # AMs can only delete pending requests
+    if request_obj.get("status") != "pending":
+        raise HTTPException(status_code=403, detail="You can only delete pending requests")
+    
+    # Delete the request
+    await db.am_requests.delete_one({"id": request_id})
+    
+    # Create audit log for request deletion by AM
+    await create_audit_log(
+        user_id=current_user.get("id"),
+        username=current_user.get("username", "Unknown"),
+        action="delete",
+        entity_type="request",
+        entity_id=request_id,
+        entity_name=f"{request_obj.get('request_type_label', 'Request')} - {request_obj.get('customer', '')}",
+        changes={"deleted_request": request_obj}
+    )
+    
+    return {"message": "Request deleted successfully"}
+
+
+# ==================== SMS TICKET ROUTES ====================
 
 
 # ==================== SMS TICKET ROUTES ====================
@@ -1805,17 +3046,24 @@ async def create_sms_ticket(ticket_data: SMSTicketCreate, current_user: dict = D
     
     await db.sms_tickets.insert_one(doc)
     
-    # Notify AMs about new ticket for their enterprise
-    await notify_ams_for_ticket(
-        customer_id=ticket_data.customer_id,
-        ticket_id=ticket_id,
-        ticket_number=ticket_dict["ticket_number"],
-        ticket_type="sms",
-        enterprise_name=client["name"],
-        destination=ticket_data.destination,
-        issue=ticket_data.issue or ", ".join(ticket_data.issue_types) if ticket_data.issue_types else None,
-        notification_type="created"
+    # Create audit log for SMS ticket creation
+    await create_audit_log(
+        user_id=current_user.get("id"),
+        username=current_user.get("username", "Unknown"),
+        action="create",
+        entity_type="ticket_sms",
+        entity_id=ticket_id,
+        entity_name=doc.get("ticket_number", ticket_id),
+        changes=doc
     )
+    
+    # Notify AMs about the new ticket
+    current_user_id = current_user.get("id")
+    await notify_ams_about_ticket(doc, "created", "sms", current_user_id)
+    
+    # If a NOC is assigned, also notify about assignment
+    if doc.get("assigned_to"):
+        await notify_ams_about_ticket(doc, "assigned", "sms", current_user_id)
     
     return ticket_obj
 
@@ -1919,6 +3167,17 @@ async def update_sms_ticket(ticket_id: str, ticket_data: SMSTicketUpdate, curren
         existing_assigned_to != current_user_id
     )
     
+    # Build changes dict for NOC modification notification
+    changes = {}
+    for key, value in update_dict.items():
+        if key in existing_ticket and existing_ticket[key] != value:
+            changes[key] = (existing_ticket[key], value)
+    
+    # Check if the modifier is a NOC user (for NOC modification notification)
+    dept = await get_user_department(current_user)
+    modifier_role = get_user_role_from_department(dept) if dept else None
+    is_noc_modifier = modifier_role == "noc"
+    
     result = await db.sms_tickets.find_one_and_update(
         {"id": ticket_id},
         {"$set": update_dict},
@@ -1928,6 +3187,18 @@ async def update_sms_ticket(ticket_id: str, ticket_data: SMSTicketUpdate, curren
     
     if not result:
         raise HTTPException(status_code=404, detail="Ticket not found")
+    
+    # Create audit log for SMS ticket update
+    if changes:
+        await create_audit_log(
+            user_id=current_user.get("id"),
+            username=current_user.get("username", "Unknown"),
+            action="update",
+            entity_type="ticket_sms",
+            entity_id=ticket_id,
+            entity_name=result.get("ticket_number", ticket_id),
+            changes={"before": existing_ticket, "after": result}
+        )
     
     # Create notification after successful update
     if should_notify:
@@ -1939,6 +3210,16 @@ async def update_sms_ticket(ticket_id: str, ticket_data: SMSTicketUpdate, curren
             modified_by=current_user_id,
             modified_by_username=current_user.get("username", "Unknown")
         )
+        
+        # Also notify NOC about NOC modification if applicable
+        if is_noc_modifier and changes:
+            await notify_noc_about_noc_modification(
+                existing_ticket,
+                current_user_id,
+                current_user.get("username", "Unknown"),
+                changes,
+                "sms"
+            )
     
     # Notify AMs about status change
     if new_status and new_status != existing_status:
@@ -1956,18 +3237,12 @@ async def update_sms_ticket(ticket_id: str, ticket_data: SMSTicketUpdate, curren
         elif new_status == "Unresolved":
             notification_type = "unresolved"
         else:
-            notification_type = "other"
+            notification_type = None
         
-        await notify_ams_for_ticket(
-            customer_id=existing_ticket.get("customer_id", ""),
-            ticket_id=ticket_id,
-            ticket_number=existing_ticket.get("ticket_number", ""),
-            ticket_type="sms",
-            enterprise_name=existing_ticket.get("customer", ""),
-            destination=existing_ticket.get("destination"),
-            issue=existing_ticket.get("issue"),
-            notification_type=notification_type
-        )
+        # Send notification to AMs about the status change
+        if notification_type:
+            current_user_id = current_user.get("id")
+            await notify_ams_about_ticket(result, notification_type, "sms", current_user_id)
     
     if isinstance(result['date'], str):
         result['date'] = datetime.fromisoformat(result['date'])
@@ -1979,9 +3254,26 @@ async def update_sms_ticket(ticket_id: str, ticket_data: SMSTicketUpdate, curren
 
 @api_router.delete("/tickets/sms/{ticket_id}")
 async def delete_sms_ticket(ticket_id: str, current_user: dict = Depends(get_current_admin_or_noc)):
+    # Get ticket details before deletion for audit log
+    existing_ticket = await db.sms_tickets.find_one({"id": ticket_id}, {"_id": 0})
+    if not existing_ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    
     result = await db.sms_tickets.delete_one({"id": ticket_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Ticket not found")
+    
+    # Create audit log for SMS ticket deletion
+    await create_audit_log(
+        user_id=current_user.get("id"),
+        username=current_user.get("username", "Unknown"),
+        action="delete",
+        entity_type="ticket_sms",
+        entity_id=ticket_id,
+        entity_name=existing_ticket.get("ticket_number", ticket_id),
+        changes={"deleted_ticket": existing_ticket}
+    )
+    
     return {"message": "Ticket deleted successfully"}
 
 # ==================== VOICE TICKET ROUTES ====================
@@ -2019,17 +3311,24 @@ async def create_voice_ticket(ticket_data: VoiceTicketCreate, current_user: dict
     
     await db.voice_tickets.insert_one(doc)
     
-    # Notify AMs about new ticket for their enterprise
-    await notify_ams_for_ticket(
-        customer_id=ticket_data.customer_id,
-        ticket_id=ticket_id,
-        ticket_number=ticket_dict["ticket_number"],
-        ticket_type="voice",
-        enterprise_name=client["name"],
-        destination=ticket_data.destination,
-        issue=ticket_data.issue or ", ".join(ticket_data.issue_types) if ticket_data.issue_types else None,
-        notification_type="created"
+    # Create audit log for Voice ticket creation
+    await create_audit_log(
+        user_id=current_user.get("id"),
+        username=current_user.get("username", "Unknown"),
+        action="create",
+        entity_type="ticket_voice",
+        entity_id=ticket_id,
+        entity_name=doc.get("ticket_number", ticket_id),
+        changes=doc
     )
+    
+    # Notify AMs about the new ticket
+    current_user_id = current_user.get("id")
+    await notify_ams_about_ticket(doc, "created", "voice", current_user_id)
+    
+    # If a NOC is assigned, also notify about assignment
+    if doc.get("assigned_to"):
+        await notify_ams_about_ticket(doc, "assigned", "voice", current_user_id)
     
     return ticket_obj
 
@@ -2073,8 +3372,12 @@ async def get_voice_ticket(ticket_id: str, current_user: dict = Depends(get_curr
 
 @api_router.put("/tickets/voice/{ticket_id}", response_model=VoiceTicket)
 async def update_voice_ticket(ticket_id: str, ticket_data: VoiceTicketUpdate, current_user: dict = Depends(get_current_user)):
+    # Get user department to check role
+    dept = await get_user_department(current_user)
+    user_role = get_user_role_from_department(dept) if dept else "unknown"
+    
     # AMs cannot update tickets
-    if current_user["role"] == "am":
+    if user_role == "am":
         raise HTTPException(status_code=403, detail="Account Managers cannot modify tickets")
     
     # Get the existing ticket to check status validation
@@ -2114,6 +3417,17 @@ async def update_voice_ticket(ticket_id: str, ticket_data: VoiceTicketUpdate, cu
         existing_assigned_to != current_user_id
     )
     
+    # Build changes dict for NOC modification notification
+    changes = {}
+    for key, value in update_dict.items():
+        if key in existing_ticket and existing_ticket[key] != value:
+            changes[key] = (existing_ticket[key], value)
+    
+    # Check if the modifier is a NOC user (for NOC modification notification)
+    dept = await get_user_department(current_user)
+    modifier_role = get_user_role_from_department(dept) if dept else None
+    is_noc_modifier = modifier_role == "noc"
+    
     result = await db.voice_tickets.find_one_and_update(
         {"id": ticket_id},
         {"$set": update_dict},
@@ -2123,6 +3437,18 @@ async def update_voice_ticket(ticket_id: str, ticket_data: VoiceTicketUpdate, cu
     
     if not result:
         raise HTTPException(status_code=404, detail="Ticket not found")
+    
+    # Create audit log for Voice ticket update
+    if changes:
+        await create_audit_log(
+            user_id=current_user.get("id"),
+            username=current_user.get("username", "Unknown"),
+            action="update",
+            entity_type="ticket_voice",
+            entity_id=ticket_id,
+            entity_name=result.get("ticket_number", ticket_id),
+            changes={"before": existing_ticket, "after": result}
+        )
     
     # Create notification after successful update
     if should_notify:
@@ -2134,6 +3460,16 @@ async def update_voice_ticket(ticket_id: str, ticket_data: VoiceTicketUpdate, cu
             modified_by=current_user_id,
             modified_by_username=current_user.get("username", "Unknown")
         )
+        
+        # Also notify NOC about NOC modification if applicable
+        if is_noc_modifier and changes:
+            await notify_noc_about_noc_modification(
+                existing_ticket,
+                current_user_id,
+                current_user.get("username", "Unknown"),
+                changes,
+                "voice"
+            )
     
     # Notify AMs about status change
     if new_status and new_status != existing_status:
@@ -2151,18 +3487,12 @@ async def update_voice_ticket(ticket_id: str, ticket_data: VoiceTicketUpdate, cu
         elif new_status == "Unresolved":
             notification_type = "unresolved"
         else:
-            notification_type = "other"
+            notification_type = None
         
-        await notify_ams_for_ticket(
-            customer_id=existing_ticket.get("customer_id", ""),
-            ticket_id=ticket_id,
-            ticket_number=existing_ticket.get("ticket_number", ""),
-            ticket_type="voice",
-            enterprise_name=existing_ticket.get("customer", ""),
-            destination=existing_ticket.get("destination"),
-            issue=existing_ticket.get("issue"),
-            notification_type=notification_type
-        )
+        # Send notification to AMs about the status change
+        if notification_type:
+            current_user_id = current_user.get("id")
+            await notify_ams_about_ticket(result, notification_type, "voice", current_user_id)
     
     if isinstance(result['date'], str):
         result['date'] = datetime.fromisoformat(result['date'])
@@ -2174,9 +3504,26 @@ async def update_voice_ticket(ticket_id: str, ticket_data: VoiceTicketUpdate, cu
 
 @api_router.delete("/tickets/voice/{ticket_id}")
 async def delete_voice_ticket(ticket_id: str, current_user: dict = Depends(get_current_admin_or_noc)):
+    # Get ticket details before deletion for audit log
+    existing_ticket = await db.voice_tickets.find_one({"id": ticket_id}, {"_id": 0})
+    if not existing_ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    
     result = await db.voice_tickets.delete_one({"id": ticket_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Ticket not found")
+    
+    # Create audit log for Voice ticket deletion
+    await create_audit_log(
+        user_id=current_user.get("id"),
+        username=current_user.get("username", "Unknown"),
+        action="delete",
+        entity_type="ticket_voice",
+        entity_id=ticket_id,
+        entity_name=existing_ticket.get("ticket_number", ticket_id),
+        changes={"deleted_ticket": existing_ticket}
+    )
+    
     return {"message": "Ticket deleted successfully"}
 
 
@@ -2220,6 +3567,23 @@ async def add_sms_ticket_action(
     if not result:
         raise HTTPException(status_code=404, detail="Ticket not found")
     
+    # Create audit log for SMS ticket action
+    await create_audit_log(
+        user_id=current_user.get("id"),
+        username=username,
+        action="create",
+        entity_type="ticket_sms_action",
+        entity_id=action_obj["id"],
+        entity_name=f"{result.get('ticket_number', ticket_id)} - Action",
+        changes=action_obj
+    )
+    
+    # Notify NOC about AM action (only if the user adding action is an AM)
+    user_dept = await get_user_department(user)
+    user_role = get_user_role_from_department(user_dept) if user_dept else None
+    if user_role == "am":
+        await notify_noc_about_am_action(result, action_data.text, current_user["id"], "sms")
+    
     return {"message": "Action added successfully", "action": action_obj}
 
 
@@ -2252,6 +3616,23 @@ async def add_voice_ticket_action(
     
     if not result:
         raise HTTPException(status_code=404, detail="Ticket not found")
+    
+    # Create audit log for Voice ticket action
+    await create_audit_log(
+        user_id=current_user.get("id"),
+        username=username,
+        action="create",
+        entity_type="ticket_voice_action",
+        entity_id=action_obj["id"],
+        entity_name=f"{result.get('ticket_number', ticket_id)} - Action",
+        changes=action_obj
+    )
+    
+    # Notify NOC about AM action (only if the user adding action is an AM)
+    user_dept = await get_user_department(user)
+    user_role = get_user_role_from_department(user_dept) if user_dept else None
+    if user_role == "am":
+        await notify_noc_about_am_action(result, action_data.text, current_user["id"], "voice")
     
     return {"message": "Action added successfully", "action": action_obj}
 
@@ -2618,20 +3999,52 @@ async def get_unassigned_alerts(current_user: dict = Depends(get_current_user)):
 @api_router.get("/dashboard/ticket-modifications")
 async def get_ticket_modification_notifications(current_user: dict = Depends(get_current_user)):
     """Get notifications for tickets that were modified by another user while still assigned to the current user"""
-    current_user_id = current_user.get("id")
-    
-    # Get unread notifications for the current user
-    notifications = await db.ticket_notifications.find({
-        "assigned_to": current_user_id,
-        "read": False
-    }).sort("created_at", -1).limit(20).to_list(20)
-    
-    # Convert datetime fields to ISO format strings for JSON serialization
-    for notification in notifications:
-        if "created_at" in notification and hasattr(notification["created_at"], "isoformat"):
-            notification["created_at"] = notification["created_at"].isoformat()
-    
-    return notifications
+    try:
+        current_user_id = current_user.get("id")
+        
+        # Get user role to determine which notifications to return
+        user_dept = await get_user_department(current_user)
+        user_role = get_user_role_from_department(user_dept) if user_dept else "unknown"
+        user_ticket_type = get_user_ticket_type(user_dept) if user_dept else "all"
+        
+        # Build query based on user role
+        # AMs should only see AM notifications (notify_ams_about_ticket)
+        # NOC users should only see NOC notifications (notify_noc_about_am_action, notify_noc_about_noc_modification)
+        # Return all notifications (read and unread) for the current user
+        query = {"assigned_to": current_user_id}
+        
+        if user_role == "am":
+            # AMs should only see AM-specific event types
+            query["event_type"] = {"$in": ["created", "assigned", "awaiting_vendor", "awaiting_client", "awaiting_am", "resolved", "unresolved"]}
+            # Also filter by ticket type for AMs (voice or sms)
+            if user_ticket_type != "all":
+                query["ticket_type"] = user_ticket_type
+        elif user_role in ["noc", "admin"]:
+            # NOC and Admin should only see NOC-specific event types
+            query["event_type"] = {"$in": ["am_action", "noc_modification", "ticket_modification"]}
+        else:
+            # Unknown role - return empty results for safety
+            query["event_type"] = {"$in": []}
+        
+        # Get unread notifications for the current user, excluding _id field
+        notifications = await db.ticket_notifications.find(
+            query,
+            {"_id": 0}
+        ).sort("created_at", -1).limit(20).to_list(20)
+        
+        # Convert datetime fields to ISO format strings for JSON serialization
+        for notification in notifications:
+            if "created_at" in notification:
+                if hasattr(notification["created_at"], "isoformat"):
+                    notification["created_at"] = notification["created_at"].isoformat()
+                elif notification["created_at"] is not None:
+                    # Already a string or other type, leave as is
+                    pass
+        
+        return notifications
+    except Exception as e:
+        print(f"Error fetching ticket modifications: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error fetching notifications: {str(e)}")
 
 
 @api_router.post("/dashboard/ticket-modifications/{notification_id}/read")
@@ -2911,11 +4324,54 @@ async def get_audit_logs(
         else:
             query["timestamp"] = {"$lte": datetime.fromisoformat(date_to)}
     
-    logs = await db.audit_logs.find(query, {"_id": 0}).sort("timestamp", -1).skip(offset).limit(limit).to_list(limit)
+    # Use projection to explicitly include only these fields (excludes _id)
+    projection = {field: 1 for field in ['id', 'user_id', 'username', 'action', 'entity_type', 'entity_id', 'entity_name', 'changes', 'timestamp']}
     
-    for log in logs:
-        if isinstance(log['timestamp'], str):
-            log['timestamp'] = datetime.fromisoformat(log['timestamp'])
+    # Check if collection exists, create if not
+    try:
+        collections = await db.list_collection_names()
+        if "audit_logs" not in collections:
+            await db.create_collection("audit_logs")
+            await db.audit_logs.create_index("timestamp")
+            await db.audit_logs.create_index("user_id")
+            await db.audit_logs.create_index("entity_type")
+            logger.info("Created audit_logs collection")
+    except Exception as e:
+        logger.error(f"Error checking/creating audit_logs collection: {e}")
+    
+    # Fetch logs - wrap entire operation in try-except to catch any errors
+    try:
+        raw_logs = await db.audit_logs.find(query, projection).sort("timestamp", -1).skip(offset).limit(limit).to_list(limit)
+    except Exception as e:
+        logger.error(f"Error fetching audit logs: {e}")
+        return []
+    
+    # Convert all values to ensure no ObjectIds remain
+    from bson import ObjectId
+    import datetime
+    
+    def convert_value(val):
+        """Recursively convert ObjectId and datetime values to JSON-serializable formats"""
+        if isinstance(val, ObjectId):
+            return str(val)
+        elif isinstance(val, datetime.datetime):
+            return val.isoformat()
+        elif isinstance(val, dict):
+            return {k: convert_value(v) for k, v in val.items()}
+        elif isinstance(val, list):
+            return [convert_value(v) for v in val]
+        else:
+            return val
+    
+    logs = []
+    for raw_log in raw_logs:
+        log = convert_value(raw_log)
+        
+        # Ensure id field exists
+        if "id" not in log or not log["id"]:
+            log["id"] = log.get("entity_id", str(uuid.uuid4()))
+        
+        logs.append(log)
     
     return [AuditLogResponse(**log) for log in logs]
 
@@ -2942,18 +4398,589 @@ async def get_audit_logs_count(
         else:
             query["timestamp"] = {"$lte": datetime.fromisoformat(date_to)}
     
-    total = await db.audit_logs.count_documents(query)
+    try:
+        total = await db.audit_logs.count_documents(query)
+    except Exception as e:
+        logger.error(f"Error counting audit logs: {e}")
+        total = 0
     return {"total": total}
+
+# ==================== WEBSOCKET CONNECTION MANAGER ====================
+
+class ConnectionManager:
+    """Manages WebSocket connections for real-time chat"""
+    def __init__(self):
+        # Map user_id to set of websocket connections
+        self.active_connections: dict[str, set[WebSocket]] = {}
+        # Map websocket to user_id for quick lookup
+        self.connection_users: dict[WebSocket, str] = {}
+
+    async def connect(self, websocket: WebSocket, user_id: str):
+        await websocket.accept()
+        if user_id not in self.active_connections:
+            self.active_connections[user_id] = set()
+        self.active_connections[user_id].add(websocket)
+        self.connection_users[websocket] = user_id
+        # Update user's online status
+        await db.users.update_one(
+            {"id": user_id},
+            {"$set": {"last_active": datetime.now(timezone.utc)}}
+        )
+
+    def disconnect(self, websocket: WebSocket):
+        user_id = self.connection_users.pop(websocket, None)
+        if user_id and user_id in self.active_connections:
+            self.active_connections[user_id].discard(websocket)
+            if not self.active_connections[user_id]:
+                del self.active_connections[user_id]
+
+    async def send_personal_message(self, message: dict, user_id: str):
+        if user_id in self.active_connections:
+            disconnected = set()
+            for connection in self.active_connections[user_id]:
+                try:
+                    if connection.client_state == WebSocketState.CONNECTED:
+                        await connection.send_json(message)
+                    else:
+                        disconnected.add(connection)
+                except Exception:
+                    disconnected.add(connection)
+            # Clean up disconnected connections
+            for conn in disconnected:
+                self.disconnect(conn)
+
+    async def broadcast_to_conversation(self, message: dict, participant_ids: List[str]):
+        """Send message to all participants in a conversation"""
+        for user_id in participant_ids:
+            await self.send_personal_message(message, user_id)
+
+# Global connection manager
+manager = ConnectionManager()
+
+@api_router.websocket("/ws/chat/{token}")
+async def websocket_chat(websocket: WebSocket, token: str):
+    """WebSocket endpoint for real-time chat"""
+    # Verify token and get user
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id: str = payload.get("sub")
+        if user_id is None:
+            await websocket.close(code=4001, reason="Invalid token")
+            return
+    except JWTError:
+        await websocket.close(code=4001, reason="Invalid token")
+        return
+
+    # Get user info
+    user = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1, "name": 1, "username": 1})
+    if not user:
+        await websocket.close(code=4002, reason="User not found")
+        return
+
+    await manager.connect(websocket, user_id)
+    try:
+        while True:
+            data = await websocket.receive_json()
+            message_type = data.get("type")
+
+            if message_type == "message":
+                # New message sent
+                message_data = data.get("message")
+                conversation_id = message_data.get("conversation_id")
+                content = message_data.get("content", "")
+                msg_type = message_data.get("message_type", "text")
+                file_url = message_data.get("file_url")
+                file_name = message_data.get("file_name")
+                file_size = message_data.get("file_size")
+                file_mime_type = message_data.get("file_mime_type")
+
+                # Create message in database
+                msg_obj = ChatMessage(
+                    conversation_id=conversation_id,
+                    sender_id=user_id,
+                    sender_name=user.get("name", user.get("username", "Unknown")),
+                    content=content,
+                    message_type=msg_type,
+                    file_url=file_url,
+                    file_name=file_name,
+                    file_size=file_size,
+                    file_mime_type=file_mime_type
+                )
+                await db.chat_messages.insert_one(msg_obj.model_dump())
+
+                # Update conversation
+                await db.conversations.update_one(
+                    {"id": conversation_id},
+                    {
+                        "$set": {
+                            "last_message": content[:100] if content else f"{msg_type}: {file_name or 'file'}",
+                            "last_message_time": datetime.now(timezone.utc),
+                            "last_message_sender_id": user_id,
+                            "updated_at": datetime.now(timezone.utc)
+                        }
+                    }
+                )
+
+                # Get conversation to find participants
+                conv = await db.conversations.find_one({"id": conversation_id})
+                if conv:
+                    # Broadcast to all participants
+                    for participant_id in conv.get("participant_ids", []):
+                        if participant_id != user_id:
+                            # Increment unread count
+                            await db.conversations.update_one(
+                                {"id": conversation_id},
+                                {"$inc": {f"unread_counts.{participant_id}": 1}}
+                            )
+
+                    # Send message to all participants including sender
+                    message_payload = {
+                        "type": "new_message",
+                        "message": {
+                            "id": msg_obj.id,
+                            "conversation_id": conversation_id,
+                            "sender_id": user_id,
+                            "sender_name": user.get("name", user.get("username", "Unknown")),
+                            "content": content,
+                            "message_type": msg_type,
+                            "file_url": file_url,
+                            "file_name": file_name,
+                            "file_size": file_size,
+                            "file_mime_type": file_mime_type,
+                            "is_read": False,
+                            "created_at": msg_obj.created_at.isoformat()
+                        }
+                    }
+                    await manager.broadcast_to_conversation(message_payload, conv.get("participant_ids", []))
+
+            elif message_type == "typing":
+                # User is typing
+                conversation_id = data.get("conversation_id")
+                conv = await db.conversations.find_one({"id": conversation_id})
+                if conv:
+                    typing_payload = {
+                        "type": "typing",
+                        "user_id": user_id,
+                        "user_name": user.get("name", user.get("username", "Unknown")),
+                        "conversation_id": conversation_id
+                    }
+                    for participant_id in conv.get("participant_ids", []):
+                        if participant_id != user_id:
+                            await manager.send_personal_message(typing_payload, participant_id)
+
+            elif message_type == "read":
+                # User read messages
+                conversation_id = data.get("conversation_id")
+                # Mark all messages from the other user as read
+                other_user = data.get("other_user_id")
+                if other_user:
+                    await db.chat_messages.update_many(
+                        {
+                            "conversation_id": conversation_id,
+                            "sender_id": other_user,
+                            "is_read": False
+                        },
+                        {"$set": {"is_read": True}}
+                    )
+                    # Reset unread count
+                    await db.conversations.update_one(
+                        {"id": conversation_id},
+                        {"$set": {f"unread_counts.{user_id}": 0}}
+                    )
+                    # Notify the other user
+                    read_payload = {
+                        "type": "message_read",
+                        "conversation_id": conversation_id,
+                        "read_by": user_id
+                    }
+                    await manager.send_personal_message(read_payload, other_user)
+
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
+    except Exception as e:
+        logger.error(f"WebSocket error: {e}")
+        manager.disconnect(websocket)
+
+# ==================== CHAT API ENDPOINTS ====================
+
+@api_router.get("/chat/users")
+async def get_chat_users(current_user: dict = Depends(get_current_user)):
+    """Get all users that can be chatted with (all users except current)"""
+    try:
+        users = await db.users.find(
+            {"id": {"$ne": current_user["id"]}},
+            {"_id": 0, "id": 1, "username": 1, "name": 1, "last_active": 1}
+        ).to_list(length=500)
+
+        # Determine online status (active in last 5 minutes)
+        now = datetime.now(timezone.utc)
+        online_threshold = now - timedelta(minutes=5)
+
+        result = []
+        for u in users:
+            is_online = False
+            if u.get("last_active"):
+                last_active = u["last_active"]
+                # Convert to timezone-aware if naive
+                if isinstance(last_active, str):
+                    last_active = datetime.fromisoformat(last_active)
+                if last_active.tzinfo is None:
+                    last_active = last_active.replace(tzinfo=timezone.utc)
+                is_online = last_active > online_threshold
+            result.append({
+                "id": u["id"],
+                "username": u["username"],
+                "name": u["name"],
+                "last_active": u.get("last_active"),
+                "is_online": is_online
+            })
+
+        return result
+    except Exception as e:
+        logger.error(f"Error in get_chat_users: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/chat/conversations")
+async def get_conversations(current_user: dict = Depends(get_current_user)):
+    """Get all conversations for the current user"""
+    try:
+        user_id = current_user["id"]
+
+        conversations = await db.conversations.find(
+            {"participant_ids": user_id}
+        ).sort("updated_at", -1).to_list(length=100)
+
+        result = []
+        for conv in conversations:
+            # Get participant info
+            participants = []
+            for pid in conv.get("participant_ids", []):
+                if pid != user_id:
+                    puser = await db.users.find_one(
+                        {"id": pid},
+                        {"_id": 0, "id": 1, "username": 1, "name": 1, "last_active": 1}
+                    )
+                    if puser:
+                        is_online = False
+                        if puser.get("last_active"):
+                            last_active = puser["last_active"]
+                            # Convert to timezone-aware if naive
+                            if isinstance(last_active, str):
+                                last_active = datetime.fromisoformat(last_active)
+                            if last_active.tzinfo is None:
+                                last_active = last_active.replace(tzinfo=timezone.utc)
+                            online_threshold = datetime.now(timezone.utc) - timedelta(minutes=5)
+                            is_online = last_active > online_threshold
+                        participants.append({
+                            "id": puser["id"],
+                            "username": puser["username"],
+                            "name": puser["name"],
+                            "last_active": puser.get("last_active"),
+                            "is_online": is_online
+                        })
+
+            # Get unread count for current user
+            unread_count = conv.get("unread_counts", {}).get(user_id, 0)
+
+            result.append({
+                "id": conv["id"],
+                "participants": participants,
+                "last_message": conv.get("last_message"),
+                "last_message_time": conv.get("last_message_time"),
+                "last_message_sender_id": conv.get("last_message_sender_id"),
+                "unread_count": unread_count,
+                "created_at": conv.get("created_at"),
+                "updated_at": conv.get("updated_at")
+            })
+
+        return result
+    except Exception as e:
+        logger.error(f"Error in get_conversations: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.post("/chat/conversations")
+async def create_or_get_conversation(
+    data: ConversationCreate,
+    current_user: dict = Depends(get_current_user)
+):
+    """Create a new conversation or get existing one with a user"""
+    user_id = current_user["id"]
+    other_user_id = data.participant_id
+
+    # Check if conversation already exists
+    existing = await db.conversations.find_one({
+        "participant_ids": {"$all": [user_id, other_user_id], "$size": 2}
+    })
+
+    if existing:
+        # Return existing conversation
+        other_user = await db.users.find_one(
+            {"id": other_user_id},
+            {"_id": 0, "id": 1, "username": 1, "name": 1, "last_active": 1}
+        )
+        is_online = False
+        if other_user and other_user.get("last_active"):
+            last_active = other_user["last_active"]
+            # Convert to timezone-aware if naive
+            if isinstance(last_active, str):
+                last_active = datetime.fromisoformat(last_active)
+            if last_active.tzinfo is None:
+                last_active = last_active.replace(tzinfo=timezone.utc)
+            online_threshold = datetime.now(timezone.utc) - timedelta(minutes=5)
+            is_online = last_active > online_threshold
+
+        return {
+            "id": existing["id"],
+            "participants": [{
+                "id": other_user["id"],
+                "username": other_user["username"],
+                "name": other_user["name"],
+                "last_active": other_user.get("last_active"),
+                "is_online": is_online
+            }] if other_user else [],
+            "last_message": existing.get("last_message"),
+            "last_message_time": existing.get("last_message_time"),
+            "last_message_sender_id": existing.get("last_message_sender_id"),
+            "unread_count": existing.get("unread_counts", {}).get(user_id, 0),
+            "created_at": existing.get("created_at"),
+            "updated_at": existing.get("updated_at")
+        }
+
+    # Create new conversation
+    conv = Conversation(
+        participant_ids=[user_id, other_user_id],
+        unread_counts={user_id: 0, other_user_id: 0}
+    )
+    await db.conversations.insert_one(conv.model_dump())
+
+    # Get other user info
+    other_user = await db.users.find_one(
+        {"id": other_user_id},
+        {"_id": 0, "id": 1, "username": 1, "name": 1, "last_active": 1}
+    )
+    is_online = False
+    if other_user and other_user.get("last_active"):
+        if isinstance(other_user["last_active"], str):
+            other_user["last_active"] = datetime.fromisoformat(other_user["last_active"])
+        # Make sure last_active is timezone-aware
+        last_active = other_user["last_active"]
+        if last_active.tzinfo is None:
+            last_active = last_active.replace(tzinfo=timezone.utc)
+        online_threshold = datetime.now(timezone.utc) - timedelta(minutes=5)
+        is_online = last_active > online_threshold
+
+    return {
+        "id": conv.id,
+        "participants": [{
+            "id": other_user["id"],
+            "username": other_user["username"],
+            "name": other_user["name"],
+            "last_active": other_user.get("last_active"),
+            "is_online": is_online
+        }] if other_user else [],
+        "last_message": None,
+        "last_message_time": None,
+        "last_message_sender_id": None,
+        "unread_count": 0,
+        "created_at": conv.created_at,
+        "updated_at": conv.updated_at
+    }
+
+@api_router.get("/chat/conversations/{conversation_id}/messages")
+async def get_conversation_messages(
+    conversation_id: str,
+    limit: int = 50,
+    before: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get messages for a conversation"""
+    user_id = current_user["id"]
+
+    # Verify user is part of conversation
+    conv = await db.conversations.find_one({
+        "id": conversation_id,
+        "participant_ids": user_id
+    })
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    # Build query
+    query = {"conversation_id": conversation_id}
+    if before:
+        try:
+            before_dt = datetime.fromisoformat(before)
+            query["created_at"] = {"$lt": before_dt}
+        except ValueError:
+            pass
+
+    messages = await db.chat_messages.find(query).sort("created_at", -1).limit(limit).to_list(length=limit)
+
+    # Reverse to get chronological order
+    messages = list(reversed(messages))
+
+    # Convert ObjectId and datetime to JSON-serializable format
+    for msg in messages:
+        # Convert _id to string
+        if "_id" in msg:
+            msg["_id"] = str(msg["_id"])
+        # Convert datetime to ISO strings
+        if isinstance(msg.get("created_at"), datetime):
+            msg["created_at"] = msg["created_at"].isoformat()
+
+    return messages
+
+@api_router.post("/chat/messages")
+async def create_message(
+    data: MessageCreate,
+    current_user: dict = Depends(get_current_user)
+):
+    """Create a new message (also handles file uploads)"""
+    user_id = current_user["id"]
+
+    # Verify user is part of conversation
+    conv = await db.conversations.find_one({
+        "id": data.conversation_id,
+        "participant_ids": user_id
+    })
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    # Create message
+    msg_obj = ChatMessage(
+        conversation_id=data.conversation_id,
+        sender_id=user_id,
+        sender_name=current_user.get("name", current_user.get("username", "Unknown")),
+        content=data.content,
+        message_type=data.message_type,
+        file_url=data.file_url,
+        file_name=data.file_name,
+        file_size=data.file_size,
+        file_mime_type=data.file_mime_type
+    )
+    await db.chat_messages.insert_one(msg_obj.model_dump())
+
+    # Update conversation
+    await db.conversations.update_one(
+        {"id": data.conversation_id},
+        {
+            "$set": {
+                "last_message": data.content[:100] if data.content else f"{data.message_type}: {data.file_name or 'file'}",
+                "last_message_time": datetime.now(timezone.utc),
+                "last_message_sender_id": user_id,
+                "updated_at": datetime.now(timezone.utc)
+            }
+        }
+    )
+
+    # Send real-time message to participants
+    for participant_id in conv.get("participant_ids", []):
+        if participant_id != user_id:
+            # Increment unread count
+            await db.conversations.update_one(
+                {"id": data.conversation_id},
+                {"$inc": {f"unread_counts.{participant_id}": 1}}
+            )
+            # Send real-time notification
+            await manager.send_personal_message({
+                "type": "new_message",
+                "message": {
+                    "id": msg_obj.id,
+                    "conversation_id": data.conversation_id,
+                    "sender_id": user_id,
+                    "sender_name": current_user.get("name", current_user.get("username", "Unknown")),
+                    "content": data.content,
+                    "message_type": data.message_type,
+                    "file_url": data.file_url,
+                    "file_name": data.file_name,
+                    "file_size": data.file_size,
+                    "file_mime_type": data.file_mime_type,
+                    "is_read": False,
+                    "created_at": msg_obj.created_at.isoformat()
+                }
+            }, participant_id)
+
+    return {
+        "id": msg_obj.id,
+        "conversation_id": data.conversation_id,
+        "sender_id": user_id,
+        "sender_name": msg_obj.sender_name,
+        "content": data.content,
+        "message_type": data.message_type,
+        "file_url": data.file_url,
+        "file_name": data.file_name,
+        "file_size": data.file_size,
+        "file_mime_type": data.file_mime_type,
+        "is_read": False,
+        "created_at": msg_obj.created_at.isoformat()
+    }
+
+@api_router.post("/chat/upload")
+async def upload_chat_file(
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user)
+):
+    """Upload a file for chat"""
+    # Create uploads directory
+    upload_dir = Path(__file__).parent / "uploads" / "chat"
+    upload_dir.mkdir(parents=True, exist_ok=True)
+
+    # Generate unique filename
+    file_id = str(uuid.uuid4())
+    file_ext = Path(file.filename).suffix if file.filename else ""
+    safe_filename = f"{file_id}{file_ext}"
+    file_path = upload_dir / safe_filename
+
+    # Save file
+    content = await file.read()
+    with open(file_path, "wb") as f:
+        f.write(content)
+
+    # Get file size
+    file_size = len(content)
+
+    # Determine if it's an image
+    content_type = file.content_type or "application/octet-stream"
+    is_image = content_type.startswith("image/")
+
+    # Return file URL (relative to backend)
+    return {
+        "file_url": f"/api/chat/files/{safe_filename}",
+        "file_name": file.filename,
+        "file_size": file_size,
+        "file_mime_type": content_type,
+        "is_image": is_image
+    }
+
+@api_router.get("/chat/files/{filename}")
+async def get_chat_file(filename: str):
+    """Serve uploaded chat files"""
+    file_path = Path(__file__).parent / "uploads" / "chat" / filename
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    from fastapi.responses import FileResponse
+    return FileResponse(file_path)
 
 # Include router
 app.include_router(api_router)
 
+# CORS middleware - must be added AFTER including routers for proper middleware order
+# Note: When allow_credentials=True, we cannot use allow_origins='*'
+cors_origins = [
+    o.strip()
+    for o in os.environ.get(
+        "CORS_ORIGINS",
+        "http://localhost:8080,http://127.0.0.1:8080,http://localhost:3000,http://127.0.0.1:3000,http://localhost:8000,http://127.0.0.1:8000"
+    ).split(",")
+    if o.strip()
+]
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_origins=cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 logging.basicConfig(
@@ -2967,6 +4994,31 @@ async def startup_init():
     """Initialize default departments and migrate users on startup"""
     await init_default_departments()
     await migrate_users_to_departments()
+    
+    # Create chat collections if they don't exist
+    try:
+        # Create conversations collection with indexes
+        if "conversations" not in await db.list_collection_names():
+            await db.create_collection("conversations")
+        await db.conversations.create_index("participant_ids")
+        await db.conversations.create_index("updated_at")
+        
+        # Create chat_messages collection with indexes
+        if "chat_messages" not in await db.list_collection_names():
+            await db.create_collection("chat_messages")
+        await db.chat_messages.create_index("conversation_id")
+        await db.chat_messages.create_index("created_at")
+        
+        # Create audit_logs collection if it doesn't exist
+        if "audit_logs" not in await db.list_collection_names():
+            await db.create_collection("audit_logs")
+        await db.audit_logs.create_index("timestamp")
+        await db.audit_logs.create_index("user_id")
+        await db.audit_logs.create_index("entity_type")
+        
+        logger.info("Chat collections initialized successfully")
+    except Exception as e:
+        logger.error(f"Error initializing chat collections: {e}")
 
 @app.on_event("shutdown")
 async def shutdown_db_client():

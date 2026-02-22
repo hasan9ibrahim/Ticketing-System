@@ -1,8 +1,8 @@
 import { useState, useEffect } from "react";
 import { Outlet, useNavigate, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import axios from "axios";
+import Chat from "@/components/Chat";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -28,17 +28,236 @@ import {
   ClipboardList,
   Bell,
   Database,
+  FileText,
 } from "lucide-react";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Badge } from "@/components/ui/badge";
 
 export default function DashboardLayout({ user, setUser }) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [alerts, setAlerts] = useState([]);
   const [ticketModificationNotifications, setTicketModificationNotifications] = useState([]);
-  const [currentNotification, setCurrentNotification] = useState(null);
   const [assignedReminders, setAssignedReminders] = useState([]);
   const [showReminders, setShowReminders] = useState(false);
   const [showAlerts, setShowAlerts] = useState(true);
-  const [amNotifications, setAmNotifications] = useState([]);  // AM notifications
+  const [alertNotifications, setAlertNotifications] = useState([]);  // Alert notifications for References page
+  const [sidebarSmsAlerts, setSidebarSmsAlerts] = useState([]);  // SMS alerts for sidebar badge
+  const [sidebarVoiceAlerts, setSidebarVoiceAlerts] = useState([]);  // Voice alerts for sidebar badge
+  const [sidebarPendingRequests, setSidebarPendingRequests] = useState([]);  // Pending requests for sidebar badge
+  const [requestNotifications, setRequestNotifications] = useState([]);  // Request update notifications for AMs
+  const [showAlertNotifications, setShowAlertNotifications] = useState(false);  // Toggle notification popover
+  // Chat state
+  const [openChats, setOpenChats] = useState([]);  // Array of open chat conversations
+  const [activeChat, setActiveChat] = useState(null);  // Currently active chat
+  // Load read notification IDs from localStorage to persist across login/logout
+  const [readNotificationIds, setReadNotificationIds] = useState(() => {
+    const saved = localStorage.getItem("readNotificationIds");
+    return saved ? new Set(JSON.parse(saved)) : new Set();
+  });
+  const [selectedNotification, setSelectedNotification] = useState(null);  // For detail popup
+  const [notificationKey, setNotificationKey] = useState(0);  // Force re-render when same notification clicked
+  // Track dismissed notifications - permanently removed by X button
+  const [dismissedNotifications, setDismissedNotifications] = useState(() => {
+    const saved = localStorage.getItem("dismissedNotifications");
+    return saved ? JSON.parse(saved) : {};
+  });
+
+  // Load read ticket notifications from localStorage to persist across login/logout
+  const [readTicketNotifications, setReadTicketNotifications] = useState(() => {
+    const saved = localStorage.getItem("readTicketNotifications");
+    return saved ? JSON.parse(saved) : [];
+  });
+  // Load read alert notifications from localStorage to persist across login/logout
+  const [readAlertNotifications, setReadAlertNotifications] = useState(() => {
+    const saved = localStorage.getItem("readAlertNotifications");
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  // Helper to get unread count (excluding dismissed notifications)
+  const getUnreadCount = () => {
+    const ticketUnread = ticketModificationNotifications
+      .filter(n => !dismissedNotifications[n.id] && !readNotificationIds.has(n.id)).length;
+    const alertUnread = alertNotifications
+      .filter(n => !dismissedNotifications[n.id] && !readNotificationIds.has(n.id)).length;
+    // Add request notifications (AM role gets request update notifications)
+    const requestUnread = user.role === "am" ? requestNotifications
+      .filter(n => !dismissedNotifications[n.id] && !readNotificationIds.has(n.id)).length : 0;
+    return ticketUnread + alertUnread + requestUnread;
+  };
+
+  // Persist readNotificationIds to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem("readNotificationIds", JSON.stringify([...readNotificationIds]));
+  }, [readNotificationIds]);
+
+  // Persist dismissedNotifications to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem("dismissedNotifications", JSON.stringify(dismissedNotifications));
+  }, [dismissedNotifications]);
+
+  // Handle clicking on ticket notification - mark as read and show details
+  const handleTicketNotificationClick = async (notification) => {
+    if (!readNotificationIds.has(notification.id)) {
+      try {
+        const token = localStorage.getItem("token");
+        await axios.post(`${API}/dashboard/ticket-modifications/${notification.id}/read`, {}, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        // Add to read list but keep in UI (notification stays until dismissed with X)
+        setReadNotificationIds(prev => new Set([...prev, notification.id]));
+      } catch (error) {
+        console.error("Failed to mark notification as read:", error);
+      }
+    }
+    // Force re-render by incrementing key
+    setNotificationKey(prev => prev + 1);
+    setSelectedNotification(notification);
+  };
+
+  // Handle clicking on alert notification - mark as read and show details
+  const handleAlertNotificationClick = async (notification) => {
+    if (!readNotificationIds.has(notification.id)) {
+      try {
+        const token = localStorage.getItem("token");
+        await axios.post(`${API}/users/me/alert-notifications/${notification.id}/read`, {}, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        // Add to read list but keep in UI (notification stays until dismissed with X)
+        setReadNotificationIds(prev => new Set([...prev, notification.id]));
+      } catch (error) {
+        console.error("Failed to mark notification as read:", error);
+      }
+    }
+    // Force re-render by incrementing key
+    setNotificationKey(prev => prev + 1);
+    setSelectedNotification(notification);
+  };
+
+  // Handle clicking on request notification - mark as read and navigate to request
+  const handleRequestNotificationClick = async (notification) => {
+    if (!readNotificationIds.has(notification.id)) {
+      try {
+        const token = localStorage.getItem("token");
+        await axios.post(`${API}/users/me/request-notifications/${notification.id}/read`, {}, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        // Add to read list but keep in UI (notification stays until dismissed with X)
+        setReadNotificationIds(prev => new Set([...prev, notification.id]));
+      } catch (error) {
+        console.error("Failed to mark notification as read:", error);
+      }
+    }
+    // Navigate to the request
+    if (notification.request_id) {
+      const uniqueKey = Date.now();
+      // Store the request ID in localStorage with a unique key for re-navigation
+      localStorage.setItem('openRequestParam', `request=${notification.request_id}&key=${uniqueKey}`);
+      // Navigate to requests page
+      navigate(`/requests?request=${notification.request_id}&key=${uniqueKey}`);
+    }
+  };
+
+  // Combine all notifications from backend (both read and unread)
+  // Filter out dismissed notifications
+  const getAllTicketNotifications = () => {
+    // Return all notifications minus dismissed ones
+    return ticketModificationNotifications.filter(n => !dismissedNotifications[n.id]);
+  };
+
+  const getAllAlertNotifications = () => {
+    // Return all notifications minus dismissed ones
+    return alertNotifications.filter(n => !dismissedNotifications[n.id]);
+  };
+
+  // Get all notifications combined and sorted by time (newest first)
+  const getAllNotificationsSorted = () => {
+    const ticketNotifs = getAllTicketNotifications();
+    const alertNotifs = getAllAlertNotifications();
+    // Add request notifications for AM users
+    const requestNotifs = user.role === "am" 
+      ? requestNotifications.filter(n => !dismissedNotifications[n.id])
+      : [];
+    
+    // Combine all notifications
+    const all = [...ticketNotifs, ...alertNotifs, ...requestNotifs];
+    
+    // Sort by created_at descending (newest first)
+    return all.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  };
+
+  // Handle closing notification detail popup
+  const handleCloseNotificationDetail = () => {
+    setSelectedNotification(null);
+  };
+
+  // Handle permanent removal via X button - mark as read AND dismiss locally
+  const handleRemoveTicketNotification = async (notificationId) => {
+    try {
+      const token = localStorage.getItem("token");
+      await axios.post(`${API}/dashboard/ticket-modifications/${notificationId}/read`, {}, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      // Add to dismissed list so it doesn't come back
+      setDismissedNotifications(prev => ({ ...prev, [notificationId]: Date.now() }));
+      // Remove from UI
+      setTicketModificationNotifications(prev => prev.filter(n => n.id !== notificationId));
+      setReadNotificationIds(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(notificationId);
+        return newSet;
+      });
+    } catch (error) {
+      console.error("Failed to remove notification:", error);
+    }
+  };
+
+  // Handle permanent removal via X button - mark as read AND dismiss locally
+  const handleRemoveAlertNotification = async (notificationId) => {
+    try {
+      const token = localStorage.getItem("token");
+      await axios.post(`${API}/users/me/alert-notifications/${notificationId}/read`, {}, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      // Add to dismissed list so it doesn't come back
+      setDismissedNotifications(prev => ({ ...prev, [notificationId]: Date.now() }));
+      // Remove from UI
+      setAlertNotifications(prev => prev.filter(n => n.id !== notificationId));
+      setReadNotificationIds(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(notificationId);
+        return newSet;
+      });
+    } catch (error) {
+      console.error("Failed to remove notification:", error);
+    }
+  };
+
+  // Handle permanent removal via X button for request notifications
+  const handleRemoveRequestNotification = async (notificationId) => {
+    try {
+      const token = localStorage.getItem("token");
+      await axios.post(`${API}/users/me/request-notifications/${notificationId}/read`, {}, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      // Add to dismissed list so it doesn't come back
+      setDismissedNotifications(prev => ({ ...prev, [notificationId]: Date.now() }));
+      // Remove from UI
+      setRequestNotifications(prev => prev.filter(n => n.id !== notificationId));
+      setReadNotificationIds(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(notificationId);
+        return newSet;
+      });
+    } catch (error) {
+      console.error("Failed to remove notification:", error);
+    }
+  };
+
+  const [currentTime, setCurrentTime] = useState(new Date());  // Current date/time for clock
   // Track dismissed reminders: { [reminderId]: timestamp when dismissed }
   const [dismissedReminders, setDismissedReminders] = useState(() => {
     const saved = localStorage.getItem("dismissedReminders");
@@ -64,6 +283,147 @@ export default function DashboardLayout({ user, setUser }) {
   const location = useLocation();
 
   const API = `${process.env.REACT_APP_API_URL || "http://localhost:8000"}/api`;
+
+  // Helper function to format notification time
+  const formatNotificationTime = (createdAt) => {
+    if (!createdAt) return '';
+    const date = new Date(createdAt);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+    
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return date.toLocaleDateString();
+  };
+
+  // Fetch alert notifications function (defined first so it can be used in useEffect)
+  const fetchAlertNotifications = async () => {
+    try {
+      const token = localStorage.getItem("token");
+      const response = await axios.get(`${API}/users/me/alert-notifications`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setAlertNotifications(response.data || []);
+    } catch (error) {
+      // Silently handle errors - notifications are not critical
+      console.log("Alert notifications unavailable:", error.message);
+      setAlertNotifications([]);
+    }
+  };
+
+  const markAlertNotificationAsRead = async (notificationId) => {
+    try {
+      const token = localStorage.getItem("token");
+      await axios.post(`${API}/users/me/alert-notifications/${notificationId}/read`, {}, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setAlertNotifications(prev => prev.filter(n => n.id !== notificationId));
+    } catch (error) {
+      console.error("Failed to mark alert notification as read:", error);
+    }
+  };
+
+  // Fetch alerts for sidebar badge count
+  const fetchSidebarAlerts = async () => {
+    try {
+      const token = localStorage.getItem("token");
+      // Fetch SMS alerts
+      const smsRes = await axios.get(`${API}/alerts/sms`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setSidebarSmsAlerts(smsRes.data || []);
+      
+      // Fetch Voice alerts
+      const voiceRes = await axios.get(`${API}/alerts/voice`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setSidebarVoiceAlerts(voiceRes.data || []);
+    } catch (error) {
+      console.log("Sidebar alerts fetch error:", error.message);
+    }
+  };
+
+  // Fetch pending requests for sidebar badge (NOC/Admin only)
+  const fetchSidebarRequests = async () => {
+    // Only fetch for NOC and Admin users
+    if (user.role !== "noc" && user.role !== "admin") {
+      setSidebarPendingRequests([]);
+      return;
+    }
+    try {
+      const token = localStorage.getItem("token");
+      // Fetch all requests (we'll filter for pending ones)
+      const res = await axios.get(`${API}/requests`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      // Filter for pending requests (status=pending AND not claimed)
+      const pending = (res.data || []).filter(r => r.status === "pending" && !r.claimed_by);
+      setSidebarPendingRequests(pending);
+    } catch (error) {
+      console.log("Sidebar requests fetch error:", error.message);
+    }
+  };
+
+  // Fetch request update notifications (for AMs when their request is completed/rejected)
+  const fetchRequestNotifications = async () => {
+    // Only fetch for AM users
+    if (user.role !== "am") {
+      setRequestNotifications([]);
+      return;
+    }
+    try {
+      const token = localStorage.getItem("token");
+      const res = await axios.get(`${API}/users/me/request-notifications`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setRequestNotifications(res.data || []);
+    } catch (error) {
+      console.log("Request notifications fetch error:", error.message);
+    }
+  };
+
+  // Compute unresolved alert counts for sidebar badge
+  const unresolvedSmsCount = sidebarSmsAlerts.filter(a => !a.resolved).length;
+  const unresolvedVoiceCount = sidebarVoiceAlerts.filter(a => !a.resolved).length;
+  const totalUnresolvedAlerts = unresolvedSmsCount + unresolvedVoiceCount;
+  
+  // Determine badge count based on department type
+  const getAlertBadgeCount = () => {
+    const deptType = user?.department_type;
+    if (deptType === "sms") return unresolvedSmsCount;
+    if (deptType === "voice") return unresolvedVoiceCount;
+    return totalUnresolvedAlerts;  // "all" or undefined shows total
+  };
+  const alertBadgeCount = getAlertBadgeCount();
+
+  // Compute pending requests count for sidebar badge (NOC/Admin only)
+  const pendingRequestsCount = (user.role === "noc" || user.role === "admin") 
+    ? sidebarPendingRequests.length 
+    : 0;
+
+  // Refresh sidebar alerts when navigating to References page
+  useEffect(() => {
+    if (location.pathname === '/references') {
+      fetchSidebarAlerts();
+    }
+    // Also refresh requests when navigating to Requests page
+    if (location.pathname === '/requests') {
+      fetchSidebarRequests();
+    }
+  }, [location.pathname]);
+
+  // Update current time every second for the clock
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   // Fetch alerts for NOC/Admin users
   useEffect(() => {
@@ -95,27 +455,29 @@ export default function DashboardLayout({ user, setUser }) {
     }
   }, [user]);
 
-  // Fetch AM notifications for AM users
+  // Fetch Alert notifications for all users (AMs and NOC)
   useEffect(() => {
-    if (user && user.role === "am") {
-      fetchAMNotifications();
+    if (user) {
+      fetchAlertNotifications();
+      fetchSidebarAlerts();
+      fetchSidebarRequests();
+      fetchRequestNotifications();
       // Refresh every 30 seconds
-      const amNotifInterval = setInterval(fetchAMNotifications, 30000);
-      return () => clearInterval(amNotifInterval);
+      const alertNotifInterval = setInterval(fetchAlertNotifications, 30000);
+      // Refresh sidebar alerts every 10 seconds to stay in sync with References page
+      const sidebarAlertsInterval = setInterval(fetchSidebarAlerts, 10000);
+      // Refresh sidebar requests every 10 seconds to stay in sync with Requests page
+      const sidebarRequestsInterval = setInterval(fetchSidebarRequests, 10000);
+      // Refresh request notifications every 30 seconds
+      const requestNotifInterval = setInterval(fetchRequestNotifications, 30000);
+      return () => {
+        clearInterval(alertNotifInterval);
+        clearInterval(sidebarAlertsInterval);
+        clearInterval(sidebarRequestsInterval);
+        clearInterval(requestNotifInterval);
+      };
     }
   }, [user]);
-
-  const fetchAMNotifications = async () => {
-    try {
-      const token = localStorage.getItem("token");
-      const response = await axios.get(`${API}/users/me/am-notifications`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      setAmNotifications(response.data || []);
-    } catch (error) {
-      console.error("Failed to fetch AM notifications:", error);
-    }
-  };
 
   const fetchAlerts = async (isInitial = false) => {
     try {
@@ -154,43 +516,12 @@ export default function DashboardLayout({ user, setUser }) {
       const notifications = response.data || [];
       setTicketModificationNotifications(notifications);
       
-      // Show the first unread notification as an alert dialog
-      if (notifications.length > 0 && !currentNotification) {
-        setCurrentNotification(notifications[0]);
-      }
+      // Don't auto-show popup - just show in bell dropdown
+      // if (notifications.length > 0 && !currentNotification) {
+      //   setCurrentNotification(notifications[0]);
+      // }
     } catch (error) {
       console.error("Failed to fetch ticket modifications:", error);
-    }
-  };
-
-  const handleNotificationAcknowledged = async () => {
-    if (currentNotification) {
-      try {
-        const token = localStorage.getItem("token");
-        await axios.post(
-          `${API}/dashboard/ticket-modifications/${currentNotification.id}/read`,
-          {},
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
-        
-        // Remove the acknowledged notification from the list
-        setTicketModificationNotifications((prev) => 
-          prev.filter((n) => n.id !== currentNotification.id)
-        );
-        
-        // Show the next notification if available
-        const remaining = ticketModificationNotifications.filter(
-          (n) => n.id !== currentNotification.id
-        );
-        if (remaining.length > 0) {
-          setCurrentNotification(remaining[0]);
-        } else {
-          setCurrentNotification(null);
-        }
-      } catch (error) {
-        console.error("Failed to mark notification as read:", error);
-        setCurrentNotification(null);
-      }
     }
   };
 
@@ -248,13 +579,14 @@ export default function DashboardLayout({ user, setUser }) {
     { path: "/", label: "Dashboard", icon: LayoutDashboard, roles: ["admin", "am", "noc"] },
     { path: "/sms-tickets", label: "SMS Tickets", icon: MessageSquare, roles: ["admin", "am", "noc"], ticketType: "sms" },
     { path: "/voice-tickets", label: "Voice Tickets", icon: Phone, roles: ["admin", "am", "noc"], ticketType: "voice" },
-    { path: "/references", label: "References & Alerts", icon: Database, roles: ["admin", "am", "noc"] },
+    { path: "/references", label: "References & Alerts", icon: Database, roles: ["admin", "am", "noc"], badgeCount: alertBadgeCount },
+    { path: "/requests", label: "Requests", icon: FileText, roles: ["admin", "am", "noc"], badgeCount: pendingRequestsCount },
     { path: "/enterprises", label: "Enterprises", icon: Building2, roles: ["admin", "noc"] },
     { path: "/my-enterprises", label: "My Enterprises", icon: Briefcase, roles: ["am"] },
     { path: "/users", label: "Users", icon: Users, roles: ["admin"] },
     { path: "/departments", label: "Departments", icon: Settings, roles: ["admin"] },
     { path: "/audit", label: "Audit Logs", icon: ClipboardList, roles: ["admin"] },
-    { path: "/notifications", label: "Notifications", icon: Bell, roles: ["am"] },
+    { path: "/notifications", label: "Notifications", icon: Bell, roles: ["admin"] },
   ];
 
   const filteredNavItems = navItems.filter((item) => {
@@ -293,9 +625,6 @@ export default function DashboardLayout({ user, setUser }) {
     const intervalMs = getPriorityIntervalMs(a.priority);
     return (now - dismissedTime) >= intervalMs;
   });
-
-  // Filter out dismissed AM notifications
-  const activeAmNotifications = amNotifications.filter(n => !n.read);
 
   return (
     <div className="flex h-screen bg-zinc-950" data-testid="dashboard-layout">
@@ -420,49 +749,6 @@ export default function DashboardLayout({ user, setUser }) {
         </div>
       )}
 
-      {/* AM Notifications - Top Left for AM users */}
-      {user?.role === "am" && activeAmNotifications.length > 0 && (
-        <div className="fixed top-4 left-4 z-50 max-w-md">
-          <div className="bg-purple-950/95 border border-purple-500/50 rounded-lg shadow-lg p-4 backdrop-blur-sm">
-            <div className="flex items-center gap-2 mb-3">
-              <Bell className="h-5 w-5 text-purple-400" />
-              <span className="text-purple-400 font-semibold">Enterprise Updates</span>
-              <span className="bg-purple-500/20 text-purple-400 text-xs px-2 py-0.5 rounded-full ml-auto">
-                {activeAmNotifications.length}
-              </span>
-            </div>
-            <div className="space-y-2 max-h-[300px] overflow-y-auto">
-              {activeAmNotifications.slice(0, 5).map((notification) => (
-                <div
-                  key={notification.id}
-                  className="flex items-start gap-2 bg-zinc-900/50 px-3 py-2 rounded text-sm"
-                >
-                  <div className="h-2 w-2 rounded-full flex-shrink-0 bg-purple-500 mt-1.5" />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-white font-medium">{notification.ticket_number}</span>
-                      <span className="text-zinc-400 text-xs">{notification.ticket_type.toUpperCase()}</span>
-                    </div>
-                    <p className="text-purple-200 text-xs mt-0.5">{notification.enterprise_name}</p>
-                    {notification.destination && (
-                      <p className="text-zinc-400 text-xs">Dest: {notification.destination}</p>
-                    )}
-                    {notification.issue && (
-                      <p className="text-zinc-400 text-xs truncate">Issue: {notification.issue}</p>
-                    )}
-                  </div>
-                </div>
-              ))}
-              {activeAmNotifications.length > 5 && (
-                <p className="text-zinc-400 text-xs text-center pt-2">
-                  +{activeAmNotifications.length - 5} more
-                </p>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Sidebar */}
       <aside
         className={`${
@@ -487,7 +773,7 @@ export default function DashboardLayout({ user, setUser }) {
               variant="ghost"
               size="icon"
               onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="text-zinc-400 hover:text-white hover:bg-zinc-800"
+              className="text-zinc-400 hover:text-white hover:bg-zinc-800 dark:text-zinc-400 dark:hover:text-white dark:hover:bg-zinc-800 text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100"
               data-testid="sidebar-toggle"
             >
               {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
@@ -495,7 +781,7 @@ export default function DashboardLayout({ user, setUser }) {
           </div>
 
           {/* Navigation */}
-          <ScrollArea className="flex-1 px-3 py-4">
+          <div className="flex-1 px-3 py-4 overflow-y-auto">
             <nav className="space-y-1">
               {filteredNavItems.map((item) => {
                 const Icon = item.icon;
@@ -514,11 +800,16 @@ export default function DashboardLayout({ user, setUser }) {
                   >
                     <Icon className="h-5 w-5" />
                     {sidebarOpen && <span className="ml-3">{item.label}</span>}
+                    {item.badgeCount > 0 && (
+                      <Badge variant="destructive" className="ml-auto h-5 px-1.5 text-xs">
+                        {item.badgeCount}
+                      </Badge>
+                    )}
                   </Button>
                 );
               })}
             </nav>
-          </ScrollArea>
+          </div>
 
           {/* User Info */}
           <div className="p-4 border-t border-white/5">
@@ -553,32 +844,192 @@ export default function DashboardLayout({ user, setUser }) {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-auto">
-        <Outlet />
+      <main className="flex-1 flex flex-col overflow-auto">
+        {/* Top Header Bar with Notifications */}
+        <header className="h-14 bg-zinc-900 border-b border-white/5 flex items-center justify-end px-4 gap-4">
+          {/* Combined Notifications Bell Icon - Shows both Alert and Ticket notifications */}
+          <Popover open={showAlertNotifications} onOpenChange={setShowAlertNotifications}>
+            <PopoverTrigger asChild>
+              <Button variant="ghost" size="icon" className="relative text-zinc-400 hover:text-white">
+                <Bell className="h-5 w-5" />
+                {getUnreadCount() > 0 && (
+                  <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-amber-500 text-[10px] font-bold text-black flex items-center justify-center">
+                    {getUnreadCount() > 9 ? '9+' : getUnreadCount()}
+                  </span>
+                )}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-80 bg-zinc-900 border-zinc-700 text-white" align="end">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between pb-2 border-b border-zinc-700">
+                  <h3 className="font-semibold text-amber-400 flex items-center gap-2">
+                    <Bell className="h-4 w-4" />
+                    Notifications
+                  </h3>
+                  <span className="text-xs text-zinc-400">{getUnreadCount()} unread</span>
+                </div>
+                <div className="max-h-80 overflow-y-auto space-y-2">
+                  {/* All Notifications Combined and Sorted by Time (Newest First) */}
+                  {getAllNotificationsSorted().map((notification) => {
+                    // Determine if this is an alert or request notification
+                    const isAlert = !!notification.alert_ticket_number;
+                    const isRequest = notification.type === "request_update" || !!notification.request_id;
+                    
+                    return (
+                      <div 
+                        key={notification.id} 
+                        className={`flex items-start justify-between gap-2 p-2 rounded border-l-2 hover:bg-zinc-800 ${readNotificationIds.has(notification.id) ? 'border-zinc-600 bg-zinc-800/30 opacity-60' : 'border-amber-500 bg-zinc-800/80'}`}
+                        onClick={() => isRequest ? handleRequestNotificationClick(notification) : isAlert ? handleAlertNotificationClick(notification) : handleTicketNotificationClick(notification)}
+                      >
+                        <div className="flex-1 min-w-0 cursor-pointer">
+                          <p className={`text-sm truncate ${readNotificationIds.has(notification.id) ? 'text-zinc-500' : 'text-white'}`}>{notification.message}</p>
+                          <p className={`text-xs mt-1 ${readNotificationIds.has(notification.id) ? 'text-zinc-600' : 'text-zinc-400'}`}>
+                            {isAlert ? (
+                              <>
+                                {notification.alert_ticket_number} • {notification.ticket_type?.toUpperCase()} • {formatNotificationTime(notification.created_at)}
+                              </>
+                            ) : (
+                              <>
+                                {notification.ticket_type?.toUpperCase()} • {formatNotificationTime(notification.created_at)}
+                              </>
+                            )}
+                            {readNotificationIds.has(notification.id) && <span className="ml-2 italic">(Read)</span>}
+                          </p>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (isRequest) {
+                              handleRemoveRequestNotification(notification.id);
+                            } else if (isAlert) {
+                              handleRemoveAlertNotification(notification.id);
+                            } else {
+                              handleRemoveTicketNotification(notification.id);
+                            }
+                          }}
+                          className="text-zinc-400 hover:text-white hover:bg-zinc-700 shrink-0"
+                        >
+                          <X className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    );
+                  })}
+                  {getAllNotificationsSorted().length === 0 && (
+                    <p className="text-sm text-zinc-500 text-center py-4">
+                      No new notifications
+                    </p>
+                  )}
+                </div>
+              </div>
+            </PopoverContent>
+          </Popover>
+          {/* Date and Time Clock - Shows in user's local timezone */}
+          <div className="text-sm text-zinc-400 flex items-center gap-2">
+            <span>{currentTime.toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}</span>
+            <span className="text-white font-medium">{currentTime.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}</span>
+          </div>
+        </header>
+        
+        <div className="flex-1 overflow-auto">
+          <Outlet />
+        </div>
       </main>
 
-      {/* Ticket Modification Alert Dialog */}
-      <AlertDialog open={!!currentNotification} onOpenChange={(open) => !open && handleNotificationAcknowledged()}>
+      {/* Chat Component */}
+      {user && (
+        <Chat
+          user={user}
+          openChats={openChats}
+          setOpenChats={setOpenChats}
+          activeChat={activeChat}
+          setActiveChat={setActiveChat}
+        />
+      )}
+
+      {/* Notification Detail Dialog */}
+      <AlertDialog key={notificationKey} open={!!selectedNotification} onOpenChange={(open) => !open && handleCloseNotificationDetail()}>
         <AlertDialogContent className="max-w-md">
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-amber-500" />
-              Ticket Modified
+              <Bell className="h-5 w-5 text-amber-500" />
+              Notification Details
             </AlertDialogTitle>
             <AlertDialogDescription className="text-base">
-              {currentNotification && (
+              {selectedNotification && (
                 <>
-                  Your assigned ticket <strong>{currentNotification.ticket_number}</strong> ({currentNotification.ticket_type.toUpperCase()}) 
-                  was modified by <strong>{currentNotification.modified_by_username}</strong>.
-                  <br /><br />
-                  Please review the changes.
+                  <div className="mt-2 p-3 bg-zinc-800 rounded-lg">
+                    <p className="text-white font-medium">{selectedNotification.message}</p>
+                    <div className="mt-2 text-sm text-zinc-400">
+                      {selectedNotification.ticket_number && (
+                        <p>Ticket: {selectedNotification.ticket_number}</p>
+                      )}
+                      {selectedNotification.alert_ticket_number && (
+                        <p>Alert: {selectedNotification.alert_ticket_number}</p>
+                      )}
+                      <p>Type: {selectedNotification.ticket_type?.toUpperCase() || selectedNotification.ticket_type?.toUpperCase()}</p>
+                      <p>Time: {formatNotificationTime(selectedNotification.created_at)}</p>
+                    </div>
+                  </div>
                 </>
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogAction onClick={handleNotificationAcknowledged}>
-              Okay
+            <AlertDialogAction 
+              onClick={() => {
+                if (selectedNotification) {
+                  // Navigate to the ticket or alert
+                  const ticketType = selectedNotification.ticket_type;
+                  const ticketNumber = selectedNotification.ticket_number || selectedNotification.ticket_id;
+                  const alertTicketNumber = selectedNotification.alert_ticket_number;
+                  
+                  // Determine target route
+                  let targetPath = '/';
+                  let queryParam = '';
+                  
+                  if (alertTicketNumber) {
+                    // This is an alert - navigate to References page with alert parameter
+                    targetPath = `/references`;
+                    queryParam = `alert=${encodeURIComponent(alertTicketNumber)}`;
+                  } else if (ticketNumber) {
+                    // This is a ticket - navigate to the appropriate tickets page
+                    // Use ticket_type to determine route, fallback to checking message content
+                    let route = '/sms-tickets';
+                    if (ticketType === 'voice') {
+                      route = '/voice-tickets';
+                    } else if (selectedNotification.message && selectedNotification.message.toLowerCase().includes('voice')) {
+                      route = '/voice-tickets';
+                    }
+                    targetPath = route;
+                    queryParam = `ticket=${encodeURIComponent(ticketNumber)}`;
+                  }
+                  
+                  // Check if we're already on the target page
+                  const currentPath = location.pathname;
+                  const isAlreadyOnTargetPage = currentPath === targetPath || 
+                    (targetPath === '/sms-tickets' && currentPath.includes('/sms')) ||
+                    (targetPath === '/voice-tickets' && currentPath.includes('/voice')) ||
+                    (targetPath === '/references' && currentPath.includes('/references'));
+                  
+                  if (isAlreadyOnTargetPage) {
+                    // Already on correct page - add unique key to force re-render
+                    const uniqueKey = Date.now();
+                    const newUrl = queryParam ? `${targetPath}?${queryParam}&_=${uniqueKey}` : `${targetPath}?_=${uniqueKey}`;
+                    navigate(newUrl, { replace: true });
+                  } else {
+                    // Navigate to new page with query param
+                    const uniqueKey = Date.now();
+                    const newUrl = queryParam ? `${targetPath}?${queryParam}&_=${uniqueKey}` : targetPath;
+                    navigate(newUrl);
+                  }
+                }
+                handleCloseNotificationDetail();
+              }}
+              className="bg-amber-500 hover:bg-amber-600 text-black"
+            >
+              View Details
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

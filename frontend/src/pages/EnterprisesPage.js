@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import axios from "axios";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, Search, Trash2, X } from "lucide-react";
+import { Plus, Search, Trash2, X, FileDown, FileUp } from "lucide-react";
 import { toast } from "sonner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -10,6 +10,8 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import MultiFilter from "@/components/custom/MultiFilter";
 
 const BACKEND_URL = process.env.REACT_APP_API_URL;
 const API = `${BACKEND_URL}/api`;
@@ -20,12 +22,16 @@ export default function EnterprisesPage() {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
+  const [filters, setFilters] = useState([]);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editingEnterprise, setEditingEnterprise] = useState(null);
   const [formData, setFormData] = useState({});
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [enterpriseToDelete, setEnterpriseToDelete] = useState(null);
   const [currentUser, setCurrentUser] = useState(null);
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const fileInputRef = useRef(null);
   const isAM = currentUser?.role === "am";
   const isAdmin = currentUser?.role === "admin";
   const canDelete = isAdmin;
@@ -38,7 +44,7 @@ export default function EnterprisesPage() {
   const [newVendorTrunk, setNewVendorTrunk] = useState("");
 
   useEffect(() => { fetchData(); }, []);
-  useEffect(() => { filterEnterprises(); }, [searchTerm, enterprises]);
+  useEffect(() => { filterEnterprises(); }, [searchTerm, enterprises, filters]);
 
   const fetchData = async () => {
     try {
@@ -61,15 +67,47 @@ export default function EnterprisesPage() {
   };
 
   const filterEnterprises = () => {
-    if (!searchTerm) {
-      setFilteredEnterprises(enterprises);
-      return;
+    let filtered = [...enterprises];
+    
+    // Apply search term filter
+    if (searchTerm) {
+      filtered = filtered.filter(
+        (ent) =>
+          ent.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          ent.contact_person?.toLowerCase().includes(searchTerm.toLowerCase())
+      );
     }
-    const filtered = enterprises.filter(
-      (ent) =>
-        ent.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        ent.contact_person?.toLowerCase().includes(searchTerm.toLowerCase())
-    );
+    
+    // Apply MultiFilter filters
+    filters.forEach((filter) => {
+      if (filter.field === "enterprise_name" && filter.values.length > 0) {
+        const searchValue = filter.values[0].toLowerCase();
+        filtered = filtered.filter((ent) => 
+          ent.name?.toLowerCase().includes(searchValue)
+        );
+      }
+      if (filter.field === "tier" && filter.values.length > 0) {
+        filtered = filtered.filter((ent) => 
+          filter.values.includes(ent.tier)
+        );
+      }
+      if (filter.field === "contact_email" && filter.values.length > 0) {
+        const searchValue = filter.values[0].toLowerCase();
+        filtered = filtered.filter((ent) => 
+          ent.contact_email?.toLowerCase().includes(searchValue)
+        );
+      }
+      if (filter.field === "assigned_am" && filter.values.length > 0) {
+        filtered = filtered.filter((ent) => {
+          // Handle "unassigned" value
+          if (filter.values.includes("unassigned")) {
+            return !ent.assigned_am_id || filter.values.includes(ent.assigned_am_id);
+          }
+          return ent.assigned_am_id && filter.values.includes(ent.assigned_am_id);
+        });
+      }
+    });
+    
     setFilteredEnterprises(filtered);
   };
 
@@ -169,6 +207,80 @@ export default function EnterprisesPage() {
     setVendorTrunks(vendorTrunks.filter((_, i) => i !== index));
   };
 
+  // Template and Import Functions
+  const downloadTemplate = () => {
+    // CSV headers for the template
+    const headers = [
+      'name',
+      'enterprise_type',
+      'tier',
+      'contact_person',
+      'contact_email',
+      'contact_phone',
+      'noc_emails',
+      'notes',
+      'customer_trunks',
+      'vendor_trunks'
+    ];
+    
+    // Example row with mandatory fields filled
+    const exampleRow = [
+      'Example Enterprise',
+      'sms',
+      'Tier 1',
+      'John Doe',
+      'john@example.com',
+      '+1234567890',
+      'noc@example.com',
+      'Example notes',
+      'trunk1;trunk2',
+      'vendor1;vendor2'
+    ];
+    
+    const csvContent = [
+      headers.join(','),
+      exampleRow.join(',')
+    ].join('\n');
+    
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'enterprise_template.csv';
+    link.click();
+    URL.revokeObjectURL(link.href);
+    toast.success('Template downloaded successfully');
+  };
+
+  const handleImport = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    setImporting(true);
+    try {
+      const token = localStorage.getItem('token');
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      const response = await axios.post(`${API}/clients/import`, formData, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'multipart/form-data'
+        }
+      });
+      
+      toast.success(`Successfully imported ${response.data.imported_count} enterprises`);
+      setImportDialogOpen(false);
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to import enterprises');
+    } finally {
+      setImporting(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
   // Separate enterprises by type
   const smsEnterprises = filteredEnterprises.filter(ent => ent.enterprise_type === "sms");
   const voiceEnterprises = filteredEnterprises.filter(ent => ent.enterprise_type === "voice");
@@ -259,11 +371,34 @@ export default function EnterprisesPage() {
     <div className="p-6 lg:p-8 space-y-6 max-w-[1920px] mx-auto" data-testid="enterprises-page">
       <div className="flex items-center justify-between">
         <div><h1 className="text-4xl font-bold text-white">Enterprises</h1><p className="text-zinc-400 mt-1">Manage enterprise accounts and assignments</p></div>
-        {canCreate && <Button onClick={openCreateSheet} data-testid="create-enterprise-button" className="bg-emerald-500 text-black hover:bg-emerald-400 h-9"><Plus className="h-4 w-4 mr-2" />New Enterprise</Button>}
+        <div className="flex gap-2">
+          {canCreate && (
+            <>
+              <Button onClick={downloadTemplate} variant="outline" className="border-zinc-700 text-white hover:bg-zinc-800">
+                <FileDown className="h-4 w-4 mr-2" />Template
+              </Button>
+              <Button onClick={() => setImportDialogOpen(true)} variant="outline" className="border-zinc-700 text-white hover:bg-zinc-800">
+                <FileUp className="h-4 w-4 mr-2" />Import
+              </Button>
+              <Button onClick={openCreateSheet} data-testid="create-enterprise-button" className="bg-emerald-500 text-black hover:bg-emerald-400 h-9"><Plus className="h-4 w-4 mr-2" />New Enterprise</Button>
+            </>
+          )}
+        </div>
       </div>
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-zinc-500" />
-        <Input placeholder="Search enterprises..." data-testid="search-enterprises-input" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-10 bg-zinc-900 border-zinc-700 text-white placeholder:text-zinc-500" />
+      <div className="flex gap-4 items-start">
+        <div className="flex-1 relative">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-zinc-500" />
+          <Input placeholder="Search enterprises..." data-testid="search-enterprises-input" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-10 bg-zinc-900 border-zinc-700 text-white placeholder:text-zinc-500" />
+        </div>
+        <div className="w-[300px]">
+          <MultiFilter
+            filters={filters}
+            onFilterChange={setFilters}
+            enterprises={enterprises}
+            users={users}
+            fields={["enterprise_name", "tier", "contact_email", "assigned_am"]}
+          />
+        </div>
       </div>
 
       {/* SMS Enterprises Table */}
@@ -323,6 +458,33 @@ export default function EnterprisesPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>
+        <DialogContent className="bg-zinc-900 border-white/10 text-white sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Import Enterprises</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label className="text-zinc-300">Select CSV File</Label>
+              <p className="text-sm text-zinc-500">
+                Upload a CSV file with the following columns: name, enterprise_type, tier, contact_person, contact_email, contact_phone, noc_emails, notes, customer_trunks, vendor_trunks.
+                Use the Template button to download a sample file.
+              </p>
+              <Input
+                ref={fileInputRef}
+                type="file"
+                accept=".csv"
+                onChange={handleImport}
+                className="bg-zinc-800 border-zinc-700 text-white cursor-pointer"
+              />
+            </div>
+            {importing && (
+              <div className="text-center text-zinc-400">Importing enterprises...</div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

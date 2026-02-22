@@ -9,6 +9,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DateRangePickerWithRange } from "@/components/custom/DateRangePickerWithRange";
+import MultiFilter from "@/components/custom/MultiFilter";
+import { startOfWeek, endOfWeek } from "date-fns";
 
 const BACKEND_URL = process.env.REACT_APP_API_URL;
 const API = `${BACKEND_URL}/api`;
@@ -21,6 +23,12 @@ const ENTITY_TYPES = [
   { value: "client_contact", label: "Enterprise Contacts" },
   { value: "ticket_sms", label: "SMS Tickets" },
   { value: "ticket_voice", label: "Voice Tickets" },
+  { value: "ticket_sms_action", label: "SMS Ticket Actions" },
+  { value: "ticket_voice_action", label: "Voice Ticket Actions" },
+  { value: "alert", label: "Alerts" },
+  { value: "alert_comment", label: "Alert Comments" },
+  { value: "request", label: "Requests" },
+  { value: "reference_list", label: "Reference Lists" },
 ];
 
 const ACTION_COLORS = {
@@ -36,6 +44,12 @@ const ENTITY_LABELS = {
   client_contact: "Enterprise Contact",
   ticket_sms: "SMS Ticket",
   ticket_voice: "Voice Ticket",
+  ticket_sms_action: "SMS Ticket Action",
+  ticket_voice_action: "Voice Ticket Action",
+  alert: "Alert",
+  alert_comment: "Alert Comment",
+  request: "Request",
+  reference_list: "Reference List",
 };
 
 const formatFieldName = (field) => {
@@ -156,7 +170,8 @@ export default function AuditPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [entityType, setEntityType] = useState("all");
   const [actionType, setActionType] = useState("all");
-  const [dateRange, setDateRange] = useState(null);
+  const [multiFilters, setMultiFilters] = useState([]);
+  const [dateRange, setDateRange] = useState(null); // Start with no date filter to show all
   const [users, setUsers] = useState([]);
   const [pagination, setPagination] = useState({
     limit: 20,
@@ -262,14 +277,34 @@ export default function AuditPage() {
     }
   };
 
-  const filteredLogs = searchTerm
-    ? auditLogs.filter(
-        (log) =>
-          log.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          log.entity_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          log.entity_type.toLowerCase().includes(searchTerm.toLowerCase())
-      )
-    : auditLogs;
+  const filteredLogs = auditLogs.filter(log => {
+    // Search filter
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase();
+      if (!log.username.toLowerCase().includes(term) &&
+          !log.entity_name.toLowerCase().includes(term) &&
+          !log.entity_type.toLowerCase().includes(term)) {
+        return false;
+      }
+    }
+
+    // Multi-filters
+    if (multiFilters.length > 0) {
+      const matches = multiFilters.every(filter => {
+        const { field, values } = filter;
+
+        if (field === "entity_type") {
+          return values.includes(log.entity_type);
+        } else if (field === "action_type") {
+          return values.includes(log.action);
+        }
+        return true;
+      });
+      if (!matches) return false;
+    }
+
+    return true;
+  });
 
   const formatTimestamp = (timestamp) => {
     const date = new Date(timestamp);
@@ -299,6 +334,7 @@ export default function AuditPage() {
   const clearFilters = () => {
     setEntityType("all");
     setActionType("all");
+    setMultiFilters([]);
     setDateRange(null);
     setSearchTerm("");
   };
@@ -327,68 +363,65 @@ export default function AuditPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+          {/* All filters in one row */}
+          <div className="flex flex-wrap items-center gap-3">
             {/* Search */}
-            <div className="relative">
+            <div className="relative w-[280px]">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500" />
               <Input
                 placeholder="Search user, entity..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10 bg-zinc-950 border-zinc-800 text-white"
+                className="pl-10 bg-zinc-950 border-zinc-800 text-white h-9 w-full"
               />
             </div>
 
-            {/* Entity Type */}
-            <Select value={entityType} onValueChange={setEntityType}>
-              <SelectTrigger className="bg-zinc-950 border-zinc-800 text-white">
-                <SelectValue placeholder="Entity Type" />
-              </SelectTrigger>
-              <SelectContent className="bg-zinc-900 border-zinc-800">
-                {ENTITY_TYPES.map((type) => (
-                  <SelectItem
-                    key={type.value}
-                    value={type.value}
-                    className="text-white focus:bg-zinc-800"
-                  >
-                    {type.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            {/* Action Type */}
-            <Select value={actionType} onValueChange={setActionType}>
-              <SelectTrigger className="bg-zinc-950 border-zinc-800 text-white">
-                <SelectValue placeholder="Action Type" />
-              </SelectTrigger>
-              <SelectContent className="bg-zinc-900 border-zinc-800">
-                <SelectItem value="all" className="text-white focus:bg-zinc-800">
-                  All Actions
-                </SelectItem>
-                <SelectItem value="create" className="text-white focus:bg-zinc-800">
-                  Created
-                </SelectItem>
-                <SelectItem value="update" className="text-white focus:bg-zinc-800">
-                  Updated
-                </SelectItem>
-                <SelectItem value="delete" className="text-white focus:bg-zinc-800">
-                  Deleted
-                </SelectItem>
-              </SelectContent>
-            </Select>
-
-            {/* Date Range Picker */}
+            {/* Date Range */}
             <DateRangePickerWithRange
               dateRange={dateRange}
               onDateRangeChange={setDateRange}
             />
 
-            {/* Clear Filters */}
+            {/* MultiFilter */}
+            <div className="w-[180px]">
+              <MultiFilter
+                filters={multiFilters}
+                onFilterChange={setMultiFilters}
+                customOptions={{
+                  entity_type: ["user", "department", "client", "ticket", "request"],
+                  action_type: ["create", "update", "delete", "login", "logout"]
+                }}
+                fields={["entity_type", "action_type"]}
+              />
+            </div>
+
+            {/* Quick Filters */}
+            <Button
+              variant="outline"
+              onClick={() => {
+                const today = new Date();
+                setDateRange({ from: today, to: today });
+              }}
+              className="border-zinc-700 text-zinc-400 hover:text-white hover:bg-zinc-800 h-9 text-xs"
+            >
+              Show Today
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                const today = new Date();
+                setDateRange({ from: startOfWeek(today, { weekStartsOn: 1 }), to: endOfWeek(today, { weekStartsOn: 1 }) });
+              }}
+              className="border-zinc-700 text-zinc-400 hover:text-white hover:bg-zinc-800 h-9 text-xs"
+            >
+              This Week
+            </Button>
+
+            {/* Clear Button */}
             <Button
               variant="outline"
               onClick={clearFilters}
-              className="border-zinc-700 text-zinc-300 hover:bg-zinc-800 hover:text-white"
+              className="border-zinc-700 text-zinc-300 hover:bg-zinc-800 hover:text-white h-9"
             >
               <X className="h-4 w-4 mr-2" />
               Clear

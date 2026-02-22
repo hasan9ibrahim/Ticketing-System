@@ -3,6 +3,7 @@ import axios from "axios";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Plus, Search, Trash2, Pencil } from "lucide-react";
+import MultiFilter from "@/components/custom/MultiFilter";
 import { toast } from "sonner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -28,6 +29,7 @@ export default function UsersPage() {
   const [departments, setDepartments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
+  const [multiFilters, setMultiFilters] = useState([]);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [formData, setFormData] = useState({});
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -41,7 +43,7 @@ export default function UsersPage() {
 
   useEffect(() => {
     filterUsers();
-  }, [searchTerm, users]);
+  }, [searchTerm, users, multiFilters]);
 
   const fetchUsers = async () => {
     try {
@@ -71,16 +73,44 @@ export default function UsersPage() {
   };
 
   const filterUsers = () => {
+    let filtered = users;
+
+    // Multi-filters
+    if (multiFilters.length > 0) {
+      filtered = filtered.filter(user => {
+        return multiFilters.every(filter => {
+          const { field, values } = filter;
+          const searchValue = values[0]?.toLowerCase() || "";
+
+          if (field === "role") {
+            return values.includes(user.role);
+          } else if (field === "department") {
+            return values.includes(user.department);
+          } else if (field === "name") {
+            return user.name?.toLowerCase().includes(searchValue);
+          } else if (field === "username") {
+            return user.username?.toLowerCase().includes(searchValue);
+          } else if (field === "email") {
+            return user.email?.toLowerCase().includes(searchValue);
+          } else if (field === "phone") {
+            return user.phone?.toLowerCase().includes(searchValue);
+          }
+          return true;
+        });
+      });
+    }
+
     if (!searchTerm) {
-      setFilteredUsers(users);
+      setFilteredUsers(filtered);
       return;
     }
 
-    const filtered = users.filter(
+    const term = searchTerm.toLowerCase();
+    filtered = filtered.filter(
       (user) =>
-        user.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        user.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        user.role.toLowerCase().includes(searchTerm.toLowerCase())
+        user.username.toLowerCase().includes(term) ||
+        user.email?.toLowerCase().includes(term) ||
+        user.role.toLowerCase().includes(term)
     );
     setFilteredUsers(filtered);
   };
@@ -95,6 +125,7 @@ export default function UsersPage() {
     setEditingUser(user);
     setFormData({
       name: user.name || "",
+      username: user.username || "",
       email: user.email || "",
       phone: user.phone || "",
       department_id: user.department_id || "",
@@ -173,14 +204,34 @@ export default function UsersPage() {
       </div>
 
       {/* Search */}
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-zinc-500" />
-        <Input
-          placeholder="Search users by username, email, or role..."
-          data-testid="search-users-input"
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="pl-10 bg-zinc-900 border-zinc-700 text-white placeholder:text-zinc-500"
+      <div className="flex gap-4">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-zinc-500" />
+          <Input
+            placeholder="Search users by username, email, or role..."
+            data-testid="search-users-input"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="pl-10 bg-zinc-900 border-zinc-700 text-white placeholder:text-zinc-500"
+          />
+        </div>
+        <MultiFilter
+          filters={multiFilters}
+          onFilterChange={setMultiFilters}
+          customOptions={{
+            role: [
+              { value: "admin", label: "Admin" },
+              { value: "am", label: "AM" },
+              { value: "noc", label: "NOC" }
+            ],
+            department: [
+              { value: "Admin", label: "Admin" },
+              { value: "SMS Sales", label: "SMS Sales" },
+              { value: "Voice Sales", label: "Voice Sales" },
+              { value: "NOC", label: "NOC" }
+            ]
+          }}
+          fields={["name", "username", "email", "phone", "role", "department"]}
         />
       </div>
 

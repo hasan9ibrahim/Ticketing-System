@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
+import { useSearchParams, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, Search, Phone, Calendar, Trash2, MessageSquare, X, ListChecks, Pencil, Bell } from "lucide-react";
+import { Plus, Search, Phone, Calendar, Trash2, MessageSquare, X, ListChecks, Pencil, Bell, User } from "lucide-react";
 import { toast } from "sonner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -18,9 +19,11 @@ import { Checkbox } from "@/components/ui/checkbox";
 import StatusBadge from "@/components/custom/StatusBadge";
 import PriorityIndicator from "@/components/custom/PriorityIndicator";
 import SearchableSelect from "@/components/custom/SearchableSelect";
-import DateRangePickerWithRange from "@/components/custom/DateRangePickerWithRange";
+import { DateRangePickerWithRange } from "@/components/custom/DateRangePickerWithRange";
 import IssueTypeSelect, { VOICE_ISSUE_TYPES } from "@/components/custom/IssueTypeSelect";
 import OpenedViaSelect from "@/components/custom/OpenedViaSelect";
+import MultiFilter from "@/components/custom/MultiFilter";
+import { startOfWeek, endOfWeek } from "date-fns";
 
 const BACKEND_URL = process.env.REACT_APP_API_URL;
 const API = `${BACKEND_URL}/api`;
@@ -39,7 +42,14 @@ export default function VoiceTicketsPage() {
   const [issueTypeFilter, setIssueTypeFilter] = useState("all");
   const [destinationFilter, setDestinationFilter] = useState("");
   const [assignedToFilter, setAssignedToFilter] = useState("all");
-  const [dateRange, setDateRange] = useState({ from: new Date(), to: new Date() });
+  const [dateRange, setDateRange] = useState(() => {
+    const today = new Date();
+    return { 
+      from: startOfWeek(today, { weekStartsOn: 1 }), 
+      to: endOfWeek(today, { weekStartsOn: 1 }) 
+    };
+  });
+  const [multiFilters, setMultiFilters] = useState([]);
   const [activeTab, setActiveTab] = useState("unassigned");
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editingTicket, setEditingTicket] = useState(null);
@@ -48,6 +58,8 @@ export default function VoiceTicketsPage() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [ticketToDelete, setTicketToDelete] = useState(null);
   const [sameDayDialogOpen, setSameDayDialogOpen] = useState(false);
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const [sameDayTickets, setSameDayTickets] = useState([]);
   const [pendingFormData, setPendingFormData] = useState(null);
   const [actionsDialogOpen, setActionsDialogOpen] = useState(false);
@@ -72,7 +84,30 @@ export default function VoiceTicketsPage() {
 
   useEffect(() => {
     filterAndSortTickets();
-  }, [searchTerm, priorityFilter, statusFilter, enterpriseFilter, issueTypeFilter, destinationFilter, assignedToFilter, dateRange, activeTab, tickets]);
+  }, [searchTerm, priorityFilter, statusFilter, enterpriseFilter, issueTypeFilter, destinationFilter, assignedToFilter, dateRange, activeTab, tickets, multiFilters]);
+
+  // Handle ticket query parameter - open specific ticket when navigating from notification
+  useEffect(() => {
+    const ticketParam = searchParams.get("ticket");
+    // Also check localStorage for direct navigation
+    const storedParam = localStorage.getItem('openTicketParam');
+    const paramToUse = ticketParam || (storedParam?.startsWith('ticket=') ? storedParam.replace('ticket=', '').split('&')[0] : null);
+    
+    if ((paramToUse || ticketParam) && tickets.length > 0) {
+      const ticket = tickets.find(t => 
+        t.ticket_number === (paramToUse || ticketParam) || 
+        t.id === (paramToUse || ticketParam) || 
+        t.ticket_id === (paramToUse || ticketParam)
+      );
+      if (ticket) {
+        openEditSheet(ticket);
+      }
+      // Clear localStorage after use
+      if (storedParam) {
+        localStorage.removeItem('openTicketParam');
+      }
+    }
+  }, [searchParams, tickets]);
 
   // Fetch trunks for Voice enterprises
   const fetchTrunks = async () => {
@@ -249,6 +284,67 @@ export default function VoiceTicketsPage() {
         const ticketDate = new Date(ticket.date);
         const ticketDay = new Date(ticketDate.getFullYear(), ticketDate.getMonth(), ticketDate.getDate());
         return ticketDay >= fromDay && ticketDay <= toDay;
+      });
+    }
+
+    // Multi-filters (from the new MultiFilter component)
+    // OR logic within same field, AND logic between different fields
+    if (multiFilters.length > 0) {
+      multiFilters.forEach((filter) => {
+        const { field, values } = filter;
+        
+        if (field === "ticket_number") {
+          const value = values[0];
+          filtered = filtered.filter((ticket) => 
+            ticket.ticket_number?.toLowerCase().includes(value.toLowerCase())
+          );
+        } else if (field === "priority") {
+          filtered = filtered.filter((ticket) => 
+            values.includes(ticket.priority)
+          );
+        } else if (field === "status") {
+          filtered = filtered.filter((ticket) => 
+            values.includes(ticket.status)
+          );
+        } else if (field === "enterprise") {
+          filtered = filtered.filter((ticket) => 
+            values.includes(ticket.customer_id)
+          );
+        } else if (field === "enterprise_trunk") {
+          filtered = filtered.filter((ticket) => 
+            values.includes(ticket.customer_trunk)
+          );
+        } else if (field === "vendor_trunk") {
+          filtered = filtered.filter((ticket) => {
+            const trunks = ticket.vendor_trunks || [];
+            return values.some(v => trunks.some(t => t.trunk === v));
+          });
+        } else if (field === "issue_type") {
+          filtered = filtered.filter((ticket) => {
+            const types = ticket.issue_types || [];
+            return values.some(v => types.includes(v));
+          });
+        } else if (field === "destination") {
+          const value = values[0];
+          filtered = filtered.filter((ticket) => 
+            ticket.destination?.toLowerCase().includes(value.toLowerCase())
+          );
+        } else if (field === "ani") {
+          const value = values[0];
+          filtered = filtered.filter((ticket) => 
+            ticket.ani?.toLowerCase().includes(value.toLowerCase())
+          );
+        } else if (field === "assigned_to") {
+          filtered = filtered.filter((ticket) => {
+            return values.some(v => {
+              if (v === "unassigned") {
+                return !ticket.assigned_to;
+              } else {
+                return ticket.assigned_to === v;
+              }
+            });
+          });
+        }
       });
     }
 
@@ -612,6 +708,68 @@ export default function VoiceTicketsPage() {
     }
   };
 
+  // Handle informing AM about a ticket
+  const handleInformAM = async () => {
+    if (!selectedTicket) return;
+
+    try {
+      const token = localStorage.getItem("token");
+      const headers = { Authorization: `Bearer ${token}` };
+
+      // Get the enterprise for this ticket
+      const enterprise = enterprises.find(e => e.id === selectedTicket.customer_id);
+      if (!enterprise) {
+        toast.error("Enterprise not found for this ticket");
+        return;
+      }
+
+      // Get the AM assigned to this enterprise
+      const amId = enterprise.assigned_am_id;
+      if (!amId) {
+        toast.error("No Account Manager assigned to this enterprise");
+        return;
+      }
+
+      // Get AM details from users (use allUsers since users only contains NOC)
+      const amUser = allUsers.find(u => u.id === amId);
+      if (!amUser) {
+        toast.error("Account Manager user not found");
+        return;
+      }
+
+      // Create a conversation with the AM
+      const conversationResponse = await axios.post(
+        `${API}/chat/conversations`,
+        { participant_id: amId },
+        { headers }
+      );
+
+      const conversation = conversationResponse.data;
+
+      // Build the ticket details URL
+      const ticketUrl = `${window.location.origin}/voice-tickets?ticket=${selectedTicket.id}`;
+
+      // Create the message
+      const messageContent = `Dear ${amUser.name || amUser.username}, Kindly note that the ticket with ticket number: ${selectedTicket.ticket_number} requires your attention. Please check it at your own convenience: ${ticketUrl}`;
+
+      // Send the message
+      await axios.post(
+        `${API}/chat/messages`,
+        {
+          conversation_id: conversation.id,
+          content: messageContent,
+          message_type: "text"
+        },
+        { headers }
+      );
+
+      toast.success(`Informed ${amUser.name || amUser.username} about ticket ${selectedTicket.ticket_number}`);
+    } catch (error) {
+      console.error("Error informing AM:", error);
+      toast.error(error.response?.data?.detail || "Failed to inform Account Manager");
+    }
+  };
+
   if (loading) return <div className="flex items-center justify-center h-full"><div className="text-emerald-500">Loading voice tickets...</div></div>;
 
   const unassignedCount = tickets.filter(t => t.status === "Unassigned").length;
@@ -632,37 +790,35 @@ export default function VoiceTicketsPage() {
         )}
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-        <div className="md:col-span-2 relative">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-zinc-500" />
-          <Input placeholder="Search tickets..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-10 bg-zinc-900 border-zinc-700 text-white placeholder:text-zinc-500" />
+      <div className="flex flex-wrap gap-2 items-start">
+        <div className="w-[280px] flex-shrink-0">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-zinc-500" />
+            <Input placeholder="Search tickets..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-10 bg-zinc-900 border-zinc-700 text-white placeholder:text-zinc-500 w-full" />
+          </div>
         </div>
-        <DateRangePickerWithRange dateRange={dateRange} onDateRangeChange={setDateRange} />
-        <Select value={priorityFilter} onValueChange={setPriorityFilter}>
-          <SelectTrigger className="bg-zinc-900 border-zinc-700 text-white"><SelectValue placeholder="Priority" /></SelectTrigger>
-          <SelectContent className="bg-zinc-800 border-zinc-700">
-            <SelectItem value="all" className="text-white">All Priorities</SelectItem>
-            <SelectItem value="Low" className="text-white">Low</SelectItem>
-            <SelectItem value="Medium" className="text-white">Medium</SelectItem>
-            <SelectItem value="High" className="text-white">High</SelectItem>
-            <SelectItem value="Urgent" className="text-white">Urgent</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="bg-zinc-900 border-zinc-700 text-white"><SelectValue placeholder="Status" /></SelectTrigger>
-          <SelectContent className="bg-zinc-800 border-zinc-700">
-            <SelectItem value="all" className="text-white">All Statuses</SelectItem>
-            <SelectItem value="Unassigned" className="text-white">Unassigned</SelectItem>
-            <SelectItem value="Assigned" className="text-white">Assigned</SelectItem>
-            <SelectItem value="Awaiting Vendor" className="text-white">Awaiting Vendor</SelectItem>
-            <SelectItem value="Awaiting Client" className="text-white">Awaiting Client</SelectItem>
-            <SelectItem value="Awaiting AM" className="text-white">Awaiting AM</SelectItem>
-            <SelectItem value="Resolved" className="text-white">Resolved</SelectItem>
-            <SelectItem value="Unresolved" className="text-white">Unresolved</SelectItem>
-          </SelectContent>
-        </Select>
+        <div className="flex-shrink-0">
+          <DateRangePickerWithRange dateRange={dateRange} onDateRangeChange={setDateRange} />
+        </div>
+        
+        {/* Multi-Filter Component */}
+        <div className="flex-shrink-0">
+          <MultiFilter
+            filters={multiFilters}
+            onFilterChange={setMultiFilters}
+            enterprises={enterprises.filter(e => e.enterprise_type === "voice")}
+            users={users}
+            statusOptions={["Unassigned", "Assigned", "Awaiting Vendor", "Awaiting Client", "Awaiting AM", "Resolved", "Unresolved"]}
+            issueTypeOptions={VOICE_ISSUE_TYPES}
+            customerTrunkOptions={customerTrunkOptions}
+            vendorTrunkOptions={vendorTrunkOptions}
+            fields={["ticket_number", "priority", "status", "enterprise", "enterprise_trunk", "vendor_trunk", "issue_type", "destination", "ani", "assigned_to"]}
+          />
+        </div>
       </div>
 
+      {/* Legacy filters hidden - using MultiFilter instead */}
+      {/*
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Select value={enterpriseFilter} onValueChange={setEnterpriseFilter}>
           <SelectTrigger className="bg-zinc-900 border-zinc-700 text-white"><SelectValue placeholder="Enterprise" /></SelectTrigger>
@@ -698,10 +854,39 @@ export default function VoiceTicketsPage() {
           </SelectContent>
         </Select>
       </div>
+      */}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="text-zinc-400 text-sm flex items-center">Sorted by: Date → Priority → Volume → Opened Via</div>
-                <Button variant="outline" onClick={() => { setSearchTerm(""); setPriorityFilter("all"); setStatusFilter("all"); setEnterpriseFilter("all"); setIssueTypeFilter("all"); setDestinationFilter(""); setAssignedToFilter("all"); setDateRange({ from: new Date(), to: new Date() }); }} className="border-zinc-700 text-zinc-400 hover:text-white hover:bg-zinc-800">Reset to Today</Button>
+        <div className="text-zinc-400 text-sm flex items-center">Sorted by: Date → Priority → Volume → Opened Via</div>
+        <div className="flex gap-2 justify-end">
+          <Button
+            variant="outline"
+            onClick={() => {
+              const today = new Date();
+              setDateRange({ from: today, to: today });
+            }}
+            className="border-zinc-700 text-zinc-400 hover:text-white hover:bg-zinc-800 h-7 px-2 text-xs"
+          >
+            Show Today
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => {
+              setSearchTerm("");
+              setPriorityFilter("all");
+              setStatusFilter("all");
+              setEnterpriseFilter("all");
+              setIssueTypeFilter("all");
+              setDestinationFilter("");
+              setAssignedToFilter("all");
+              const today = new Date();
+              setDateRange({ from: startOfWeek(today, { weekStartsOn: 1 }), to: endOfWeek(today, { weekStartsOn: 1 }) });
+            }}
+            className="border-zinc-700 text-zinc-400 hover:text-white hover:bg-zinc-800 h-7 px-2 text-xs"
+          >
+            Reset to This Week
+          </Button>
+        </div>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
@@ -721,6 +906,7 @@ export default function VoiceTicketsPage() {
                   <TableHead className="text-zinc-400">Ticket#</TableHead>
                   <TableHead className="text-zinc-400">Enterprise Trunk</TableHead>
                   <TableHead className="text-zinc-400">Destination</TableHead>
+                  <TableHead className="text-zinc-400">ANI/Origination</TableHead>
                   <TableHead className="text-zinc-400">Issue</TableHead>
                   <TableHead className="text-zinc-400">Opened Via</TableHead>
                   <TableHead className="text-zinc-400">Status</TableHead>
@@ -763,6 +949,7 @@ export default function VoiceTicketsPage() {
                           </TableCell>
                           <TableCell className="text-zinc-300">{ticket.customer_trunk || "-"}</TableCell>
                           <TableCell className="text-zinc-300">{ticket.destination || "-"}</TableCell>
+                          <TableCell className="text-zinc-300">{ticket.ani ? ticket.ani : "Any"}</TableCell>
                           <TableCell className="text-zinc-300 max-w-xs truncate">{getIssueDisplayText(ticket)}</TableCell>
                           <TableCell className="text-zinc-300">{getOpenedViaDisplayText(ticket) || "-"}</TableCell>
                           <TableCell><StatusBadge status={ticket.status} /></TableCell>
@@ -860,7 +1047,11 @@ export default function VoiceTicketsPage() {
             {/* Destination */}
             <div className="space-y-2">
               <Label>Destination *</Label>
-              <Input value={formData.destination || ""} onChange={(e) => setFormData({ ...formData, destination: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" placeholder="Enter destination" required disabled={isAM} />
+              <Input value={formData.destination || ""} onChange={(e) => setFormData({ ...formData, destination: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" placeholder="Country - Network (e.g., USA - Verizon, UK - Vodafone)" required disabled={isAM} />
+            </div>
+            <div className="space-y-2">
+              <Label>ANI/Origination</Label>
+              <Input value={formData.ani || ""} onChange={(e) => setFormData({ ...formData, ani: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" placeholder="ANI or origination number" disabled={isAM} />
             </div>
 
             {/* Issue Types - Multi-select checklist */}
@@ -907,8 +1098,14 @@ export default function VoiceTicketsPage() {
 
             <div className="border-t border-zinc-700 pt-4 mt-4">
               <h3 className="text-sm font-medium text-zinc-400 mb-4">Vendor & Cost</h3>
-              <div className="grid grid-cols-3 gap-4">
+              
+              {/* Rate - Full width on its own row */}
+              <div className="mb-4">
                 <div className="space-y-2"><Label className="text-white">Rate</Label><Input value={formData.rate || ""} onChange={(e) => setFormData({ ...formData, rate: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" placeholder="Rate per minute" disabled={isAM} /></div>
+              </div>
+              
+              {/* Vendor Trunks - Full row below Rate */}
+              <div className="grid grid-cols-1 gap-4">
               {/* Vendor Trunks - Multi-select checklist with popover */}
               <div className="space-y-2">
                 <Label>Vendor Trunks</Label>
@@ -973,6 +1170,7 @@ export default function VoiceTicketsPage() {
                     </div>
                   </PopoverContent>
                 </Popover>
+              </div>
 
                 {/* Selected vendor trunks with % and position (when 2+) */}
                 {(formData.vendor_trunks || []).length > 0 && (
@@ -1121,7 +1319,6 @@ export default function VoiceTicketsPage() {
                   </div>
                 )}
               </div>
-              </div>
               <div className="grid grid-cols-1 gap-4 mt-4">
                 <div className="space-y-2">
                   <Label>Is LCR</Label>
@@ -1170,6 +1367,30 @@ export default function VoiceTicketsPage() {
                 >
                   <Trash2 className="h-4 w-4 mr-2" />
                   Delete
+                </Button>
+              )}
+              {/* Create Request Button - for AM users when viewing a ticket */}
+              {isAM && editingTicket && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    // Close the ticket sheet first, then navigate
+                    setSheetOpen(false);
+                    // Small delay to allow sheet to close before navigating
+                    setTimeout(() => {
+                      // Save ticket number before navigating
+                      const ticketNum = editingTicket?.ticket_number;
+                      console.log('VoiceTicketsPage: Creating request for ticket:', ticketNum);
+                      const url = `/requests?ticket_id=${encodeURIComponent(ticketNum)}&ticket_type=voice`;
+                      console.log('VoiceTicketsPage: Navigating to:', url);
+                      navigate(url);
+                    }, 300);
+                  }}
+                  className="border-amber-500/50 text-amber-500 hover:bg-amber-500/10"
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Create Request
                 </Button>
               )}
               <Button type="button" variant="outline" onClick={() => setSheetOpen(false)} className="border-zinc-700 text-white hover:bg-zinc-800">{isAM ? "Close" : "Cancel"}</Button>
@@ -1224,38 +1445,48 @@ export default function VoiceTicketsPage() {
           <DialogHeader>
             <DialogTitle>Ticket Actions - {selectedTicket?.ticket_number}</DialogTitle>
           </DialogHeader>
-          {/* Send Alert Button */}
-          <div className="flex justify-end">
-            <Button
-              size="sm"
-              onClick={() => {
-                // Send alert to References page
-                // Extract vendor_trunk and cost from vendor_trunks array (new format)
-                const vendorTrunks = selectedTicket.vendor_trunks || [];
-                const firstVendor = vendorTrunks.length > 0 ? vendorTrunks[0] : {};
-                const alertData = {
-                  ticket_id: selectedTicket.id,
-                  ticket_number: selectedTicket.ticket_number,
-                  ticket_type: "voice",
-                  customer: selectedTicket.customer,
-                  customer_id: selectedTicket.customer_id,
-                  destination: selectedTicket.destination,
-                  issue_types: selectedTicket.issue_types || [],
-                  issue_other: selectedTicket.issue_other,
-                  vendor_trunk: firstVendor.trunk || selectedTicket.vendor_trunk || "",
-                  vendor_trunks: vendorTrunks,
-                  rate: selectedTicket.rate,
-                  cost: firstVendor.cost || selectedTicket.cost || ""
-                };
-                localStorage.setItem("pendingAlert", JSON.stringify(alertData));
-                window.location.href = "/references?tab=alerts&section=voice";
-              }}
-              className="bg-amber-500 text-black hover:bg-amber-400"
-            >
-              <Bell className="h-4 w-4 mr-2" />
-              Send Alert
-            </Button>
-          </div>
+          {/* Send Alert Button - Only show for NOC and Admin, not for AMs */}
+          {currentUser?.role !== "am" && (
+            <div className="flex justify-end gap-2">
+              <Button
+                size="sm"
+                onClick={handleInformAM}
+                className="bg-blue-500 text-white hover:bg-blue-600"
+              >
+                <User className="h-4 w-4 mr-2" />
+                Inform AM
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => {
+                  // Send alert to References page
+                  // Extract vendor_trunk and cost from vendor_trunks array (new format)
+                  const vendorTrunks = selectedTicket.vendor_trunks || [];
+                  const firstVendor = vendorTrunks.length > 0 ? vendorTrunks[0] : {};
+                  const alertData = {
+                    ticket_id: selectedTicket.id,
+                    ticket_number: selectedTicket.ticket_number,
+                    ticket_type: "voice",
+                    customer: selectedTicket.customer,
+                    customer_id: selectedTicket.customer_id,
+                    destination: selectedTicket.destination,
+                    issue_types: selectedTicket.issue_types || [],
+                    issue_other: selectedTicket.issue_other,
+                    vendor_trunk: firstVendor.trunk || selectedTicket.vendor_trunk || "",
+                    vendor_trunks: vendorTrunks,
+                    rate: selectedTicket.rate,
+                    cost: firstVendor.cost || selectedTicket.cost || ""
+                  };
+                  localStorage.setItem("pendingAlert", JSON.stringify(alertData));
+                  window.location.href = "/references?tab=alerts&section=voice";
+                }}
+                className="bg-amber-500 text-black hover:bg-amber-400"
+              >
+                <Bell className="h-4 w-4 mr-2" />
+                Send Alert
+              </Button>
+            </div>
+          )}
           <div className="space-y-4 max-h-[400px] overflow-y-auto">
             {ticketActions.length === 0 ? (
               <p className="text-zinc-500 text-center py-4">No actions recorded yet</p>
@@ -1275,8 +1506,8 @@ export default function VoiceTicketsPage() {
                           ? `Edited: ${new Date(action.edited_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}`
                           : new Date(action.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                       </span>
-                      {/* Show edit/delete buttons only for own actions */}
-                      {currentUser && action.created_by === currentUser.id && (
+                      {/* Show edit/delete buttons only for Admin */}
+                      {currentUser?.role === "admin" && (
                         <div className="flex gap-1">
                           <Button
                             size="sm"

@@ -6,14 +6,22 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from "recha
 import { toast } from "sonner";
 import StatusBadge from "@/components/custom/StatusBadge";
 import PriorityIndicator from "@/components/custom/PriorityIndicator";
-import DateRangePickerWithRange from "@/components/custom/DateRangePickerWithRange";
+import { DateRangePickerWithRange } from "@/components/custom/DateRangePickerWithRange";
+import { Button } from "@/components/ui/button";
+import { startOfWeek, endOfWeek } from "date-fns";
 
 const BACKEND_URL = process.env.REACT_APP_API_URL;
 const API = `${BACKEND_URL}/api`;
 
 export default function DashboardPage() {
   const [stats, setStats] = useState(null);
-  const [dateRange, setDateRange] = useState({ from: new Date(), to: new Date() });
+  const [dateRange, setDateRange] = useState(() => {
+    const today = new Date();
+    return { 
+      from: startOfWeek(today, { weekStartsOn: 1 }), 
+      to: endOfWeek(today, { weekStartsOn: 1 }) 
+    };
+  });
   const [loading, setLoading] = useState(true);
   const [onlineUsers, setOnlineUsers] = useState([]);
   const [currentUser, setCurrentUser] = useState(null);
@@ -120,19 +128,33 @@ export default function DashboardPage() {
           <h1 className="text-4xl font-bold text-white">Dashboard</h1>
           <p className="text-zinc-400">Overview of ticket status and metrics</p>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2">
           <DateRangePickerWithRange
             dateRange={dateRange}
             onDateRangeChange={setDateRange}
           />
-          {dateRange && (
-            <button
-              onClick={() => setDateRange(null)}
-              className="text-sm text-zinc-400 hover:text-white underline"
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                const today = new Date();
+                setDateRange({ from: today, to: today });
+              }}
+              className="border-zinc-700 text-zinc-400 hover:text-white hover:bg-zinc-800 h-7 px-2 text-xs"
             >
-              Clear filter
-            </button>
-          )}
+              Show Today
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                const today = new Date();
+                setDateRange({ from: startOfWeek(today, { weekStartsOn: 1 }), to: endOfWeek(today, { weekStartsOn: 1 }) });
+              }}
+              className="border-zinc-700 text-zinc-400 hover:text-white hover:bg-zinc-800 h-7 px-2 text-xs"
+            >
+              Reset to This Week
+            </Button>
+          </div>
         </div>
       </div>
 
