@@ -8,7 +8,7 @@ import os
 import logging
 from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict, EmailStr
-from typing import List, Optional
+from typing import List, Optional, Union
 import uuid
 from datetime import datetime, timezone, timedelta
 from passlib.context import CryptContext
@@ -16,6 +16,8 @@ from jose import JWTError, jwt
 import re
 import pandas as pd
 import io
+import pyotp
+import secrets
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -33,6 +35,44 @@ if not SECRET_KEY:
     raise RuntimeError("SECRET_KEY environment variable must be set")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_DAYS = 30
+
+# Email configuration
+SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.gmail.com")
+SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
+SMTP_USER = os.environ.get("SMTP_USER", "")
+SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
+FROM_EMAIL = os.environ.get("FROM_EMAIL", SMTP_USER)
+
+async def send_email(to_email: str, subject: str, body: str):
+    """Send an email using SMTP"""
+    import aiosmtplib
+    from email.mime.text import MIMEText
+    from email.mime.multipart import MIMEMultipart
+    
+    # Check if SMTP is configured
+    if not SMTP_USER or not SMTP_PASSWORD or not FROM_EMAIL:
+        logger.warning("SMTP not configured, skipping email send")
+        return
+    
+    msg = MIMEMultipart()
+    msg["From"] = FROM_EMAIL
+    msg["To"] = to_email
+    msg["Subject"] = subject
+    msg.attach(MIMEText(body, "plain"))
+    
+    try:
+        await aiosmtplib.send(
+            message=msg,
+            hostname=SMTP_HOST,
+            port=SMTP_PORT,
+            username=SMTP_USER,
+            password=SMTP_PASSWORD,
+            start_tls=True
+        )
+    except Exception as e:
+        logger.error(f"Failed to send email: {e}")
+        # Don't raise - just log the error
+        pass
 
 # Create the main app
 app = FastAPI()
@@ -207,6 +247,8 @@ class UserResponse(BaseModel):
     am_type: Optional[str] = None  # Deprecated
     created_at: datetime
     last_active: Optional[datetime] = None
+    two_factor_enabled: Optional[bool] = False
+    two_factor_method: Optional[str] = None  # "totp" or "email"
 
 class UserUpdate(BaseModel):
     """Model for updating user - only allows updating certain fields"""
@@ -218,6 +260,28 @@ class UserUpdate(BaseModel):
     role: Optional[str] = None  # Deprecated
     am_type: Optional[str] = None  # Deprecated
     password: Optional[str] = None  # Admin can change password
+    two_factor_enabled: Optional[bool] = None  # Admin can enable/disable 2FA
+    two_factor_method: Optional[str] = None  # Admin can set 2FA method
+
+class TwoFactorSetup(BaseModel):
+    """Model for setting up 2FA"""
+    method: str  # "totp" or "email"
+
+class TwoFactorVerify(BaseModel):
+    """Model for verifying 2FA code"""
+    code: str
+
+class TwoFactorLogin(BaseModel):
+    """Model for completing login with 2FA"""
+    user_id: str
+    code: str
+
+class TwoFactorResponse(BaseModel):
+    """Response model for 2FA required login"""
+    two_factor_required: bool
+    user_id: str
+    method: str
+    message: str
 
 class TicketModificationNotification(BaseModel):
     """Model for ticket modification notifications"""
@@ -1063,7 +1127,7 @@ async def register(user_data: UserCreate, current_admin: dict = Depends(get_curr
     
     return UserResponse(**user_obj.model_dump())
 
-@api_router.post("/auth/login", response_model=Token)
+@api_router.post("/auth/login")
 async def login(login_data: UserLogin):
     identifier = login_data.identifier
     
@@ -1078,6 +1142,50 @@ async def login(login_data: UserLogin):
     if not user or not verify_password(login_data.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     
+    # Check if 2FA is enabled
+    if user.get("two_factor_enabled"):
+        method = user.get("two_factor_method")
+        
+        if method == "email":
+            # Generate and send email code
+            code = "".join([str(secrets.randbelow(10)) for _ in range(6)])
+            
+            await db.users.update_one(
+                {"id": user["id"]},
+                {"$set": {
+                    "two_factor_code": code,
+                    "two_factor_code_expires": datetime.now(timezone.utc) + timedelta(minutes=5)
+                }}
+            )
+            
+            # Send email
+            try:
+                await send_email(
+                    to_email=user.get("email"),
+                    subject="Your WiiTelecom Login Verification Code",
+                    body=f"Your login verification code is: {code}\n\nThis code expires in 5 minutes."
+                )
+            except Exception as e:
+                logger.error(f"Failed to send 2FA email: {e}")
+            
+            # Return partial login - needs 2FA
+            return TwoFactorResponse(
+                two_factor_required=True,
+                user_id=user["id"],
+                method="email",
+                message="Verification code sent to your email"
+            )
+        
+        elif method == "totp":
+            # Return partial login - needs TOTP
+            return TwoFactorResponse(
+                two_factor_required=True,
+                user_id=user["id"],
+                method="totp",
+                message="Please enter your 2FA code"
+            )
+    
+    # No 2FA - complete login normally
     # Update last_active on login
     await db.users.update_one(
         {"id": user["id"]},
@@ -1110,6 +1218,166 @@ async def login(login_data: UserLogin):
     
     return Token(access_token=access_token, token_type="bearer", user=user_response)
 
+@api_router.post("/auth/password-reset/request")
+async def request_password_reset(reset_data: dict):
+    """Request password reset - sends verification code via user's 2FA method"""
+    identifier = reset_data.get("identifier")
+    if not identifier:
+        raise HTTPException(status_code=400, detail="Identifier is required")
+    
+    # Find user by username or email
+    user = await db.users.find_one({
+        "$or": [
+            {"username": identifier},
+            {"email": identifier}
+        ]
+    })
+    
+    if not user:
+        # Don't reveal if user exists
+        return {"message": "If the user exists, a verification code has been sent"}
+    
+    # Check if user has 2FA enabled
+    if not user.get("two_factor_enabled"):
+        raise HTTPException(status_code=400, detail="User does not have 2FA enabled. Please contact admin.")
+    
+    method = user.get("two_factor_method")
+    
+    if method == "email":
+        # Generate code and send to email
+        code = "".join([str(secrets.randbelow(10)) for _ in range(6)])
+        await db.users.update_one(
+            {"id": user["id"]},
+            {"$set": {
+                "password_reset_code": code,
+                "password_reset_expires": datetime.now(timezone.utc) + timedelta(minutes=10)
+            }}
+        )
+        
+        try:
+            await send_email(
+                to_email=user.get("email"),
+                subject="Your WiiTelecom Password Reset Code",
+                body=f"Your password reset code is: {code}\n\nThis code expires in 10 minutes."
+            )
+        except:
+            pass  # Don't fail if email fails
+        
+        return {"method": "email", "message": "Verification code sent to your email"}
+    
+    elif method == "totp":
+        # For TOTP, user will enter their current TOTP code as verification
+        # No need to send anything - just return the method info
+        return {"method": "totp", "message": "Enter your Google Authenticator code"}
+    
+    raise HTTPException(status_code=400, detail="Invalid 2FA method")
+
+@api_router.post("/auth/password-reset/verify")
+async def verify_password_reset(verify_data: dict):
+    """Verify password reset code"""
+    identifier = verify_data.get("identifier")
+    code = verify_data.get("code")
+    
+    if not identifier or not code:
+        raise HTTPException(status_code=400, detail="Identifier and code are required")
+    
+    # Find user
+    user = await db.users.find_one({
+        "$or": [
+            {"username": identifier},
+            {"email": identifier}
+        ]
+    })
+    
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid code")
+    
+    method = user.get("two_factor_method")
+    
+    if method == "totp":
+        # For TOTP, verify using live TOTP code
+        secret = user.get("two_factor_secret")
+        if not secret:
+            raise HTTPException(status_code=400, detail="2FA not properly configured")
+        
+        totp = pyotp.TOTP(secret)
+        if not totp.verify(code, valid_window=1):
+            raise HTTPException(status_code=400, detail="Invalid verification code")
+    
+    elif method == "email":
+        # For email, verify using stored code
+        stored_code = user.get("password_reset_code")
+        expires = user.get("password_reset_expires")
+        
+        if not stored_code or stored_code != code:
+            raise HTTPException(status_code=400, detail="Invalid verification code")
+        
+        if expires and datetime.now(timezone.utc) > expires:
+            raise HTTPException(status_code=400, detail="Verification code expired")
+    
+    return {"message": "Code verified successfully"}
+
+@api_router.post("/auth/password-reset/confirm")
+async def confirm_password_reset(reset_data: dict):
+    """Confirm password reset with new password"""
+    identifier = reset_data.get("identifier")
+    code = reset_data.get("code")
+    new_password = reset_data.get("new_password")
+    
+    if not identifier or not code or not new_password:
+        raise HTTPException(status_code=400, detail="All fields are required")
+    
+    # Find user
+    user = await db.users.find_one({
+        "$or": [
+            {"username": identifier},
+            {"email": identifier}
+        ]
+    })
+    
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid request")
+    
+    method = user.get("two_factor_method")
+    
+    if method == "totp":
+        # For TOTP, verify the current TOTP code
+        secret = user.get("two_factor_secret")
+        if not secret:
+            raise HTTPException(status_code=400, detail="2FA not properly configured")
+        
+        totp = pyotp.TOTP(secret)
+        if not totp.verify(code, valid_window=1):
+            raise HTTPException(status_code=400, detail="Invalid verification code")
+    
+    elif method == "email":
+        # For email, verify the code we sent
+        stored_code = user.get("password_reset_code")
+        expires = user.get("password_reset_expires")
+        
+        if not stored_code or stored_code != code:
+            raise HTTPException(status_code=400, detail="Invalid verification code")
+        
+        if expires and datetime.now(timezone.utc) > expires:
+            raise HTTPException(status_code=400, detail="Verification code expired")
+    
+    # Update password
+    from passlib.context import CryptContext
+    pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+    password_hash = pwd_context.hash(new_password)
+    
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$set": {
+            "password_hash": password_hash
+        }, "$unset": {
+            "password_reset_code": "",
+            "password_reset_expires": ""
+        }}
+    )
+    
+    return {"message": "Password reset successfully"}
+
 @api_router.post("/auth/logout")
 async def logout(current_user: dict = Depends(get_current_user)):
     """Logout - marks user as offline by setting last_active to a very old timestamp and closes session"""
@@ -1139,6 +1407,226 @@ async def get_me(current_user: dict = Depends(get_current_user)):
     if isinstance(current_user['created_at'], str):
         current_user['created_at'] = datetime.fromisoformat(current_user['created_at'])
     return UserResponse(**current_user)
+
+# ==================== 2FA AUTHENTICATION ====================
+
+@api_router.post("/auth/2fa/setup")
+async def setup_2fa(setup_data: TwoFactorSetup, current_user: dict = Depends(get_current_user)):
+    """Setup 2FA for the current user"""
+    print(f"[DEBUG] setup_2fa called, current_user: {current_user.get('id')}, username: {current_user.get('username')}, method: {setup_data.method}")
+    method = setup_data.method
+    
+    if method not in ["totp", "email"]:
+        raise HTTPException(status_code=400, detail="Invalid 2FA method. Use 'totp' or 'email'")
+    
+    if method == "totp":
+        # Generate TOTP secret
+        secret = pyotp.random_base32()
+        print(f"[DEBUG] Generating TOTP secret for user {current_user['id']}: {secret}")
+        
+        # Save secret to user (pending verification) - clear any previous email settings
+        await db.users.update_one(
+            {"id": current_user["id"]},
+            {"$set": {
+                "two_factor_secret": secret,
+                "two_factor_pending": True,
+                "two_factor_method": "totp",
+                "two_factor_code": None,
+                "two_factor_code_expires": None
+            }}
+        )
+        
+        # Generate QR code URL for Google Authenticator
+        totp = pyotp.TOTP(secret)
+        provisioning_uri = totp.provisioning_uri(
+            name=current_user["username"],
+            issuer_name="WiiTelecom"
+        )
+        print(f"[DEBUG] Generated provisioning_uri: {provisioning_uri}")
+        
+        return {
+            "secret": secret,
+            "provisioning_uri": provisioning_uri,
+            "message": "Scan the QR code with Google Authenticator, then verify with a code"
+        }
+    
+    elif method == "email":
+        # Send verification code to user's email
+        user = await db.users.find_one({"id": current_user["id"]})
+        email = user.get("email")
+        
+        if not email:
+            raise HTTPException(status_code=400, detail="No email address on file")
+        
+        # Generate 6-digit code
+        code = "".join([str(secrets.randbelow(10)) for _ in range(6)])
+        
+        # Save code with expiry (5 minutes)
+        await db.users.update_one(
+            {"id": current_user["id"]},
+            {"$set": {
+                "two_factor_code": code,
+                "two_factor_code_expires": datetime.now(timezone.utc) + timedelta(minutes=5),
+                "two_factor_pending": True
+            }}
+        )
+        
+        # Send email
+        try:
+            await send_email(
+                to_email=email,
+                subject="Your WiiTelecom 2FA Verification Code",
+                body=f"Your 2FA verification code is: {code}\n\nThis code expires in 5 minutes."
+            )
+        except Exception as e:
+            logger.error(f"Failed to send 2FA email: {e}")
+            raise HTTPException(status_code=500, detail="Failed to send verification email")
+        
+        return {"message": "Verification code sent to your email"}
+
+@api_router.post("/auth/2fa/verify")
+async def verify_2fa(verify_data: TwoFactorVerify, current_user: dict = Depends(get_current_user)):
+    """Verify 2FA setup with a code"""
+    print(f"[DEBUG] verify_2fa called, current_user: {current_user.get('id')}, username: {current_user.get('username')}")
+    user = await db.users.find_one({"id": current_user["id"]})
+    print(f"[DEBUG] User from DB: {user}")
+    print(f"[DEBUG] two_factor_pending: {user.get('two_factor_pending')}, two_factor_method: {user.get('two_factor_method')}")
+    
+    if not user.get("two_factor_pending"):
+        raise HTTPException(status_code=400, detail="No pending 2FA setup")
+    
+    method = user.get("two_factor_method")
+    
+    if method == "totp":
+        secret = user.get("two_factor_secret")
+        if not secret:
+            print(f"[ERROR] No TOTP secret found for user {current_user['id']}")
+            raise HTTPException(status_code=400, detail="No TOTP secret found")
+        
+        print(f"[DEBUG] User: {current_user['id']}, Secret from DB: {secret}")
+        print(f"[DEBUG] User entered code: {verify_data.code}")
+        
+        totp = pyotp.TOTP(secret)
+        print(f"[DEBUG] Current valid TOTP code: {totp.now()}")
+        
+        # Allow for 1 window (30 seconds) of time drift
+        is_valid = totp.verify(verify_data.code, valid_window=1)
+        print(f"[DEBUG] TOTP verification result: {is_valid}")
+        
+        if not is_valid:
+            raise HTTPException(status_code=400, detail="Invalid verification code")
+    
+    elif method == "email":
+        code = user.get("two_factor_code")
+        expires = user.get("two_factor_code_expires")
+        
+        if not code or code != verify_data.code:
+            raise HTTPException(status_code=400, detail="Invalid verification code")
+        
+        if expires and datetime.now(timezone.utc) > expires:
+            raise HTTPException(status_code=400, detail="Verification code expired")
+    
+    # Enable 2FA (keep the secret for future authentication)
+    await db.users.update_one(
+        {"id": current_user["id"]},
+        {"$set": {
+            "two_factor_enabled": True,
+            "two_factor_method": method,
+            "two_factor_pending": False
+        }}
+    )
+    # Remove temporary code fields but keep the secret
+    await db.users.update_one(
+        {"id": current_user["id"]},
+        {"$unset": {"two_factor_code": "", "two_factor_code_expires": ""}}
+    )
+    
+    return {"message": "2FA enabled successfully"}
+
+@api_router.post("/auth/2fa/disable")
+async def disable_2fa(current_user: dict = Depends(get_current_user)):
+    """Disable 2FA for the current user"""
+    await db.users.update_one(
+        {"id": current_user["id"]},
+        {"$set": {
+            "two_factor_enabled": False,
+            "two_factor_method": None
+        }}
+    )
+    await db.users.update_one(
+        {"id": current_user["id"]},
+        {"$unset": {
+            "two_factor_secret": "",
+            "two_factor_code": "",
+            "two_factor_code_expires": "",
+            "two_factor_pending": ""
+        }}
+    )
+    
+    return {"message": "2FA disabled successfully"}
+
+@api_router.post("/auth/2fa/login")
+async def verify_2fa_login(login_data: TwoFactorLogin):
+    """Complete login with 2FA code"""
+    user = await db.users.find_one({"id": login_data.user_id})
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    method = user.get("two_factor_method")
+    
+    if method == "totp":
+        # For TOTP, we need to check both new and previous code (for time drift tolerance)
+        secret = user.get("two_factor_secret")
+        if not secret:
+            raise HTTPException(status_code=400, detail="2FA not properly setup")
+        
+        totp = pyotp.TOTP(secret)
+        if not totp.verify(login_data.code, valid_window=1):
+            raise HTTPException(status_code=400, detail="Invalid 2FA code")
+    
+    elif method == "email":
+        code = user.get("two_factor_code")
+        expires = user.get("two_factor_code_expires")
+        
+        if not code or code != login_data.code:
+            raise HTTPException(status_code=400, detail="Invalid 2FA code")
+        
+        if expires and datetime.now(timezone.utc) > expires:
+            raise HTTPException(status_code=400, detail="2FA code expired")
+    
+    # Clear the 2FA code after successful verification
+    await db.users.update_one(
+        {"id": login_data.user_id},
+        {"$unset": {"two_factor_code": "", "two_factor_code_expires": ""}}
+    )
+    
+    # Create session and return token
+    session_id = str(uuid.uuid4())
+    await db.user_sessions.insert_one({
+        "id": session_id,
+        "user_id": user["id"],
+        "username": user["username"],
+        "login_time": datetime.now(timezone.utc),
+        "logout_time": None,
+        "created_at": datetime.now(timezone.utc)
+    })
+    
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$set": {
+            "last_active": datetime.now(timezone.utc),
+            "current_session_id": session_id
+        }}
+    )
+    
+    if isinstance(user.get('created_at'), str):
+        user['created_at'] = datetime.fromisoformat(user['created_at'])
+    
+    access_token = create_access_token(data={"sub": user["id"]})
+    user_response = UserResponse(**user)
+    
+    return Token(access_token=access_token, token_type="bearer", user=user_response)
 
 
 class NotificationPreferencesUpdate(BaseModel):
@@ -1423,6 +1911,14 @@ async def update_user(user_id: str, user_data: UserUpdate, current_admin: dict =
         from passlib.context import CryptContext
         pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
         update_dict["password_hash"] = pwd_context.hash(update_dict.pop("password"))
+    
+    # Handle 2FA setup when admin enables it
+    if update_dict.get("two_factor_enabled") and update_dict.get("two_factor_method") == "totp":
+        # Generate TOTP secret
+        secret = pyotp.random_base32()
+        update_dict["two_factor_secret"] = secret
+        # Mark as pending so user must verify before 2FA is active
+        update_dict["two_factor_pending"] = True
     
     # Get the user before update for audit
     user_before = await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})

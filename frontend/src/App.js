@@ -14,6 +14,7 @@ import NotificationSettingsPage from "./pages/NotificationSettingsPage";
 import DepartmentsPage from "./pages/DepartmentsPage";
 import ReferencesPage from "./pages/ReferencesPage";
 import RequestsPage from "./pages/RequestsPage";
+import TwoFactorSetupPage from "./pages/TwoFactorSetupPage";
 import { Toaster } from "@/components/ui/sonner";
 import axios from "axios";
 
@@ -109,6 +110,7 @@ function App() {
             <Route path="notifications" element={user?.role === "admin" ? <NotificationSettingsPage /> : <Navigate to="/" />} />
             <Route path="references" element={<ReferencesPage />} />
             <Route path="requests" element={<RequestsPage />} />
+            <Route path="two-factor-setup" element={<TwoFactorSetupPage />} />
           </Route>
         </Routes>
       </BrowserRouter>

@@ -2,12 +2,13 @@ import { useEffect, useState } from "react";
 import axios from "axios";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, Search, Trash2, Pencil } from "lucide-react";
+import { Plus, Search, Trash2, Pencil, Shield, ShieldCheck, ShieldOff } from "lucide-react";
 import MultiFilter from "@/components/custom/MultiFilter";
 import { toast } from "sonner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   AlertDialog,
@@ -131,6 +132,8 @@ export default function UsersPage() {
       department_id: user.department_id || "",
       role: user.role || "noc",
       am_type: user.am_type || "",
+      two_factor_enabled: user.two_factor_enabled || false,
+      two_factor_method: user.two_factor_method || "email",
     });
     setSheetOpen(true);
   };
@@ -245,6 +248,7 @@ export default function UsersPage() {
               <TableHead className="text-zinc-400">Email</TableHead>
               <TableHead className="text-zinc-400">Phone</TableHead>
               <TableHead className="text-zinc-400">Department</TableHead>
+              <TableHead className="text-zinc-400">2FA</TableHead>
               <TableHead className="text-zinc-400">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -263,6 +267,19 @@ export default function UsersPage() {
                       </span>
                     ) : (
                       <span className="text-zinc-500">-</span>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {user.two_factor_enabled ? (
+                      <div className="flex items-center gap-1">
+                        <ShieldCheck className="h-4 w-4 text-green-500" />
+                        <span className="text-xs text-green-500 capitalize">{user.two_factor_method || "enabled"}</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1">
+                        <ShieldOff className="h-4 w-4 text-zinc-500" />
+                        <span className="text-xs text-zinc-500">Off</span>
+                      </div>
                     )}
                   </TableCell>
                   <TableCell>
@@ -402,6 +419,39 @@ export default function UsersPage() {
                 </SelectContent>
               </Select>
             </div>
+
+            {/* 2FA Settings - Admin can enable/disable */}
+            {editingUser && (
+              <div className="space-y-4 p-4 bg-zinc-800/50 rounded-lg border border-zinc-700">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Shield className="h-5 w-5 text-zinc-400" />
+                    <Label className="text-white">Two-Factor Authentication</Label>
+                  </div>
+                  <Switch
+                    checked={formData.two_factor_enabled || false}
+                    onCheckedChange={(checked) => setFormData({ ...formData, two_factor_enabled: checked })}
+                  />
+                </div>
+                {formData.two_factor_enabled && (
+                  <div className="space-y-2">
+                    <Label className="text-zinc-400">2FA Method</Label>
+                    <Select
+                      value={formData.two_factor_method || "email"}
+                      onValueChange={(value) => setFormData({ ...formData, two_factor_method: value })}
+                    >
+                      <SelectTrigger className="bg-zinc-800 border-zinc-700">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="bg-zinc-800 border-zinc-700">
+                        <SelectItem value="email">Email</SelectItem>
+                        <SelectItem value="totp">Google Authenticator</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="flex space-x-3 pt-4">
               <Button type="submit" className="bg-emerald-500 text-black hover:bg-emerald-400" data-testid="save-user-button">
