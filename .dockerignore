@@ -4,6 +4,7 @@ yarn-error.log
 .git
 .gitignore
 .env
+.env.local
 .DS_Store
 __pycache__
 *.pyc
@@ -14,3 +15,7 @@ dist
 build
 .next
 coverage
+.idea
+.vscode
+*.log
+.cache

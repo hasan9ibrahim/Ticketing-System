@@ -3,32 +3,44 @@ services:
     name: ticketing-backend
     runtime: docker
     dockerfilePath: ./backend/Dockerfile
-    envFile: ./backend/.env
-    plans: starter
-    healthCheckPath: /health
     autoDeploy: true
+    plan: free
+    healthCheckPath: /health
     envVars:
-      - key: MONGODB_URI
-        value: mongodb://mongodb:27017/ticketing
+      - key: MONGO_URL
+        fromDatabase:
+          name: mongodb
+          property: connectionString
+      - key: DB_NAME
+        value: ticketdb
+      - key: SECRET_KEY
+        value: supersecretkey123
       - key: PORT
         value: "8000"
+    routes:
+      - type: http
+        source: /
+        destination: 8000
 
   - type: web
     name: ticketing-frontend
     runtime: docker
     dockerfilePath: ./frontend/Dockerfile
-    plans: starter
-    healthCheckPath: /
     autoDeploy: true
+    plan: free
     envVars:
       - key: REACT_APP_API_URL
         value: https://ticketing-backend.onrender.com
+    routes:
+      - type: http
+        source: /
+        destination: 80
 
   - type: pserv
-    name: ticketing-mongodb
-    runtime: docker
+    name: mongodb
+    runtime: image
     image: mongo:6
-    plans: starter
+    plan: free
     disk:
       name: mongo_data
       mountPath: /data/db
