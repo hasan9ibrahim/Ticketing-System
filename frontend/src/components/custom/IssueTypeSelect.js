@@ -140,7 +140,7 @@ export default function IssueTypeSelect({
                   </span>
                 ))}
                 {otherText && (
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-500/20 text-amber-400 text-xs rounded-full">
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-500/20 text-emerald-400 text-xs rounded-full">
                     Other: {otherText.length > 20 ? otherText.substring(0, 20) + "..." : otherText}
                   </span>
                 )}
@@ -221,7 +221,7 @@ export default function IssueTypeSelect({
                 <div 
                   className={`w-4 h-4 rounded border flex items-center justify-center cursor-pointer transition-colors ${
                     otherText 
-                      ? 'bg-amber-500 border-amber-500' 
+                      ? 'bg-emerald-500 border-emerald-500' 
                       : 'border-zinc-500 bg-transparent'
                   }`}
                   onClick={() => {

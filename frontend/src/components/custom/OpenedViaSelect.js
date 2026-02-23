@@ -41,7 +41,7 @@ export default function OpenedViaSelect({ selectedOptions = [], onChange, disabl
         ))}
       </div>
       {selectedOptions.length === 0 && !disabled && (
-        <p className="text-xs text-amber-500">Please select at least one option</p>
+        <p className="text-xs text-emerald-500">Please select at least one option</p>
       )}
     </div>
   );

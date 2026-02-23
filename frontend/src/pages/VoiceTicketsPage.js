@@ -1387,7 +1387,7 @@ export default function VoiceTicketsPage() {
                       navigate(url);
                     }, 300);
                   }}
-                  className="border-amber-500/50 text-amber-500 hover:bg-amber-500/10"
+                  className="border-emerald-500/50 text-emerald-500 hover:bg-emerald-500/10"
                 >
                   <Plus className="h-4 w-4 mr-2" />
                   Create Request
@@ -1480,7 +1480,7 @@ export default function VoiceTicketsPage() {
                   localStorage.setItem("pendingAlert", JSON.stringify(alertData));
                   window.location.href = "/references?tab=alerts&section=voice";
                 }}
-                className="bg-amber-500 text-black hover:bg-amber-400"
+                className="bg-emerald-500 text-black hover:bg-emerald-400"
               >
                 <Bell className="h-4 w-4 mr-2" />
                 Send Alert
@@ -1497,7 +1497,7 @@ export default function VoiceTicketsPage() {
                     <div className="flex items-center gap-2">
                       <span className="text-emerald-500 font-medium text-sm">{action.created_by_username}</span>
                       {action.edited && (
-                        <span className="text-xs bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded">Edited</span>
+                        <span className="text-xs bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded">Edited</span>
                       )}
                     </div>
                     <div className="flex items-center gap-2">

@@ -645,7 +645,7 @@ export default function ReferencesPage() {
         {alerts.map((alert) => (
           <Card 
             key={alert.id} 
-            className={`bg-zinc-900 border-zinc-800 cursor-pointer hover:border-zinc-600 ${selectedAlert?.id === alert.id ? 'border-amber-500' : ''} ${alert.resolved ? 'opacity-60' : ''}`}
+            className={`bg-zinc-900 border-zinc-800 cursor-pointer hover:border-zinc-600 ${selectedAlert?.id === alert.id ? 'border-emerald-500' : ''} ${alert.resolved ? 'opacity-60' : ''}`}
             onClick={() => setSelectedAlert(alert)}
           >
             <CardHeader className="pb-3">
@@ -791,7 +791,7 @@ export default function ReferencesPage() {
                         {comment.text && comment.text.trim() ? (
                           <p className="text-white text-sm mt-1">{comment.text}</p>
                         ) : comment.alternative_vendor ? (
-                          <div className="mt-1 text-amber-500 text-sm">
+                          <div className="mt-1 text-emerald-500 text-sm">
                             Alternative Vendor: {comment.alternative_vendor}
                           </div>
                         ) : null}
@@ -824,7 +824,7 @@ export default function ReferencesPage() {
                   <Button 
                     onClick={handleAddComment} 
                     disabled={!commentText.trim() && !alternativeVendor}
-                    className="w-full bg-amber-500 text-black hover:bg-amber-400"
+                    className="w-full bg-emerald-500 text-black hover:bg-emerald-400"
                   >
                     Add Comment
                   </Button>

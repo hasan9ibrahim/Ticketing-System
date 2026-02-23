@@ -400,7 +400,7 @@ export default function LoginPage({ setUser }) {
           {/* Footer */}
           <div className="text-center mt-8">
             <p className="text-slate-500 text-xs">
-              © 2024 Wii Telecom. All rights reserved.
+              © 2026 Hasan Ibrahim. All rights reserved.
             </p>
           </div>
         </div>

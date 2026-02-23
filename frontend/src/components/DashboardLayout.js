@@ -692,11 +692,11 @@ export default function DashboardLayout({ user, setUser }) {
       {/* Assigned Ticket Reminders - Top Left */}
       {showReminders && activeReminders.length > 0 && (
         <div className="fixed bottom-4 left-4 z-40 max-w-md">
-          <div className="bg-amber-950/95 border border-amber-500/50 rounded-lg shadow-lg p-4 backdrop-blur-sm">
+          <div className="bg-emerald-950/95 border border-emerald-500/50 rounded-lg shadow-lg p-4 backdrop-blur-sm">
             <div className="flex items-center gap-2 mb-3">
-              <AlertTriangle className="h-5 w-5 text-amber-400" />
-              <span className="text-amber-400 font-semibold">Pending Assigned Tickets</span>
-              <span className="bg-amber-500/20 text-amber-400 text-xs px-2 py-0.5 rounded-full ml-auto">
+              <AlertTriangle className="h-5 w-5 text-emerald-400" />
+              <span className="text-emerald-400 font-semibold">Pending Assigned Tickets</span>
+              <span className="bg-emerald-500/20 text-emerald-400 text-xs px-2 py-0.5 rounded-full ml-auto">
                 {activeReminders.length}
               </span>
               <button
@@ -711,7 +711,7 @@ export default function DashboardLayout({ user, setUser }) {
                   localStorage.setItem("dismissedReminders", JSON.stringify(newDismissed));
                   setShowReminders(false);
                 }}
-                className="ml-2 text-amber-400 hover:text-white"
+                className="ml-2 text-emerald-400 hover:text-white"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -744,7 +744,7 @@ export default function DashboardLayout({ user, setUser }) {
                 </p>
               )}
             </div>
-            <p className="text-amber-200 text-xs mt-2">
+            <p className="text-emerald-200 text-xs mt-2">
               These tickets have been assigned for too long. Please update their status.
             </p>
           </div>
@@ -855,7 +855,7 @@ export default function DashboardLayout({ user, setUser }) {
               <Button variant="ghost" size="icon" className="relative text-zinc-400 hover:text-white">
                 <Bell className="h-5 w-5" />
                 {getUnreadCount() > 0 && (
-                  <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-amber-500 text-[10px] font-bold text-black flex items-center justify-center">
+                  <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-emerald-500 text-[10px] font-bold text-black flex items-center justify-center">
                     {getUnreadCount() > 9 ? '9+' : getUnreadCount()}
                   </span>
                 )}
@@ -864,7 +864,7 @@ export default function DashboardLayout({ user, setUser }) {
             <PopoverContent className="w-80 bg-zinc-900 border-zinc-700 text-white" align="end">
               <div className="space-y-2">
                 <div className="flex items-center justify-between pb-2 border-b border-zinc-700">
-                  <h3 className="font-semibold text-amber-400 flex items-center gap-2">
+                  <h3 className="font-semibold text-emerald-400 flex items-center gap-2">
                     <Bell className="h-4 w-4" />
                     Notifications
                   </h3>
@@ -880,7 +880,7 @@ export default function DashboardLayout({ user, setUser }) {
                     return (
                       <div 
                         key={notification.id} 
-                        className={`flex items-start justify-between gap-2 p-2 rounded border-l-2 hover:bg-zinc-800 ${readNotificationIds.has(notification.id) ? 'border-zinc-600 bg-zinc-800/30 opacity-60' : 'border-amber-500 bg-zinc-800/80'}`}
+                        className={`flex items-start justify-between gap-2 p-2 rounded border-l-2 hover:bg-zinc-800 ${readNotificationIds.has(notification.id) ? 'border-zinc-600 bg-zinc-800/30 opacity-60' : 'border-emerald-500 bg-zinc-800/80'}`}
                         onClick={() => isRequest ? handleRequestNotificationClick(notification) : isAlert ? handleAlertNotificationClick(notification) : handleTicketNotificationClick(notification)}
                       >
                         <div className="flex-1 min-w-0 cursor-pointer">
@@ -955,7 +955,7 @@ export default function DashboardLayout({ user, setUser }) {
         <AlertDialogContent className="max-w-md">
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2">
-              <Bell className="h-5 w-5 text-amber-500" />
+              <Bell className="h-5 w-5 text-emerald-500" />
               Notification Details
             </AlertDialogTitle>
             <AlertDialogDescription className="text-base">
@@ -1029,7 +1029,7 @@ export default function DashboardLayout({ user, setUser }) {
                 }
                 handleCloseNotificationDetail();
               }}
-              className="bg-amber-500 hover:bg-amber-600 text-black"
+              className="bg-emerald-500 hover:bg-emerald-600 text-black"
             >
               View Details
             </AlertDialogAction>
