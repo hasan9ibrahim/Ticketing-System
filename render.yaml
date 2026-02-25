@@ -3,6 +3,7 @@ services:
     name: ticketing-backend
     runtime: docker
     dockerfilePath: ./backend/Dockerfile
+    context: ./backend
     autoDeploy: true
     plan: free
     healthCheckPath: /health
@@ -26,6 +27,7 @@ services:
     name: ticketing-frontend
     runtime: docker
     dockerfilePath: ./frontend/Dockerfile
+    context: ./frontend
     autoDeploy: true
     plan: free
     envVars:
