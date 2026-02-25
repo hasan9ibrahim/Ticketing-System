@@ -379,8 +379,17 @@ export default function ReferencesPage() {
 
       if (editingList) {
         // Update existing list
+        const listId = editingList.id || editingList._id;
+        if (!listId) {
+          toast({
+            variant: "destructive",
+            title: "Error",
+            description: "Cannot update: List ID is missing. Please refresh the page and try again."
+          });
+          return;
+        }
         await axios.put(
-          `${API}/references/${editingList.id}`,
+          `${API}/references/${listId}`,
           {
             name: formData.name,
             destination: formData.destination,
@@ -1136,7 +1145,7 @@ export default function ReferencesPage() {
             ) : (
               <div className="grid gap-4">
                 {filterLists(voiceLists).map((list) => (
-                  <Card key={list.id} className="bg-zinc-900 border-zinc-800">
+                  <Card key={list.id || list._id} className="bg-zinc-900 border-zinc-800">
                     <CardHeader className="pb-3">
                       <div className="flex items-start justify-between">
                         <div>

@@ -1,0 +1,1 @@
+{"indexes":[{"v":{"$numberInt":"2"},"key":{"_id":{"$numberInt":"1"}},"name":"_id_"},{"v":{"$numberInt":"2"},"key":{"participant_ids":{"$numberInt":"1"}},"name":"participant_ids_1"},{"v":{"$numberInt":"2"},"key":{"updated_at":{"$numberInt":"1"}},"name":"updated_at_1"}],"uuid":"67c32628bda94dd2a5a6ec55849e502f","collectionName":"conversations","type":"collection"}
