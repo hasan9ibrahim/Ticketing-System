@@ -846,37 +846,18 @@ function ChatWindowView({
     setLoading(false);
   }, [chat.conversation_id]);
 
-  // Sync messages from chat prop - use parent's messages which include locally sent ones
+  // Load and sync messages when conversation changes
   useEffect(() => {
     if (!chat.conversation_id) return;
     
-    // If parent has messages that we don't have, sync them
-    if (chat.messages && chat.messages.length > 0) {
-      const localIds = new Set(messages.map(m => m.id));
-      const parentNewMessages = chat.messages.filter(m => !localIds.has(m.id));
-      
-      if (parentNewMessages.length > 0) {
-        // Parent has new messages we don't have - add them
-        setMessages(prev => [...prev, ...parentNewMessages]);
-      }
-    }
-    
-    // Initial load only
-    if (messages.length === 0 && !loading) {
-      if (chat.messages && chat.messages.length > 0) {
-        setMessages(chat.messages);
-      } else {
-        loadMessages();
-      }
-    }
-  }, [chat.conversation_id, chat.messages, loadMessages, loading, messages.length]);
-
-  // Sync read status from parent chat.messages when it changes (e.g., from message_read WebSocket events)
-  useEffect(() => {
+    // If parent has messages, use them (these include locally sent ones and WebSocket updates)
     if (chat.messages && chat.messages.length > 0) {
       setMessages(chat.messages);
+    } else if (messages.length === 0 && !loading) {
+      // Otherwise load from API
+      loadMessages();
     }
-  }, [chat.messages]);
+  }, [chat.conversation_id, chat.messages, loading, messages.length, loadMessages]);
 
   // Mark as read after messages are loaded
   useEffect(() => {
