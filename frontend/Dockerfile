@@ -1,12 +1,12 @@
 FROM node:20-alpine AS build
 WORKDIR /app
 
-COPY package.json /app/
+COPY frontend/package.json /app/
 RUN yarn install
 
-COPY . /app/
+COPY frontend /app/
 RUN yarn build
 
 FROM nginx:alpine
 COPY --from=build /app/build /usr/share/nginx/html
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
