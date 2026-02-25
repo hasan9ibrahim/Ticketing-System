@@ -356,13 +356,16 @@ export default function ReferencesPage() {
 
       // Validate vendor entries have numeric cost
       for (const entry of formData.vendor_entries) {
-        if (entry.cost && isNaN(parseFloat(entry.cost))) {
-          toast({
-            variant: "destructive",
-            title: "Error",
-            description: `Cost for vendor ${entry.trunk} must be a numeric value`
-          });
-          return;
+        if (entry.cost) {
+          const costValue = String(entry.cost).trim();
+          if (costValue !== "" && isNaN(parseFloat(costValue))) {
+            toast({
+              variant: "destructive",
+              title: "Error",
+              description: `Cost for vendor ${entry.trunk} must be a numeric value`
+            });
+            return;
+          }
         }
       }
 

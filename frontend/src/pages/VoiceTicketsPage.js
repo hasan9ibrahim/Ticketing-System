@@ -116,8 +116,10 @@ export default function VoiceTicketsPage() {
       const token = localStorage.getItem("token");
       const headers = { Authorization: `Bearer ${token}` };
       const vendorTrunkResponse = await axios.get(`${API}/references/trunks/voice`, { headers });
-      setCustomerTrunkOptions(customerTrunkResponse.data.customer_trunks || []);
       setVendorTrunkOptions(vendorTrunkResponse.data.vendor_trunks || []);
+      // Fetch customer trunks from the trunks endpoint
+      const customerTrunkResponse = await axios.get(`${API}/trunks/voice`, { headers });
+      setCustomerTrunkOptions(customerTrunkResponse.data.customer_trunks || []);
     } catch (error) {
       console.error("Failed to fetch trunks:", error);
     }
@@ -509,11 +511,11 @@ export default function VoiceTicketsPage() {
     }
 
     // Validate rate and cost are numeric
-    if (formData.rate && isNaN(parseFloat(formData.rate))) {
+    if (formData.rate && formData.rate.trim() !== "" && isNaN(parseFloat(formData.rate))) {
       toast.error("Rate must be a numeric value");
       return;
     }
-    if (formData.cost && isNaN(parseFloat(formData.cost))) {
+    if (formData.cost && formData.cost.trim() !== "" && isNaN(parseFloat(formData.cost))) {
       toast.error("Cost must be a numeric value");
       return;
     }

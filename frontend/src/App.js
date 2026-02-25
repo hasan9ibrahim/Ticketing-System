@@ -15,7 +15,7 @@ import DepartmentsPage from "./pages/DepartmentsPage";
 import ReferencesPage from "./pages/ReferencesPage";
 import RequestsPage from "./pages/RequestsPage";
 import TwoFactorSetupPage from "./pages/TwoFactorSetupPage";
-import { Toaster } from "@/components/ui/sonner";
+import { Toaster } from "@/components/ui/toaster";
 import axios from "axios";
 
 const API = `${process.env.REACT_APP_API_URL}/api`;

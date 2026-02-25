@@ -1776,21 +1776,22 @@ async def get_all_users_notification_preferences(current_user: dict = Depends(ge
     if user_role != "admin":
         raise HTTPException(status_code=403, detail="Only admins can access this resource")
     
-    # Get all AM users
-    am_users = await db.users.find(
-        {"am_type": {"$in": ["sms", "voice"]}},
-        {"password_hash": 0}
-    ).to_list(100)
+    # Get all users with their departments
+    all_users_cursor = await db.users.find({}, {"password_hash": 0}).to_list(1000)
     
-    # Get all NOC users
-    # First find the NOC department
-    noc_dept = await db.departments.find_one({"name": "NOC"}, {"_id": 0, "id": 1})
+    # Separate AM and NOC users based on their actual department/role
+    am_users = []
     noc_users = []
-    if noc_dept:
-        noc_users = await db.users.find(
-            {"department_id": noc_dept.get("id")},
-            {"password_hash": 0}
-        ).to_list(100)
+    
+    for user in all_users_cursor:
+        # Get the user's department
+        dept = await get_user_department(user)
+        user_role = get_user_role_from_department(dept) if dept else "unknown"
+        
+        if user_role == "am":
+            am_users.append(user)
+        elif user_role == "noc":
+            noc_users.append(user)
     
     result = []
     for user in am_users:
@@ -3144,6 +3145,7 @@ class AMRequest(BaseModel):
     mnp_hlr_type: Optional[str] = None  # MNP or HLR
     enable_threshold: bool = False  # Enable threshold for SMS
     threshold_count: Optional[str] = None  # Threshold count
+    via_vendor: Optional[str] = None  # Via vendor for threshold routing
     enable_whitelisting: bool = False  # Enable numbers whitelisting for SMS
     rating_vendor_trunks: List[dict] = Field(default_factory=list)  # List of {trunk, percentage, position, cost_type, cost_min, cost_max}
     
@@ -3207,6 +3209,7 @@ class AMRequestCreate(BaseModel):
     mnp_hlr_type: Optional[str] = None  # MNP or HLR
     enable_threshold: bool = False  # Enable threshold for SMS
     threshold_count: Optional[str] = None  # Threshold count
+    via_vendor: Optional[str] = None  # Via vendor for threshold routing
     enable_whitelisting: bool = False  # Enable numbers whitelisting for SMS
     rating_vendor_trunks: List[dict] = Field(default_factory=list)
     vendor_trunks: List[dict] = Field(default_factory=list)
@@ -3361,6 +3364,7 @@ async def create_request(request_data: AMRequestCreate, current_user: dict = Dep
         mnp_hlr_type=request_data.mnp_hlr_type,
         enable_threshold=request_data.enable_threshold,
         threshold_count=request_data.threshold_count,
+        via_vendor=request_data.via_vendor,
         enable_whitelisting=request_data.enable_whitelisting,
         rating_vendor_trunks=request_data.rating_vendor_trunks,
         vendor_trunks=request_data.vendor_trunks,
@@ -3425,7 +3429,7 @@ async def update_request(request_id: str, request_data: dict, current_user: dict
         allowed_fields = [
             "priority", "customer", "customer_id", "customer_ids", "rating", "routing",
             "customer_trunk", "customer_trunks", "destination", "by_loss",
-            "enable_mnp_hlr", "mnp_hlr_type", "enable_threshold", "threshold_count", "enable_whitelisting",
+            "enable_mnp_hlr", "mnp_hlr_type", "enable_threshold", "threshold_count", "via_vendor", "enable_whitelisting",
             "rating_vendor_trunks",
             "vendor_trunks", "translation_type", "trunk_type", "trunk_name",
             "old_value", "new_value", "old_sid", "new_sid", "word_to_remove", "translation_destination",

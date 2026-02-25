@@ -71,9 +71,9 @@ export default function NotificationSettingsPage() {
         headers: { Authorization: `Bearer ${token}` },
       });
       
-      // Separate AM and NOC users based on role or am_type
+      // Separate AM and NOC users based on role
       const allUsers = response.data;
-      const amList = allUsers.filter(u => u.am_type || u.role === 'am');
+      const amList = allUsers.filter(u => u.role === 'am');
       const nocList = allUsers.filter(u => u.role === 'noc');
       
       setAmUsers(amList);

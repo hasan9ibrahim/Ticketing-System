@@ -569,13 +569,49 @@ export default function RequestsPage() {
         const customerTrunks = formData.customer_trunks || {};
         for (const [trunk, pairs] of Object.entries(customerTrunks)) {
           for (const pair of pairs) {
-            if (pair.rate && isNaN(parseFloat(pair.rate))) {
+            if (pair.rate && pair.rate.trim() !== "" && isNaN(parseFloat(pair.rate))) {
               toast({ 
                 title: "Validation Error", 
                 description: `Rate for ${trunk} must be a numeric value`, 
                 variant: "destructive" 
               });
               return;
+            }
+          }
+        }
+
+        // Validate vendor trunk costs (cost_min, cost_max, percentage)
+        const positions = formData.rating_vendor_trunks || {};
+        for (const [position, vendors] of Object.entries(positions)) {
+          for (const vendor of (vendors || [])) {
+            if (vendor.trunk) {
+              // Validate percentage
+              if (vendor.percentage && vendor.percentage.trim() !== "" && isNaN(parseFloat(vendor.percentage))) {
+                toast({ 
+                  title: "Validation Error", 
+                  description: `Percentage for vendor ${vendor.trunk} in position ${position} must be a numeric value`, 
+                  variant: "destructive" 
+                });
+                return;
+              }
+              // Validate cost_min
+              if (vendor.cost_min && vendor.cost_min.trim() !== "" && isNaN(parseFloat(vendor.cost_min))) {
+                toast({ 
+                  title: "Validation Error", 
+                  description: `Cost for vendor ${vendor.trunk} in position ${position} must be a numeric value`, 
+                  variant: "destructive" 
+                });
+                return;
+              }
+              // Validate cost_max (if provided)
+              if (vendor.cost_max && vendor.cost_max.trim() !== "" && isNaN(parseFloat(vendor.cost_max))) {
+                toast({ 
+                  title: "Validation Error", 
+                  description: `Max cost for vendor ${vendor.trunk} in position ${position} must be a numeric value`, 
+                  variant: "destructive" 
+                });
+                return;
+              }
             }
           }
         }
@@ -981,6 +1017,35 @@ export default function RequestsPage() {
   // Validation for Rating/Routing - requires customer_trunks with trunk and destination, and either rate or vendor trunk(s)
   const isRatingRoutingValid = () => {
     if (formData.request_type !== "rating_routing") return true;
+    
+    // Validate customer trunk rates are numeric
+    const customerTrunks = formData.customer_trunks || {};
+    for (const [trunk, pairs] of Object.entries(customerTrunks)) {
+      for (const pair of (pairs || [])) {
+        if (pair.rate && pair.rate.trim() !== "" && isNaN(parseFloat(pair.rate))) {
+          return false;
+        }
+      }
+    }
+
+    // Validate vendor trunk costs are numeric
+    const positions = formData.rating_vendor_trunks || {};
+    for (const [position, vendors] of Object.entries(positions)) {
+      for (const vendor of (vendors || [])) {
+        if (vendor.trunk) {
+          if (vendor.percentage && vendor.percentage.trim() !== "" && isNaN(parseFloat(vendor.percentage))) {
+            return false;
+          }
+          if (vendor.cost_min && vendor.cost_min.trim() !== "" && isNaN(parseFloat(vendor.cost_min))) {
+            return false;
+          }
+          if (vendor.cost_max && vendor.cost_max.trim() !== "" && isNaN(parseFloat(vendor.cost_max))) {
+            return false;
+          }
+        }
+      }
+    }
+    
     // At least one customer trunk with trunk and destination is required
     // New structure: { "trunk_name": [{ destination, rate }] }
     const hasCustomerTrunks = Object.entries(formData.customer_trunks || {}).some(
@@ -1001,8 +1066,8 @@ export default function RequestsPage() {
     if (!hasCustomerRate && !hasVendorTrunks) return false;
     
     // Validate percentages: if a position has more than 1 vendor, percentages must add up to 100%
-    const positions = formData.rating_vendor_trunks || {};
-    for (const [position, vendors] of Object.entries(positions)) {
+    const positionsCheck = formData.rating_vendor_trunks || {};
+    for (const [position, vendors] of Object.entries(positionsCheck)) {
       const vendorsWithTrunk = (vendors || []).filter(v => v.trunk);
       if (vendorsWithTrunk.length > 1) {
         const percentageSum = vendorsWithTrunk.reduce((sum, v) => sum + (parseFloat(v.percentage) || 0), 0);
@@ -1546,7 +1611,7 @@ export default function RequestsPage() {
                           <Input
                             value={pair.destination}
                             onChange={(e) => handleDestinationRateChange(trunkName, pairIndex, "destination", e.target.value)}
-                            placeholder="Destination (e.g., +961)"
+                            placeholder="Destination (e.g., Country - Network)"
                             className="bg-zinc-800 border-zinc-700 flex-1"
                           />
                           <Input
@@ -1851,11 +1916,11 @@ export default function RequestsPage() {
                   </div>
                 )}
                 <div>
-                  <Label className="text-zinc-400">Destination(s)</Label>
+                  <Label className="text-zinc-400">Destination(s) (e.g., Country - Network)</Label>
                   <Input
                     value={formData.destination}
                     onChange={(e) => setFormData({ ...formData, destination: e.target.value })}
-                    placeholder="e.g., +961, +1, +44 (comma separated for multiple)"
+                    placeholder="Destinations (e.g., Country - Network) (comma separated for multiple)"
                     className="bg-zinc-800 border-zinc-700"
                   />
                 </div>
@@ -2129,11 +2194,11 @@ export default function RequestsPage() {
                   </div>
                 )}
                 <div>
-                  <Label className="text-zinc-400">Destination</Label>
+                  <Label className="text-zinc-400">Destination (e.g., Country - Network)</Label>
                   <Input
                     value={formData.translation_destination}
                     onChange={(e) => setFormData({ ...formData, translation_destination: e.target.value })}
-                    placeholder="e.g., +961"
+                    placeholder="e.g., Ghana - MTN, Nigeria - All Networks"
                     className="bg-zinc-800 border-zinc-700"
                   />
                 </div>
@@ -2187,11 +2252,11 @@ export default function RequestsPage() {
                   </Select>
                 </div>
                 <div>
-                  <Label className="text-zinc-400">Destination</Label>
+                  <Label className="text-zinc-400">Destination (e.g., Country - Network)</Label>
                   <Input
                     value={formData.investigation_destination}
                     onChange={(e) => setFormData({ ...formData, investigation_destination: e.target.value })}
-                    placeholder="e.g., +961"
+                    placeholder="e.g., Ghana - MTN, Nigeria - All Networks"
                     className="bg-zinc-800 border-zinc-700"
                   />
                 </div>
@@ -2212,11 +2277,11 @@ export default function RequestsPage() {
             {formData.request_type === "lcr" && (
               <>
                 <div>
-                  <Label className="text-zinc-400">Destination</Label>
+                  <Label className="text-zinc-400">Destination (e.g., Country - Network)</Label>
                   <Input
                     value={formData.destination}
                     onChange={(e) => setFormData({ ...formData, destination: e.target.value })}
-                    placeholder="e.g., +961"
+                    placeholder="e.g., Ghana - MTN, Nigeria - All Networks"
                     className="bg-zinc-800 border-zinc-700"
                   />
                 </div>
@@ -2277,7 +2342,6 @@ export default function RequestsPage() {
             </Button>
             <Button 
               onClick={handleSubmit} 
-              disabled={!canSubmit()}
               className="bg-amber-500 text-black hover:bg-amber-400"
             >
               Submit Request
@@ -2405,7 +2469,7 @@ export default function RequestsPage() {
                         {selectedRequest.enable_threshold && (
                           <>
                             <p className="text-white ml-2">- Threshold: {selectedRequest.threshold_count} messages</p>
-                            {selectedRequest.via_vendor && <p className="text-white ml-2">- Via Vendor: {selectedRequest.via_vendor}</p>}
+                            <p className="text-white ml-2">- Via Vendor: {selectedRequest.via_vendor || "Not specified"}</p>
                           </>
                         )}
                         {selectedRequest.enable_whitelisting && <p className="text-white ml-2">- Numbers Whitelisting: Enabled</p>}

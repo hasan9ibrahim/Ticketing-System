@@ -67,7 +67,11 @@ export default function UsersPage() {
       const response = await axios.get(`${API}/departments`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      setDepartments(response.data);
+      // Remove duplicates by department ID
+      const uniqueDepartments = response.data.filter((dept, index, self) => 
+        index === self.findIndex((d) => d.id === dept.id)
+      );
+      setDepartments(uniqueDepartments);
     } catch (error) {
       console.error("Failed to load departments:", error);
     }

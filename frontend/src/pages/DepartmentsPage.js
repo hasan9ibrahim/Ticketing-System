@@ -39,8 +39,12 @@ export default function DepartmentsPage() {
       const response = await axios.get(`${API}/departments`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      setDepartments(response.data);
-      setFilteredDepartments(response.data);
+      // Remove duplicates by department ID
+      const uniqueDepartments = response.data.filter((dept, index, self) => 
+        index === self.findIndex((d) => d.id === dept.id)
+      );
+      setDepartments(uniqueDepartments);
+      setFilteredDepartments(uniqueDepartments);
     } catch (error) {
       toast.error("Failed to load departments");
     } finally {
