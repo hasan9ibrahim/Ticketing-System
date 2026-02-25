@@ -1,7 +1,6 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
-import useDataUpdates from "@/hooks/useDataUpdates";
 import axios from "axios";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -125,82 +124,30 @@ export default function ReferencesPage() {
     vendor_entries: []
   });
 
-  // Handle real-time data updates from WebSocket
-  const handleDataUpdate = useCallback((message) => {
-    const { type, data, user_id, username } = message;
-    const currentUserId = user?.id;
+  // Handle real-time data updates - polling every 10 seconds when page is visible
+  useEffect(() => {
+    // Poll for updates every 10 seconds
+    const pollInterval = setInterval(() => {
+      // Only poll if page is visible
+      if (!document.hidden) {
+        fetchData();
+      }
+    }, 10000);
     
-    // Don't process our own updates
-    if (user_id === currentUserId) return;
+    // Also refetch when page becomes visible again
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        fetchData();
+      }
+    };
     
-    switch (type) {
-      case 'reference_created':
-        if (data.section === 'sms') {
-          setSmsLists(prev => [data, ...prev]);
-          toast({ title: "New Reference", description: `${username} added a new SMS reference: ${data.name}` });
-        } else if (data.section === 'voice') {
-          setVoiceLists(prev => [data, ...prev]);
-          toast({ title: "New Reference", description: `${username} added a new Voice reference: ${data.name}` });
-        }
-        break;
-        
-      case 'reference_updated':
-        if (data.section === 'sms') {
-          setSmsLists(prev => prev.map(item => item.id === data.id ? data : item));
-          toast({ title: "Reference Updated", description: `${username} updated SMS reference: ${data.name}` });
-        } else if (data.section === 'voice') {
-          setVoiceLists(prev => prev.map(item => item.id === data.id ? data : item));
-          toast({ title: "Reference Updated", description: `${username} updated Voice reference: ${data.name}` });
-        }
-        break;
-        
-      case 'reference_deleted':
-        if (data.section === 'sms') {
-          setSmsLists(prev => prev.filter(item => item.id !== data.id));
-          toast({ title: "Reference Deleted", description: `${username} deleted an SMS reference` });
-        } else if (data.section === 'voice') {
-          setVoiceLists(prev => prev.filter(item => item.id !== data.id));
-          toast({ title: "Reference Deleted", description: `${username} deleted a Voice reference` });
-        }
-        break;
-        
-      case 'alert_created':
-        if (data.ticket_type === 'sms') {
-          setSmsAlerts(prev => [data, ...prev]);
-          toast({ title: "New Alert", description: `${username} created an SMS alert: ${data.ticket_number}` });
-        } else if (data.ticket_type === 'voice') {
-          setVoiceAlerts(prev => [data, ...prev]);
-          toast({ title: "New Alert", description: `${username} created a Voice alert: ${data.ticket_number}` });
-        }
-        break;
-        
-      case 'alert_resolved':
-        if (data.ticket_type === 'sms') {
-          setSmsAlerts(prev => prev.map(item => item.id === data.id ? { ...item, resolved: true } : item));
-        } else if (data.ticket_type === 'voice') {
-          setVoiceAlerts(prev => prev.map(item => item.id === data.id ? { ...item, resolved: true } : item));
-        }
-        toast({ title: "Alert Resolved", description: `${username} resolved an alert` });
-        break;
-        
-      case 'alert_deleted':
-        setSmsAlerts(prev => prev.filter(item => item.id !== data.id));
-        setVoiceAlerts(prev => prev.filter(item => item.id !== data.id));
-        toast({ title: "Alert Deleted", description: `${username} deleted an alert` });
-        break;
-        
-      case 'user_logout':
-        // Could be used to update online users list
-        console.log(`User ${username} logged out`);
-        break;
-        
-      default:
-        break;
-    }
-  }, [user, toast]);
-
-  // Connect to WebSocket for real-time updates
-  useDataUpdates(handleDataUpdate);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
+    return () => {
+      clearInterval(pollInterval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
 
   useEffect(() => {
     fetchData();
