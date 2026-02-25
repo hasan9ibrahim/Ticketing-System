@@ -850,14 +850,23 @@ function ChatWindowView({
   useEffect(() => {
     if (!chat.conversation_id) return;
     
-    // If parent has messages, use them (these include locally sent ones and WebSocket updates)
+    // If parent has messages, merge with local messages to avoid overwriting new ones
     if (chat.messages && chat.messages.length > 0) {
-      setMessages(chat.messages);
+      const localIds = new Set(messages.map(m => m.id));
+      const newMessages = chat.messages.filter(m => !localIds.has(m.id));
+      
+      if (newMessages.length > 0) {
+        // Only add new messages that don't exist locally
+        setMessages(prev => [...prev, ...newMessages]);
+      } else if (messages.length === 0) {
+        // Only set from parent if we have no local messages
+        setMessages(chat.messages);
+      }
     } else if (messages.length === 0 && !loading) {
-      // Otherwise load from API
+      // Load from API if no messages at all
       loadMessages();
     }
-  }, [chat.conversation_id, chat.messages, loading, messages.length, loadMessages]);
+  }, [chat.conversation_id, chat.messages]);
 
   // Mark as read after messages are loaded
   useEffect(() => {
