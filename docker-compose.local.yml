@@ -1,0 +1,63 @@
+version: '3.8'
+
+services:
+  # Local MongoDB for development
+  mongodb:
+    image: mongo:7
+    container_name: ticketing_mongo_local
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - ticketing_network
+
+  # Backend API with hot-reload
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ticketing_backend_local
+    ports:
+      - "8000:8000"
+    environment:
+      # Local MongoDB connection (no auth for local dev)
+      MONGODB_URI: mongodb://mongodb:27017/ticketdb
+      DB_NAME: ticketdb
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      # Hot-reload: mount backend source code
+      - ./backend:/app
+    depends_on:
+      - mongodb
+    networks:
+      - ticketing_network
+    command: uvicorn server:app --host 0.0.0.0 --port 8000 --reload
+
+  # Frontend with hot-reload
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: ticketing_frontend_local
+    ports:
+      - "3000:3000"
+    environment:
+      # Point to local backend instead of production
+      REACT_APP_API_URL: http://localhost:8000
+    volumes:
+      # Hot-reload: mount frontend source code
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+    depends_on:
+      - backend
+    networks:
+      - ticketing_network
+    command: npm start
+
+volumes:
+  mongodb_data:
+
+networks:
+  ticketing_network:
+    driver: bridge

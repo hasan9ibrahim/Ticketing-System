@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import axios from "axios";
@@ -51,6 +51,9 @@ import {
   GripVertical,
   Bell,
   X,
+  ArrowUp,
+  ArrowDown,
+  Save,
 } from "lucide-react";
 
 const API = `${process.env.REACT_APP_API_URL || "http://localhost:8000"}/api`;
@@ -101,6 +104,7 @@ export default function ReferencesPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingList, setEditingList] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [vendorSearchQuery, setVendorSearchQuery] = useState("");  // Separate search for vendor trunks in dialog
   const [filters, setFilters] = useState([]);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [listToDelete, setListToDelete] = useState(null);
@@ -148,21 +152,24 @@ export default function ReferencesPage() {
         a.id === (paramToUse || alertParam) || 
         a.alert_id === (paramToUse || alertParam)
       );
-      const foundAlert = findAlert(smsAlerts) || findAlert(voiceAlerts);
       
-      if (foundAlert) {
-        setSelectedAlert(foundAlert);
-        // Set the active section based on alert type
-        setActiveSection(foundAlert.ticket_type || "sms");
-      } else if (smsAlerts.length > 0 || voiceAlerts.length > 0) {
+      const tryFindAndOpenAlert = () => {
+        const foundAlert = findAlert(smsAlerts) || findAlert(voiceAlerts);
+        if (foundAlert) {
+          setSelectedAlert(foundAlert);
+          // Set the active section based on alert type
+          setActiveSection(foundAlert.ticket_type || "sms");
+          return true;
+        }
+        return false;
+      };
+      
+      // Try immediately first
+      if (!tryFindAndOpenAlert()) {
         // Alerts might not be loaded yet, try again after a short delay
         const timer = setTimeout(() => {
-          const retryAlert = findAlert(smsAlerts) || findAlert(voiceAlerts);
-          if (retryAlert) {
-            setSelectedAlert(retryAlert);
-            setActiveSection(retryAlert.ticket_type || "sms");
-          }
-        }, 500);
+          tryFindAndOpenAlert();
+        }, 1000);
         return () => clearTimeout(timer);
       }
       // Clear localStorage after use
@@ -172,40 +179,47 @@ export default function ReferencesPage() {
     }
   }, [searchParams, smsAlerts, voiceAlerts]);
 
+  const alertProcessedRef = useRef(false);
+
   // Handle pending alert from ticket page
   const handlePendingAlert = async () => {
     const pendingAlert = localStorage.getItem("pendingAlert");
-    if (pendingAlert) {
-      try {
-        const alertData = JSON.parse(pendingAlert);
-        const token = localStorage.getItem("token");
-        
-        // Create the alert in the backend
-        await axios.post(`${API}/alerts`, alertData, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        
-        toast({
-          title: "Success",
-          description: "Alert sent to References page"
-        });
-        
-        // Clear pending alert and switch to alerts tab
-        localStorage.removeItem("pendingAlert");
-        setMainTab("alerts");
-        setActiveSection(alertData.ticket_type);
-        
-        // Refresh data
-        fetchData();
-      } catch (error) {
-        console.error("Failed to create alert:", error);
-        toast({
-          variant: "destructive",
-          title: "Error",
-          description: "Failed to send alert"
-        });
-        localStorage.removeItem("pendingAlert");
-      }
+    // Prevent duplicate processing - check both ref and localStorage
+    if (alertProcessedRef.current || !pendingAlert) {
+      return;
+    }
+    alertProcessedRef.current = true;
+    try {
+      const alertData = JSON.parse(pendingAlert);
+      const token = localStorage.getItem("token");
+      
+      // Create the alert in the backend
+      await axios.post(`${API}/alerts`, alertData, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      toast({
+        title: "Success",
+        description: "Alert sent to References page"
+      });
+      
+      // Clear pending alert and switch to alerts tab
+      localStorage.removeItem("pendingAlert");
+      setMainTab("alerts");
+      setActiveSection(alertData.ticket_type);
+      
+      // Refresh data
+      fetchData();
+    } catch (error) {
+      console.error("Failed to create alert:", error);
+      // Reset the ref on error so it can be tried again
+      alertProcessedRef.current = false;
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to send alert"
+      });
+      localStorage.removeItem("pendingAlert");
     }
   };
 
@@ -308,6 +322,7 @@ export default function ReferencesPage() {
         custom_traffic_type: "",
         vendor_entries: []
       });
+      setVendorSearchQuery("");  // Reset vendor search when opening dialog
     }
     setDialogOpen(true);
   };
@@ -337,6 +352,29 @@ export default function ReferencesPage() {
           description: "Please enter custom traffic type"
         });
         return;
+      }
+
+      // Validate destination format ("Country - Network")
+      const destinationPattern = /^[^ -]+ - [^ -]+$/;
+      if (!destinationPattern.test(formData.destination.trim())) {
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: "Destination must be in 'Country - Network' format (e.g., Ghana - MTN, Nigeria - All Networks)"
+        });
+        return;
+      }
+
+      // Validate vendor entries have numeric cost
+      for (const entry of formData.vendor_entries) {
+        if (entry.cost && isNaN(parseFloat(entry.cost))) {
+          toast({
+            variant: "destructive",
+            title: "Error",
+            description: `Cost for vendor ${entry.trunk} must be a numeric value`
+          });
+          return;
+        }
       }
 
       if (editingList) {
@@ -377,6 +415,7 @@ export default function ReferencesPage() {
       }
 
       setDialogOpen(false);
+      setVendorSearchQuery("");  // Reset vendor search when closing dialog
       fetchData();
     } catch (error) {
       console.error("Failed to save:", error);
@@ -581,8 +620,24 @@ export default function ReferencesPage() {
     });
   };
 
+  // Move vendor up in the list
+  const moveVendorUp = (index) => {
+    if (index === 0) return;
+    const newEntries = [...formData.vendor_entries];
+    [newEntries[index - 1], newEntries[index]] = [newEntries[index], newEntries[index - 1]];
+    setFormData({ ...formData, vendor_entries: newEntries });
+  };
+
+  // Move vendor down in the list
+  const moveVendorDown = (index) => {
+    if (index === formData.vendor_entries.length - 1) return;
+    const newEntries = [...formData.vendor_entries];
+    [newEntries[index], newEntries[index + 1]] = [newEntries[index + 1], newEntries[index]];
+    setFormData({ ...formData, vendor_entries: newEntries });
+  };
+
   const filteredVendorTrunks = (activeSection === "sms" ? smsVendorTrunks : voiceVendorTrunks)
-    .filter(trunk => trunk.toLowerCase().includes(searchQuery.toLowerCase()));
+    .filter(trunk => trunk.toLowerCase().includes(vendorSearchQuery.toLowerCase()));
 
   const filterLists = (lists) => {
     let filtered = lists;
@@ -879,9 +934,7 @@ export default function ReferencesPage() {
     <Table>
       <TableHeader>
         <TableRow className="hover:bg-zinc-800 border-zinc-700">
-          <TableHead className="w-8">
-            <GripVertical className="h-4 w-4 text-zinc-500" />
-          </TableHead>
+          <TableHead className="w-16 text-zinc-300">Order</TableHead>
           <TableHead className="text-zinc-300">Vendor Trunk</TableHead>
           <TableHead className="text-zinc-300">Cost</TableHead>
           <TableHead className="text-zinc-300">Notes</TableHead>
@@ -890,8 +943,10 @@ export default function ReferencesPage() {
       <TableBody>
         {(list.vendor_entries || []).map((vendor, idx) => (
           <TableRow key={idx} className="border-zinc-700">
-            <TableCell className="w-8">
-              <GripVertical className="h-4 w-4 text-zinc-500 cursor-grab" />
+            <TableCell className="w-16">
+              <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-zinc-700 text-xs font-medium text-white">
+                {idx + 1}
+              </span>
             </TableCell>
             <TableCell className="font-medium text-white">{vendor.trunk}</TableCell>
             <TableCell className="text-zinc-300">{vendor.cost || "-"}</TableCell>
@@ -1230,8 +1285,8 @@ export default function ReferencesPage() {
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-zinc-500" />
                 <Input
                   placeholder="Search vendor trunks..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                  value={vendorSearchQuery}
+                  onChange={(e) => setVendorSearchQuery(e.target.value)}
                   className="pl-10 bg-zinc-800 border-zinc-700 text-white placeholder:text-zinc-500"
                 />
               </div>
@@ -1278,15 +1333,42 @@ export default function ReferencesPage() {
                   {formData.vendor_entries.map((vendor, idx) => (
                     <div key={idx} className="p-3 bg-zinc-800/50">
                       <div className="flex items-center justify-between mb-2">
-                        <span className="text-sm font-medium text-white">{vendor.trunk}</span>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleVendorToggle(vendor.trunk)}
-                          className="text-red-400 hover:text-red-300 h-6 px-2"
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </Button>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium text-white">{vendor.trunk}</span>
+                          {formData.vendor_entries.length > 1 && (
+                            <span className="text-xs text-zinc-500">#{idx + 1}</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => moveVendorUp(idx)}
+                            disabled={idx === 0}
+                            className="text-zinc-400 hover:text-white h-6 px-2 disabled:opacity-30"
+                            title="Move up"
+                          >
+                            <ArrowUp className="h-3 w-3" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => moveVendorDown(idx)}
+                            disabled={idx === formData.vendor_entries.length - 1}
+                            className="text-zinc-400 hover:text-white h-6 px-2 disabled:opacity-30"
+                            title="Move down"
+                          >
+                            <ArrowDown className="h-3 w-3" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleVendorToggle(vendor.trunk)}
+                            className="text-red-400 hover:text-red-300 h-6 px-2"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </div>
                       </div>
                       <div className="grid grid-cols-2 gap-2">
                         <div>
@@ -1316,7 +1398,7 @@ export default function ReferencesPage() {
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)} className="bg-zinc-800 border-zinc-700 text-white hover:bg-zinc-700">
+            <Button variant="outline" onClick={() => { setDialogOpen(false); setVendorSearchQuery(""); }} className="bg-zinc-800 border-zinc-700 text-white hover:bg-zinc-700">
               Cancel
             </Button>
             <Button onClick={handleSave} className="bg-emerald-600 hover:bg-emerald-700 text-white">

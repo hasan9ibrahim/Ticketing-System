@@ -77,15 +77,16 @@ export default function SMSTicketsPage() {
   const [vendorTrunkOptions, setVendorTrunkOptions] = useState([]);
   const [vendorTrunksOpen, setVendorTrunksOpen] = useState(false);
   const [vendorTrunkSearch, setVendorTrunkSearch] = useState("");
+  const [sendingAlert, setSendingAlert] = useState(false);
 
   // Fetch trunks for SMS enterprises
   const fetchTrunks = async () => {
     try {
       const token = localStorage.getItem("token");
       const headers = { Authorization: `Bearer ${token}` };
-      const response = await axios.get(`${API}/trunks/sms`, { headers });
-      setCustomerTrunkOptions(response.data.customer_trunks || []);
-      setVendorTrunkOptions(response.data.vendor_trunks || []);
+      const vendorTrunkResponse = await axios.get(`${API}/references/trunks/sms`, { headers });
+      setCustomerTrunkOptions(customerTrunkResponse.data.customer_trunks || []);
+      setVendorTrunkOptions(vendorTrunkResponse.data.vendor_trunks || []);
     } catch (error) {
       console.error("Failed to fetch trunks:", error);
     }
@@ -602,8 +603,26 @@ export default function SMSTicketsPage() {
       return;
     }
 
-    // ✅ Issue Type required
-    if (!formData.issue_types || formData.issue_types.length === 0) {
+    // ✅ Destination must be in "Country - Network" format
+    const destinationPattern = /^[^ -]+ - [^ -]+$/;
+    if (!destinationPattern.test(formData.destination.trim())) {
+      toast.error("Destination must be in 'Country - Network' format (e.g., Ghana - MTN, Nigeria - All Networks)");
+      return;
+    }
+
+    // Validate rate and cost are numeric
+    if (formData.rate && isNaN(parseFloat(formData.rate))) {
+      toast.error("Rate must be a numeric value");
+      return;
+    }
+    if (formData.cost && isNaN(parseFloat(formData.cost))) {
+      toast.error("Cost must be a numeric value");
+      return;
+    }
+
+    // ✅ Issue Type required (either predefined type or custom "other" text)
+    const hasIssueType = (formData.issue_types && formData.issue_types.length > 0) || (formData.issue_other && formData.issue_other.trim().length > 0);
+    if (!hasIssueType) {
       toast.error("Issue Type is required");
       return;
     }
@@ -1752,35 +1771,39 @@ export default function SMSTicketsPage() {
                 Inform AM
               </Button>
               <Button
-              size="sm"
-              onClick={() => {
-                // Send alert to References page
-                // Extract vendor_trunk and cost from vendor_trunks array (new format)
-                const vendorTrunks = selectedTicket.vendor_trunks || [];
-                const firstVendor = vendorTrunks.length > 0 ? vendorTrunks[0] : {};
-                const alertData = {
-                  ticket_id: selectedTicket.id,
-                  ticket_number: selectedTicket.ticket_number,
-                  ticket_type: "sms",
-                  customer: selectedTicket.customer,
-                  customer_id: selectedTicket.customer_id,
-                  destination: selectedTicket.destination,
-                  issue_types: selectedTicket.issue_types || [],
-                  issue_other: selectedTicket.issue_other,
-                  vendor_trunk: firstVendor.trunk || selectedTicket.vendor_trunk || "",
-                  vendor_trunks: vendorTrunks,
-                  sms_details: selectedTicket.sms_details || [],
-                  rate: selectedTicket.rate,
-                  cost: firstVendor.cost || selectedTicket.cost || ""
-                };
-                localStorage.setItem("pendingAlert", JSON.stringify(alertData));
-                window.location.href = "/references?tab=alerts&section=sms";
-              }}
-              className="bg-emerald-500 text-black hover:bg-emerald-400"
-            >
-              <Bell className="h-4 w-4 mr-2" />
-              Send Alert
-            </Button>
+                size="sm"
+                disabled={sendingAlert}
+                onClick={() => {
+                  // Prevent double-click
+                  if (sendingAlert) return;
+                  setSendingAlert(true);
+                  // Send alert to References page
+                  // Extract vendor_trunk and cost from vendor_trunks array (new format)
+                  const vendorTrunks = selectedTicket.vendor_trunks || [];
+                  const firstVendor = vendorTrunks.length > 0 ? vendorTrunks[0] : {};
+                  const alertData = {
+                    ticket_id: selectedTicket.id,
+                    ticket_number: selectedTicket.ticket_number,
+                    ticket_type: "sms",
+                    customer: selectedTicket.customer,
+                    customer_id: selectedTicket.customer_id,
+                    destination: selectedTicket.destination,
+                    issue_types: selectedTicket.issue_types || [],
+                    issue_other: selectedTicket.issue_other,
+                    vendor_trunk: firstVendor.trunk || selectedTicket.vendor_trunk || "",
+                    vendor_trunks: vendorTrunks,
+                    sms_details: selectedTicket.sms_details || [],
+                    rate: selectedTicket.rate,
+                    cost: firstVendor.cost || selectedTicket.cost || ""
+                  };
+                  localStorage.setItem("pendingAlert", JSON.stringify(alertData));
+                  window.location.href = "/references?tab=alerts&section=sms";
+                }}
+                className="bg-emerald-500 text-black hover:bg-emerald-400"
+              >
+                <Bell className="h-4 w-4 mr-2" />
+                {sendingAlert ? "Sending..." : "Send Alert"}
+              </Button>
           </div>
           )}
           <div className="space-y-4 max-h-[400px] overflow-y-auto">

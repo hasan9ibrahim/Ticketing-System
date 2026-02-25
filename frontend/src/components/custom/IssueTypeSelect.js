@@ -111,7 +111,7 @@ export default function IssueTypeSelect({
 
   return (
     <div className="space-y-3">
-      <Label>Issue Types</Label>
+      <Label className="text-zinc-400">Issue Types</Label>
       
       {/* Main dropdown trigger */}
       <div ref={dropdownRef} className="relative">

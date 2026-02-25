@@ -17,6 +17,7 @@ const API = `${BACKEND_URL}/api`;
 
 const ENTITY_TYPES = [
   { value: "all", label: "All Types" },
+  { value: "session", label: "Sessions (Login/Logout)" },
   { value: "user", label: "Users" },
   { value: "department", label: "Departments" },
   { value: "client", label: "Enterprises" },
@@ -35,9 +36,12 @@ const ACTION_COLORS = {
   create: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
   update: "bg-blue-500/20 text-blue-400 border-blue-500/30",
   delete: "bg-red-500/20 text-red-400 border-red-500/30",
+  login: "bg-purple-500/20 text-purple-400 border-purple-500/30",
+  logout: "bg-orange-500/20 text-orange-400 border-orange-500/30",
 };
 
 const ENTITY_LABELS = {
+  session: "Session",
   user: "User",
   department: "Department",
   client: "Enterprise",

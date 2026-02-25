@@ -362,6 +362,8 @@ async def create_ticket_modification_notification(
     doc = notification.model_dump()
     # Add event_type for filtering
     doc['event_type'] = 'ticket_modification'
+    # Add additional fields from ticket if available
+    # We'll need to fetch the ticket to get these fields
     doc['created_at'] = doc['created_at'].isoformat()
     await db.ticket_notifications.insert_one(doc)
 
@@ -419,9 +421,10 @@ async def notify_ams_about_ticket(ticket, event_type, ticket_type="sms", created
     customer_name = ticket.get("customer", "")
     
     # Get the assigned NOC user info for more descriptive messages
+    # But for "created" events, we always want empty NOC (unassigned)
     assigned_to = ticket.get("assigned_to")
-    noc_name = "NOC"
-    if assigned_to:
+    noc_name = ""
+    if assigned_to and event_type != "created":
         noc_user = await db.users.find_one({"id": assigned_to}, {"_id": 0, "username": 1, "name": 1})
         if noc_user:
             noc_name = noc_user.get("name") or noc_user.get("username") or "NOC"
@@ -442,11 +445,16 @@ async def notify_ams_about_ticket(ticket, event_type, ticket_type="sms", created
         "ticket_number": ticket_number,
         "ticket_type": ticket_type,
         "assigned_to": am_id,
-        "assigned_noc": assigned_to,
+        "assigned_noc": noc_name,
         "modified_by": None,
         "modified_by_username": None,
         "message": message_map.get(event_type, f"Ticket {ticket_number} updated"),
         "event_type": event_type,
+        "customer_trunk": ticket.get("customer_trunk", ""),
+        "destination": ticket.get("destination", ""),
+        "issue_type": ticket.get("issue_type", ""),
+        "status": "Unassigned" if event_type == "created" else ticket.get("status", ""),
+        "priority": ticket.get("priority", ""),
         "read": False,
         "created_at": datetime.now(timezone.utc)
     }
@@ -505,6 +513,11 @@ async def notify_noc_about_am_action(ticket, action_text, action_created_by, tic
             "message": f"AM {am_name} added action to ticket {ticket_number} for {customer_name}: {action_text[:50]}..." if len(action_text) > 50 else f"AM {am_name} added action to ticket {ticket_number} for {customer_name}: {action_text}",
             "event_type": "am_action",
             "action_text": action_text,
+            "customer_trunk": ticket.get("customer_trunk", ""),
+            "destination": ticket.get("destination", ""),
+            "issue_type": ticket.get("issue_type", ""),
+            "status": ticket.get("status", ""),
+            "priority": ticket.get("priority", ""),
             "read": False,
             "created_at": datetime.now(timezone.utc)
         }
@@ -569,6 +582,11 @@ async def notify_noc_about_noc_modification(ticket, modified_by_user, modified_b
             "message": f"Ticket {ticket_number} for {customer_name} was modified by {modified_by_username}: {change_str}",
             "event_type": "noc_modification",
             "changes": changes,
+            "customer_trunk": ticket.get("customer_trunk", ""),
+            "destination": ticket.get("destination", ""),
+            "issue_type": ticket.get("issue_type", ""),
+            "status": ticket.get("status", ""),
+            "priority": ticket.get("priority", ""),
             "read": False,
             "created_at": datetime.now(timezone.utc)
         }
@@ -592,6 +610,12 @@ class AlertNotification(BaseModel):
     message: str
     created_by: str
     assigned_to: Optional[str] = None  # AM user ID who should receive this notification
+    # Additional fields for detailed notification display
+    vendor_trunk: Optional[str] = None
+    destination: Optional[str] = None
+    issue_type: Optional[str] = None
+    status: Optional[str] = None
+    priority: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     read: bool = False
 
@@ -605,7 +629,12 @@ async def create_alert_notification(
     notification_type: str,
     message: str,
     created_by: str,
-    assigned_to: Optional[str] = None
+    assigned_to: Optional[str] = None,
+    vendor_trunk: Optional[str] = None,
+    destination: Optional[str] = None,
+    issue_type: Optional[str] = None,
+    status: Optional[str] = None,
+    priority: Optional[str] = None
 ):
     """Create a notification for an alert event"""
     notification = AlertNotification(
@@ -617,7 +646,12 @@ async def create_alert_notification(
         notification_type=notification_type,
         message=message,
         created_by=created_by,
-        assigned_to=assigned_to
+        assigned_to=assigned_to,
+        vendor_trunk=vendor_trunk,
+        destination=destination,
+        issue_type=issue_type,
+        status=status,
+        priority=priority
     )
     doc = notification.model_dump()
     doc['created_at'] = doc['created_at'].isoformat()
@@ -635,7 +669,17 @@ async def notify_users_about_alert(
 ):
     """Notify AMs and ALL NOC users about an alert event based on their preferences"""
     # Get the alert to include more details
-    alert = await db.alerts.find_one({"id": alert_id}, {"_id": 0, "assigned_to": 1, "resolved": 1})
+    alert = await db.alerts.find_one(
+        {"id": alert_id}, 
+        {"_id": 0, "assigned_to": 1, "resolved": 1, "vendor_trunk": 1, "destination": 1, "issue_type": 1, "status": 1, "priority": 1}
+    )
+    
+    # Extract additional fields for notification
+    vendor_trunk = alert.get("vendor_trunk") if alert else None
+    destination = alert.get("destination") if alert else None
+    issue_type = alert.get("issue_type") if alert else None
+    status = "resolved" if alert and alert.get("resolved") else (alert.get("status") if alert else None)
+    priority = alert.get("priority") if alert else None
     
     # Get the assigned NOC user info
     noc_name = "NOC"
@@ -680,7 +724,12 @@ async def notify_users_about_alert(
                         notification_type=notification_type,
                         message=message,
                         created_by=created_by,
-                        assigned_to=am_id
+                        assigned_to=am_id,
+                        vendor_trunk=vendor_trunk,
+                        destination=destination,
+                        issue_type=issue_type,
+                        status=status,
+                        priority=priority
                     )
     
     # Notify ALL NOC users about the alert event (for commented, alt_vendor, created, and resolved types)
@@ -735,7 +784,12 @@ async def notify_users_about_alert(
                 notification_type=notification_type,
                 message=noc_message,
                 created_by=created_by,
-                assigned_to=noc_id
+                assigned_to=noc_id,
+                vendor_trunk=vendor_trunk,
+                destination=destination,
+                issue_type=issue_type,
+                status=status,
+                priority=priority
             )
 
 
@@ -1203,6 +1257,16 @@ async def login(login_data: UserLogin):
         "created_at": datetime.now(timezone.utc)
     })
     
+    # Create audit log for login
+    await create_audit_log(
+        user_id=user["id"],
+        username=user.get("username", "unknown"),
+        action="login",
+        entity_type="session",
+        entity_id=session_id,
+        entity_name=f"User logged in"
+    )
+    
     # Store session_id in user document for reference
     await db.users.update_one(
         {"id": user["id"]},
@@ -1393,6 +1457,15 @@ async def logout(current_user: dict = Depends(get_current_user)):
         await db.user_sessions.find_one_and_update(
             {"id": current_session_id},
             {"$set": {"logout_time": datetime.now(timezone.utc)}}
+        )
+        # Create audit log for logout
+        await create_audit_log(
+            user_id=current_user.get("id"),
+            username=current_user.get("username", "unknown"),
+            action="logout",
+            entity_type="session",
+            entity_id=current_session_id,
+            entity_name=f"User logged out"
         )
         # Clear the current_session_id from user document
         await db.users.update_one(
@@ -1618,6 +1691,16 @@ async def verify_2fa_login(login_data: TwoFactorLogin):
             "last_active": datetime.now(timezone.utc),
             "current_session_id": session_id
         }}
+    )
+    
+    # Create audit log for 2FA login
+    await create_audit_log(
+        user_id=user["id"],
+        username=user.get("username", "unknown"),
+        action="login",
+        entity_type="session",
+        entity_id=session_id,
+        entity_name=f"User logged in (2FA)"
     )
     
     if isinstance(user.get('created_at'), str):
@@ -3086,10 +3169,10 @@ class AMRequest(BaseModel):
     lcr_type: Optional[str] = None  # "PRM", "STD", "CC"
     lcr_change: Optional[str] = None  # "add", "drop"
     
-    # Investigation fields
-    investigation_type: Optional[str] = None
-    investigation_destination: Optional[str] = None
-    issue_description: Optional[str] = None
+    # Investigation fields - using issue_types like tickets
+    issue_types: List[str] = Field(default_factory=list)  # Predefined issue types checklist (same as tickets)
+    issue_other: Optional[str] = None  # Custom "Other" issue text
+    investigation_destination: Optional[str] = None  # Destination to investigate
     
     # Status
     status: str = "pending"  # "pending", "in_progress", "completed", "rejected"
@@ -3145,7 +3228,8 @@ class AMRequestCreate(BaseModel):
     lcr_type: Optional[str] = None  # "PRM", "STD", "CC"
     lcr_change: Optional[str] = None  # "add", "drop"
 
-    investigation_type: Optional[str] = None
+    issue_types: List[str] = Field(default_factory=list)
+    issue_other: Optional[str] = None
     investigation_destination: Optional[str] = None
     issue_description: Optional[str] = None
 
@@ -3291,7 +3375,8 @@ async def create_request(request_data: AMRequestCreate, current_user: dict = Dep
         translation_destination=request_data.translation_destination,
         lcr_type=request_data.lcr_type,
         lcr_change=request_data.lcr_change,
-        investigation_type=request_data.investigation_type,
+        issue_types=request_data.issue_types,
+        issue_other=request_data.issue_other,
         investigation_destination=request_data.investigation_destination,
         issue_description=request_data.issue_description,
         created_by=current_user.get("id"),
@@ -3346,7 +3431,7 @@ async def update_request(request_id: str, request_data: dict, current_user: dict
             "old_value", "new_value", "old_sid", "new_sid", "word_to_remove", "translation_destination",
             "test_type", "test_description",
             "lcr_type", "lcr_change",
-            "investigation_type", "investigation_destination", "issue_description"
+            "issue_types", "issue_other", "investigation_destination", "issue_description"
         ]
         
         update_data = {}
@@ -3395,6 +3480,89 @@ async def update_request(request_id: str, request_data: dict, current_user: dict
         changes={"before": request_obj, "after": updated_request}
     )
     
+    # Check if request was claimed - notify the AM who created it
+    new_claimed_by = update_data.get("claimed_by")
+    old_claimed_by = request_obj.get("claimed_by")
+    if new_claimed_by and not old_claimed_by:
+        # Request was just claimed
+        am_id = request_obj.get("created_by")
+        if am_id and am_id != user_id:
+            am_user = await db.users.find_one({"id": am_id}, {"_id": 0, "username": 1, "name": 1})
+            if am_user:
+                am_name = am_user.get("name") or am_user.get("username") or "AM"
+                noc_name = current_user.get("name") or current_user.get("username") or "NOC"
+                request_type_label = request_obj.get("request_type_label", "Request")
+                
+                # Build notification message
+                notification_message = f"Your {request_type_label} Request has been Claimed by {noc_name}:\n"
+                
+                # Add request-specific details
+                request_type = request_obj.get("request_type", "")
+                if request_type == "investigation":
+                    # For investigation requests, show Enterprise Trunk, Destination and Issue Type
+                    # Investigation uses customer_trunk (singular) and investigation_destination
+                    customer_trunk = request_obj.get("customer_trunk", "")
+                    investigation_destination = request_obj.get("investigation_destination", "")
+                    
+                    if customer_trunk:
+                        notification_message += f"Enterprise Trunk: {customer_trunk}\n"
+                    if investigation_destination:
+                        notification_message += f"Destination: {investigation_destination}\n"
+                    
+                    # Add issue types
+                    issue_types = request_obj.get("issue_types", [])
+                    issue_other = request_obj.get("issue_other", "")
+                    if issue_types:
+                        notification_message += f"Issue Type: {', '.join(issue_types)}"
+                    elif issue_other:
+                        notification_message += f"Issue Type: {issue_other}"
+                elif request_type == "rating_routing":
+                    customer_trunks = request_obj.get("customer_trunks", [])
+                    if customer_trunks:
+                        trunks = [ct.get("trunk", "") for ct in customer_trunks if ct.get("trunk")]
+                        if trunks:
+                            notification_message += f"Enterprise Trunk(s): {', '.join(trunks)}\n"
+                    destinations = set()
+                    for ct in customer_trunks:
+                        dest = ct.get("destination", "").strip()
+                        if dest:
+                            destinations.add(dest)
+                    if destinations:
+                        notification_message += f"Destination(s): {', '.join(destinations)}"
+                        
+                elif request_type == "testing":
+                    vendor_trunks = request_obj.get("vendor_trunks", [])
+                    if vendor_trunks:
+                        trunks = [vt.get("trunk", "") for vt in vendor_trunks if vt.get("trunk")]
+                        if trunks:
+                            notification_message += f"Vendor Trunk(s): {', '.join(trunks)}\n"
+                    destination = request_obj.get("destination", "").strip()
+                    if destination:
+                        notification_message += f"Destination(s): {destination}"
+                        
+                elif request_type == "translation":
+                    trunk_name = request_obj.get("trunk_name", "").strip()
+                    if trunk_name:
+                        notification_message += f"Enterprise/Vendor Trunk: {trunk_name}\n"
+                    translation_dest = request_obj.get("translation_destination", "").strip()
+                    if translation_dest:
+                        notification_message += f"Destination(s): {translation_dest}"
+                
+                notification_doc = {
+                    "id": f"request_{request_id}_claimed_{int(datetime.now(timezone.utc).timestamp())}",
+                    "type": "request_update",
+                    "message": notification_message,
+                    "request_id": request_id,
+                    "request_number": request_obj.get("request_number"),
+                    "request_type": request_type,
+                    "status": "claimed",
+                    "created_by": user_id,
+                    "assigned_to": am_id,
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "read": False
+                }
+                await db.notifications.insert_one(notification_doc)
+    
     # Check if request was completed or rejected - notify the AM who created it
     new_status = request_data.get("status")
     old_status = request_obj.get("status")
@@ -3411,12 +3579,75 @@ async def update_request(request_id: str, request_data: dict, current_user: dict
                 # Use request id (last 8 chars for readability) or generate a number
                 request_display = request_obj.get("id", "Unknown")[-8:]
                 
-                # Create notification message
+                # Get request type for building detailed message
+                request_type = request_obj.get("request_type", "")
+                request_type_label = request_obj.get("request_type_label", "Request")
+                
+                # Build status text
                 status_text = "completed" if new_status == "completed" else "rejected"
-                notification_message = f"Your request #{request_display} has been {status_text} by {noc_name}"
+                
+                # Build message based on request type
+                notification_message = f"Your {request_type_label} Request has been {status_text} by {noc_name}:\n"
+                
+                # Add request-specific details
+                if request_type == "investigation":
+                    # For investigation requests, show Enterprise Trunk, Destination and Issue Type
+                    # Investigation uses customer_trunk (singular) and investigation_destination
+                    customer_trunk = request_obj.get("customer_trunk", "")
+                    investigation_destination = request_obj.get("investigation_destination", "")
+                    
+                    if customer_trunk:
+                        notification_message += f"Enterprise Trunk: {customer_trunk}\n"
+                    if investigation_destination:
+                        notification_message += f"Destination: {investigation_destination}\n"
+                    
+                    # Add issue types
+                    issue_types = request_obj.get("issue_types", [])
+                    issue_other = request_obj.get("issue_other", "")
+                    if issue_types:
+                        notification_message += f"Issue Type: {', '.join(issue_types)}"
+                    elif issue_other:
+                        notification_message += f"Issue Type: {issue_other}"
+                elif request_type == "rating_routing":
+                    # Get enterprise trunks from customer_trunks
+                    customer_trunks = request_obj.get("customer_trunks", [])
+                    if customer_trunks:
+                        trunks = [ct.get("trunk", "") for ct in customer_trunks if ct.get("trunk")]
+                        if trunks:
+                            notification_message += f"Enterprise Trunk(s): {', '.join(trunks)}\n"
+                    # Get destinations
+                    destinations = set()
+                    for ct in customer_trunks:
+                        dest = ct.get("destination", "").strip()
+                        if dest:
+                            destinations.add(dest)
+                    if destinations:
+                        notification_message += f"Destination(s): {', '.join(destinations)}"
+                        
+                elif request_type == "testing":
+                    # Get vendor trunks
+                    vendor_trunks = request_obj.get("vendor_trunks", [])
+                    if vendor_trunks:
+                        trunks = [vt.get("trunk", "") for vt in vendor_trunks if vt.get("trunk")]
+                        if trunks:
+                            notification_message += f"Vendor Trunk(s): {', '.join(trunks)}\n"
+                    # Get destination
+                    destination = request_obj.get("destination", "").strip()
+                    if destination:
+                        notification_message += f"Destination(s): {destination}"
+                        
+                elif request_type == "translation":
+                    # Get trunk name
+                    trunk_name = request_obj.get("trunk_name", "").strip()
+                    if trunk_name:
+                        notification_message += f"Enterprise/Vendor Trunk: {trunk_name}\n"
+                    # Get destination
+                    translation_dest = request_obj.get("translation_destination", "").strip()
+                    if translation_dest:
+                        notification_message += f"Destination(s): {translation_dest}"
                 
                 if request_data.get("response"):
-                    notification_message += f": {request_data.get('response')}"
+                    notification_message += f"\nNote: {request_data.get('response')}"
                 
                 # Create notification in database
                 notification_doc = {
@@ -3425,6 +3656,7 @@ async def update_request(request_id: str, request_data: dict, current_user: dict
                     "message": notification_message,
                     "request_id": request_id,
                     "request_number": request_obj.get("request_number"),
+                    "request_type": request_type,
                     "status": new_status,
                     "response": request_data.get("response", ""),
                     "created_by": user_id,

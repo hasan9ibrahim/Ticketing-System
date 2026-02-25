@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+﻿import React, { useState, useEffect, useRef } from "react";
 import { useLocation, useSearchParams } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import SearchableSelect from "@/components/custom/SearchableSelect";
+import IssueTypeSelect, { SMS_ISSUE_TYPES, VOICE_ISSUE_TYPES } from "@/components/custom/IssueTypeSelect";
 import { Plus, Search, Filter, Clock, CheckCircle, XCircle, AlertCircle, Edit, Trash2, Copy } from "lucide-react";
 import MultiSelect from "@/components/custom/MultiSelect";
 import MultiFilter from "@/components/custom/MultiFilter";
@@ -46,7 +47,7 @@ const REQUEST_TYPES = {
   investigation: {
     label: "Investigation Request",
     description: "Investigate an issue for a customer trunk",
-    fields: ["investigation_type", "customer_trunk", "investigation_destination", "issue_description"]
+    fields: ["issue_types", "customer_trunk", "investigation_destination", "issue_description"]
   }
 };
 
@@ -76,13 +77,21 @@ export default function RequestsPage() {
   const userRole = user?.role || "";
   const userDepartment = user?.department?.name?.toLowerCase() || "";
   
-  // Compute pending request counts for badge display (only for NOC/Admin)
-  const pendingSmsRequests = (userRole === "noc" || userRole === "admin") 
-    ? requests.filter(r => r.ticket_type === "sms" && r.status === "pending" && !r.claimed_by).length 
-    : 0;
-  const pendingVoiceRequests = (userRole === "noc" || userRole === "admin") 
-    ? requests.filter(r => r.ticket_type === "voice" && r.status === "pending" && !r.claimed_by).length 
-    : 0;
+  // Compute pending request counts by priority for badge display (only for NOC/Admin)
+  const getPendingByPriority = (ticketType) => {
+    if (userRole !== "noc" && userRole !== "admin") return {};
+    const pending = requests.filter(r => r.ticket_type === ticketType && r.status === "pending" && !r.claimed_by);
+    return {
+      Urgent: pending.filter(r => r.priority === "Urgent").length,
+      High: pending.filter(r => r.priority === "High").length,
+      Medium: pending.filter(r => r.priority === "Medium").length,
+      Low: pending.filter(r => r.priority === "Low").length,
+      total: pending.length
+    };
+  };
+  
+  const smsPending = getPendingByPriority("sms");
+  const voicePending = getPendingByPriority("voice");
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [multiFilters, setMultiFilters] = useState([]);
@@ -121,7 +130,9 @@ export default function RequestsPage() {
     rating: "",
     routing: "",
     customer_trunk: "",
-    customer_trunks: [{ trunk: "", destination: "", rate: "" }],
+    customer_trunks: {
+      "": [{ destination: "", rate: "" }]
+    },
     destination: "",
     ticket_id: "",  // Optional ticket reference
     by_loss: false,
@@ -129,8 +140,11 @@ export default function RequestsPage() {
     mnp_hlr_type: "",
     enable_threshold: false,
     threshold_count: "",
+    via_vendor: "",
     enable_whitelisting: false,
-    rating_vendor_trunks: [{ trunk: "", percentage: "", position: "", cost_type: "fixed", cost_min: "", cost_max: "" }],
+    rating_vendor_trunks: {
+      "1": [{ trunk: "", percentage: "", cost_type: "fixed", cost_min: "", cost_max: "" }]
+    },
     vendor_trunks: [{ trunk: "", sid_content_pairs: [{sid: "", content: ""}] }],
     test_type: "",
     test_description: "",
@@ -145,7 +159,8 @@ export default function RequestsPage() {
     translation_destination: "",
     lcr_type: "",
     lcr_change: "",
-    investigation_type: "",
+    issue_types: [],
+    issue_other: "",
     investigation_destination: "",
     issue_description: ""
   });
@@ -272,9 +287,10 @@ export default function RequestsPage() {
       setEnterprises(filteredEnterprises);
       
       // Fetch vendor and customer trunks
-      const trunkResponse = await axios.get(`${API}/trunks/${deptType}`, { headers });
-      setVendorTrunkOptions(trunkResponse.data.vendor_trunks || []);
-      setCustomerTrunkOptions(trunkResponse.data.customer_trunks || []);
+      const vendorTrunkResponse = await axios.get(`${API}/references/trunks/${deptType}`, { headers });
+      const customerTrunkResponse = await axios.get(`${API}/trunks/${deptType}`, { headers });
+      setVendorTrunkOptions(vendorTrunkResponse.data.vendor_trunks || []);
+      setCustomerTrunkOptions(customerTrunkResponse.data.customer_trunks || []);
     } catch (error) {
       console.error("Failed to fetch enterprises/trunks:", error);
     }
@@ -312,8 +328,13 @@ export default function RequestsPage() {
       rating: "",
       routing: "",
       customer_trunk: "",
+      customer_trunks: {
+        "": [{ destination: "", rate: "" }]
+      },
       destination: "",
-      rating_vendor_trunks: [{ trunk: "", percentage: "", position: "", cost_type: "fixed", cost_min: "", cost_max: "" }],
+      rating_vendor_trunks: {
+        "1": [{ trunk: "", percentage: "", cost_type: "fixed", cost_min: "", cost_max: "" }]
+      },
       destination: "",
       translation_type: "",
       trunk_type: "",
@@ -325,10 +346,12 @@ export default function RequestsPage() {
       word_to_remove: "",
       translation_destination: "",
       enterprise_id: "",
-      investigation_type: "",
+      issue_types: [],
+      issue_other: "",
       customer_trunk: "",
       investigation_destination: "",
-      issue_description: ""
+      issue_description: "",
+      via_vendor: ""
     });
   };
 
@@ -401,45 +424,167 @@ export default function RequestsPage() {
     setFormData({ ...formData, vendor_trunks: newTrunks });
   };
 
-  // Rating vendor trunk handlers
-  const handleRatingVendorTrunkChange = (index, field, value) => {
-    const newTrunks = [...(formData.rating_vendor_trunks || [])];
-    newTrunks[index] = { ...newTrunks[index], [field]: value };
-    setFormData({ ...formData, rating_vendor_trunks: newTrunks });
+  // Rating vendor trunk handlers - Position-based structure
+  // New structure: { "1": [{ trunk: "", percentage: "", cost_type: "fixed", cost_min: "", cost_max: "" }], "2": [...] }
+  
+  const handleRatingVendorChange = (position, vendorIndex, field, value) => {
+    const newPositions = { ...(formData.rating_vendor_trunks || {}) };
+    const positionVendors = [...(newPositions[position] || [])];
+    positionVendors[vendorIndex] = { ...positionVendors[vendorIndex], [field]: value };
+    newPositions[position] = positionVendors;
+    setFormData({ ...formData, rating_vendor_trunks: newPositions });
   };
 
-  const addRatingVendorTrunk = () => {
-    setFormData({
-      ...formData,
-      rating_vendor_trunks: [...(formData.rating_vendor_trunks || []), { trunk: "", percentage: "", position: "", cost_type: "fixed", cost_min: "", cost_max: "" }]
+  const addVendorToPosition = (position) => {
+    const newPositions = { ...(formData.rating_vendor_trunks || {}) };
+    const positionVendors = [...(newPositions[position] || [])];
+    positionVendors.push({ trunk: "", percentage: "", cost_type: "fixed", cost_min: "", cost_max: "" });
+    newPositions[position] = positionVendors;
+    setFormData({ ...formData, rating_vendor_trunks: newPositions });
+  };
+
+  const removeVendorFromPosition = (position, vendorIndex) => {
+    const newPositions = { ...(formData.rating_vendor_trunks || {}) };
+    const positionVendors = (newPositions[position] || []).filter((_, i) => i !== vendorIndex);
+    newPositions[position] = positionVendors;
+    setFormData({ ...formData, rating_vendor_trunks: newPositions });
+  };
+
+  const addPosition = () => {
+    const positions = formData.rating_vendor_trunks || {};
+    const positionNumbers = Object.keys(positions).map(p => parseInt(p, 10)).filter(n => !isNaN(n));
+    const newPosition = positionNumbers.length > 0 ? Math.max(...positionNumbers) + 1 : 1;
+    const newPositions = {
+      ...positions,
+      [newPosition.toString()]: [{ trunk: "", percentage: "", cost_type: "fixed", cost_min: "", cost_max: "" }]
+    };
+    setFormData({ ...formData, rating_vendor_trunks: newPositions });
+  };
+
+  const removePosition = (position) => {
+    const newPositions = { ...formData.rating_vendor_trunks };
+    delete newPositions[position];
+    // Re-index remaining positions to keep them sequential
+    const remainingPositions = Object.keys(newPositions).sort((a, b) => parseInt(a) - parseInt(b));
+    const reindexedPositions = {};
+    remainingPositions.forEach((pos, index) => {
+      reindexedPositions[(index + 1).toString()] = newPositions[pos];
     });
+    setFormData({ ...formData, rating_vendor_trunks: reindexedPositions });
   };
 
-  const removeRatingVendorTrunk = (index) => {
-    const newTrunks = (formData.rating_vendor_trunks || []).filter((_, i) => i !== index);
-    setFormData({ ...formData, rating_vendor_trunks: newTrunks });
+  // Calculate percentage sum for a position
+  const getPositionPercentageSum = (position) => {
+    const vendors = formData.rating_vendor_trunks?.[position] || [];
+    return vendors.reduce((sum, v) => sum + (parseFloat(v.percentage) || 0), 0);
   };
 
-  // Customer trunk handlers (for rating and routing)
-  const handleCustomerTrunkChange = (index, field, value) => {
-    const newTrunks = [...(formData.customer_trunks || [])];
-    newTrunks[index] = { ...newTrunks[index], [field]: value };
+  // Customer trunk handlers - Enterprise trunk with multiple destination-rate pairs
+  // New structure: { "trunk_name": [{ destination: "", rate: "" }] }
+  
+  const handleDestinationRateChange = (trunkName, pairIndex, field, value) => {
+    const newTrunks = { ...(formData.customer_trunks || {}) };
+    const trunkEntries = [...(newTrunks[trunkName] || [])];
+    trunkEntries[pairIndex] = { ...trunkEntries[pairIndex], [field]: value };
+    newTrunks[trunkName] = trunkEntries;
     setFormData({ ...formData, customer_trunks: newTrunks });
   };
 
-  const addCustomerTrunk = () => {
-    setFormData({
-      ...formData,
-      customer_trunks: [...(formData.customer_trunks || []), { trunk: "", destination: "", rate: "" }]
-    });
+  const addDestinationRatePair = (trunkName) => {
+    const newTrunks = { ...(formData.customer_trunks || {}) };
+    const trunkEntries = [...(newTrunks[trunkName] || [])];
+    trunkEntries.push({ destination: "", rate: "" });
+    newTrunks[trunkName] = trunkEntries;
+    setFormData({ ...formData, customer_trunks: newTrunks });
   };
 
-  const removeCustomerTrunk = (index) => {
-    const newTrunks = (formData.customer_trunks || []).filter((_, i) => i !== index);
+  const removeDestinationRatePair = (trunkName, pairIndex) => {
+    const newTrunks = { ...formData.customer_trunks };
+    const trunkEntries = (newTrunks[trunkName] || []).filter((_, i) => i !== pairIndex);
+    newTrunks[trunkName] = trunkEntries;
+    setFormData({ ...formData, customer_trunks: newTrunks });
+  };
+
+  const addEnterpriseTrunk = () => {
+    const newTrunks = { ...(formData.customer_trunks || {}) };
+    newTrunks[""] = [{ destination: "", rate: "" }];
+    setFormData({ ...formData, customer_trunks: newTrunks });
+  };
+
+  const removeEnterpriseTrunk = (trunkName) => {
+    const newTrunks = { ...formData.customer_trunks };
+    delete newTrunks[trunkName];
+    setFormData({ ...formData, customer_trunks: newTrunks });
+  };
+
+  const handleEnterpriseTrunkSelect = (oldTrunkName, newTrunkName) => {
+    const newTrunks = { ...formData.customer_trunks };
+    // Get the destination-rate pairs from the old trunk or create new
+    const pairs = newTrunks[oldTrunkName] || [{ destination: "", rate: "" }];
+    // Remove old entry if it was the empty placeholder
+    if (oldTrunkName === "") {
+      delete newTrunks[""];
+    }
+    // Add new entry with the selected trunk name
+    newTrunks[newTrunkName] = pairs;
     setFormData({ ...formData, customer_trunks: newTrunks });
   };
 
   const handleSubmit = async () => {
+    // Validate before submitting
+    if (!canSubmit()) {
+      // Check for percentage validation errors
+      if (formData.request_type === "rating_routing") {
+        const positions = formData.rating_vendor_trunks || {};
+        for (const [position, vendors] of Object.entries(positions)) {
+          const vendorsWithTrunk = (vendors || []).filter(v => v.trunk);
+          if (vendorsWithTrunk.length > 1) {
+            const percentageSum = vendorsWithTrunk.reduce((sum, v) => sum + (parseFloat(v.percentage) || 0), 0);
+            if (percentageSum !== 100) {
+              toast({ 
+                title: "Validation Error", 
+                description: `Position ${position}: Percentages must add up to 100% (currently ${percentageSum}%)`, 
+                variant: "destructive" 
+              });
+              return;
+            }
+          }
+        }
+      }
+      // Validate destination format for investigation requests
+      if (formData.request_type === "investigation" && formData.investigation_destination) {
+        const destinationPattern = /^[^ -]+ - [^ -]+$/;
+        if (!destinationPattern.test(formData.investigation_destination.trim())) {
+          toast({ 
+            title: "Validation Error", 
+            description: "Destination must be in 'Country - Network' format (e.g., Ghana - MTN, Nigeria - All Networks)", 
+            variant: "destructive" 
+          });
+          return;
+        }
+      }
+
+      // Validate rate and cost are numeric for rating_routing requests
+      if (formData.request_type === "rating_routing") {
+        const customerTrunks = formData.customer_trunks || {};
+        for (const [trunk, pairs] of Object.entries(customerTrunks)) {
+          for (const pair of pairs) {
+            if (pair.rate && isNaN(parseFloat(pair.rate))) {
+              toast({ 
+                title: "Validation Error", 
+                description: `Rate for ${trunk} must be a numeric value`, 
+                variant: "destructive" 
+              });
+              return;
+            }
+          }
+        }
+      }
+
+      toast({ title: "Please fill all required fields", variant: "destructive" });
+      return;
+    }
+    
     try {
       const token = localStorage.getItem("token");
       
@@ -454,15 +599,26 @@ export default function RequestsPage() {
         ticket_id: formData.ticket_id || null,
         rating: formData.rating || null,
         customer_trunk: formData.customer_trunk || null,
-        customer_trunks: formData.customer_trunks?.filter(t => t.trunk) || [],
+        // Convert object format to array format for backend
+        customer_trunks: Object.entries(formData.customer_trunks || {}).flatMap(
+          ([trunk, pairs]) => pairs
+            .filter(p => p.destination)
+            .map(p => ({ trunk, destination: p.destination, rate: p.rate }))
+        ),
         destination: formData.destination || null,
         by_loss: formData.by_loss || false,
         enable_mnp_hlr: formData.enable_mnp_hlr || false,
         mnp_hlr_type: formData.mnp_hlr_type || null,
         enable_threshold: formData.enable_threshold || false,
         threshold_count: formData.threshold_count || null,
+        via_vendor: formData.via_vendor || null,
         enable_whitelisting: formData.enable_whitelisting || false,
-        rating_vendor_trunks: formData.rating_vendor_trunks?.filter(t => t.trunk) || [],
+        // Convert position-based object to array format for backend
+        rating_vendor_trunks: Object.entries(formData.rating_vendor_trunks || {}).flatMap(
+          ([position, vendors]) => vendors
+            .filter(v => v.trunk)
+            .map(v => ({ ...v, position }))
+        ),
         vendor_trunks: formData.vendor_trunks.filter(t => t.trunk) || [],
         translation_type: formData.translation_type || null,
         trunk_type: formData.trunk_type || null,
@@ -477,7 +633,8 @@ export default function RequestsPage() {
         test_description: formData.test_description || null,
         lcr_type: formData.lcr_type || null,
         lcr_change: formData.lcr_change || null,
-        investigation_type: formData.investigation_type || null,
+        issue_types: formData.issue_types || [],
+        issue_other: formData.issue_other || null,
         investigation_destination: formData.investigation_destination || null,
         issue_description: formData.issue_description || null
       };
@@ -521,15 +678,40 @@ export default function RequestsPage() {
       rating: request.rating || "",
       routing: request.routing || "",
       customer_trunk: request.customer_trunk || "",
-      customer_trunks: request.customer_trunks?.length > 0 ? request.customer_trunks : [{ trunk: "", destination: "", rate: "" }],
+      // Convert array format from backend to object format for customer_trunks
+      customer_trunks: (() => {
+        if (!request.customer_trunks || request.customer_trunks.length === 0) {
+          return { "": [{ destination: "", rate: "" }] };
+        }
+        const grouped = {};
+        request.customer_trunks.forEach(t => {
+          if (!t.trunk) return;
+          if (!grouped[t.trunk]) grouped[t.trunk] = [];
+          grouped[t.trunk].push({ destination: t.destination || "", rate: t.rate || "" });
+        });
+        return Object.keys(grouped).length > 0 ? grouped : { "": [{ destination: "", rate: "" }] };
+      })(),
       destination: request.destination || "",
       by_loss: request.by_loss || false,
       enable_mnp_hlr: request.enable_mnp_hlr || false,
       mnp_hlr_type: request.mnp_hlr_type || "",
       enable_threshold: request.enable_threshold || false,
       threshold_count: request.threshold_count || "",
+      via_vendor: request.via_vendor || "",
       enable_whitelisting: request.enable_whitelisting || false,
-      rating_vendor_trunks: request.rating_vendor_trunks?.length > 0 ? request.rating_vendor_trunks : [{ trunk: "", percentage: "", position: "", cost_type: "fixed", cost_min: "", cost_max: "" }],
+      // Convert array format from backend to position-based object format
+      rating_vendor_trunks: (() => {
+        if (!request.rating_vendor_trunks || request.rating_vendor_trunks.length === 0) {
+          return { "1": [{ trunk: "", percentage: "", cost_type: "fixed", cost_min: "", cost_max: "" }] };
+        }
+        const grouped = {};
+        request.rating_vendor_trunks.forEach(v => {
+          const pos = v.position || "1";
+          if (!grouped[pos]) grouped[pos] = [];
+          grouped[pos].push({ trunk: v.trunk || "", percentage: v.percentage || "", cost_type: v.cost_type || "fixed", cost_min: v.cost_min || "", cost_max: v.cost_max || "" });
+        });
+        return grouped;
+      })(),
       vendor_trunks: request.vendor_trunks?.length > 0 ? request.vendor_trunks : [{ trunk: "", sid_content_pairs: [{sid: "", content: ""}] }],
       translation_type: request.translation_type || "",
       trunk_type: request.trunk_type || "",
@@ -545,7 +727,8 @@ export default function RequestsPage() {
       test_description: request.test_description || "",
       lcr_type: request.lcr_type || "",
       lcr_change: request.lcr_change || "",
-      investigation_type: request.investigation_type || "",
+      issue_types: request.issue_types || [],
+      issue_other: request.issue_other || "",
       investigation_destination: request.investigation_destination || "",
       issue_description: request.issue_description || ""
     });
@@ -566,15 +749,40 @@ export default function RequestsPage() {
       rating: request.rating || "",
       routing: request.routing || "",
       customer_trunk: request.customer_trunk || "",
-      customer_trunks: request.customer_trunks?.length > 0 ? request.customer_trunks : [{ trunk: "", destination: "", rate: "" }],
+      // Convert array format from backend to object format for customer_trunks
+      customer_trunks: (() => {
+        if (!request.customer_trunks || request.customer_trunks.length === 0) {
+          return { "": [{ destination: "", rate: "" }] };
+        }
+        const grouped = {};
+        request.customer_trunks.forEach(t => {
+          if (!t.trunk) return;
+          if (!grouped[t.trunk]) grouped[t.trunk] = [];
+          grouped[t.trunk].push({ destination: t.destination || "", rate: t.rate || "" });
+        });
+        return Object.keys(grouped).length > 0 ? grouped : { "": [{ destination: "", rate: "" }] };
+      })(),
       destination: request.destination || "",
       by_loss: request.by_loss || false,
       enable_mnp_hlr: request.enable_mnp_hlr || false,
       mnp_hlr_type: request.mnp_hlr_type || "",
       enable_threshold: request.enable_threshold || false,
       threshold_count: request.threshold_count || "",
+      via_vendor: request.via_vendor || "",
       enable_whitelisting: request.enable_whitelisting || false,
-      rating_vendor_trunks: request.rating_vendor_trunks?.length > 0 ? request.rating_vendor_trunks : [{ trunk: "", percentage: "", position: "", cost_type: "fixed", cost_min: "", cost_max: "" }],
+      // Convert array format from backend to position-based object format
+      rating_vendor_trunks: (() => {
+        if (!request.rating_vendor_trunks || request.rating_vendor_trunks.length === 0) {
+          return { "1": [{ trunk: "", percentage: "", cost_type: "fixed", cost_min: "", cost_max: "" }] };
+        }
+        const grouped = {};
+        request.rating_vendor_trunks.forEach(v => {
+          const pos = v.position || "1";
+          if (!grouped[pos]) grouped[pos] = [];
+          grouped[pos].push({ trunk: v.trunk || "", percentage: v.percentage || "", cost_type: v.cost_type || "fixed", cost_min: v.cost_min || "", cost_max: v.cost_max || "" });
+        });
+        return grouped;
+      })(),
       vendor_trunks: request.vendor_trunks?.length > 0 ? request.vendor_trunks : [{ trunk: "", sid_content_pairs: [{sid: "", content: ""}] }],
       translation_type: request.translation_type || "",
       trunk_type: request.trunk_type || "",
@@ -590,7 +798,8 @@ export default function RequestsPage() {
       test_description: request.test_description || "",
       lcr_type: request.lcr_type || "",
       lcr_change: request.lcr_change || "",
-      investigation_type: request.investigation_type || "",
+      issue_types: request.issue_types || [],
+      issue_other: request.issue_other || "",
       investigation_destination: request.investigation_destination || "",
       issue_description: request.issue_description || ""
     });
@@ -753,6 +962,14 @@ export default function RequestsPage() {
     });
   });
 
+  // Sort requests by priority (Urgent -> High -> Medium -> Low)
+  const priorityOrder = { "Urgent": 1, "High": 2, "Medium": 3, "Low": 4 };
+  filteredRequests.sort((a, b) => {
+    const priorityA = priorityOrder[a.priority] || 5;
+    const priorityB = priorityOrder[b.priority] || 5;
+    return priorityA - priorityB;
+  });
+
   // For AMs, only show their department
   // Use flexible matching to handle different department name formats
   const isSmsDepartment = userDepartment?.startsWith("sms") || userDepartment === "sms";
@@ -765,16 +982,35 @@ export default function RequestsPage() {
   const isRatingRoutingValid = () => {
     if (formData.request_type !== "rating_routing") return true;
     // At least one customer trunk with trunk and destination is required
-    const hasCustomerTrunks = (formData.customer_trunks || []).some(t => t.trunk && t.destination);
+    // New structure: { "trunk_name": [{ destination, rate }] }
+    const hasCustomerTrunks = Object.entries(formData.customer_trunks || {}).some(
+      ([trunk, pairs]) => trunk && (pairs || []).some(p => p.destination)
+    );
     if (!hasCustomerTrunks) return false;
     
     // Check if any customer trunk has a rate
-    const hasCustomerRate = (formData.customer_trunks || []).some(t => t.rate && t.rate.trim());
-    // Check if any vendor trunk exists
-    const hasVendorTrunks = (formData.rating_vendor_trunks || []).some(t => t.trunk);
+    const hasCustomerRate = Object.values(formData.customer_trunks || {}).some(
+      (pairs) => (pairs || []).some(p => p.rate && p.rate.trim())
+    );
+    // Check if any vendor trunk exists in any position
+    const hasVendorTrunks = Object.values(formData.rating_vendor_trunks || {}).some(
+      (vendors) => (vendors || []).some(v => v.trunk)
+    );
     
     // Either customer trunk needs rate OR vendor trunk needs to exist
     if (!hasCustomerRate && !hasVendorTrunks) return false;
+    
+    // Validate percentages: if a position has more than 1 vendor, percentages must add up to 100%
+    const positions = formData.rating_vendor_trunks || {};
+    for (const [position, vendors] of Object.entries(positions)) {
+      const vendorsWithTrunk = (vendors || []).filter(v => v.trunk);
+      if (vendorsWithTrunk.length > 1) {
+        const percentageSum = vendorsWithTrunk.reduce((sum, v) => sum + (parseFloat(v.percentage) || 0), 0);
+        if (percentageSum !== 100) {
+          return false;
+        }
+      }
+    }
     
     return true;
   };
@@ -895,15 +1131,9 @@ export default function RequestsPage() {
           <TabsList className="bg-zinc-800">
             <TabsTrigger value="sms" className="data-[state=active]:bg-amber-500 data-[state=active]:text-black">
               SMS Requests
-              {pendingSmsRequests > 0 && (
-                <Badge variant="destructive" className="ml-2 h-5 px-1.5 text-xs">{pendingSmsRequests}</Badge>
-              )}
             </TabsTrigger>
             <TabsTrigger value="voice" className="data-[state=active]:bg-amber-500 data-[state=active]:text-black">
               Voice Requests
-              {pendingVoiceRequests > 0 && (
-                <Badge variant="destructive" className="ml-2 h-5 px-1.5 text-xs">{pendingVoiceRequests}</Badge>
-              )}
             </TabsTrigger>
           </TabsList>
         </Tabs>
@@ -974,7 +1204,11 @@ export default function RequestsPage() {
                       
                       {request.request_type === "investigation" && (
                         <div className="mt-2 text-sm text-zinc-400">
-                          {request.customer_trunk} → {request.investigation_destination}
+                          {(request.issue_types && request.issue_types.length > 0) && (
+                            <span>Issue: {request.issue_types.join(", ")}</span>
+                          )}
+                          {(request.issue_types && request.issue_types.length > 0) && request.investigation_destination && <span> • </span>}
+                          {request.investigation_destination && <span>→ {request.investigation_destination}</span>}
                         </div>
                       )}
                       
@@ -1159,7 +1393,7 @@ export default function RequestsPage() {
           setFormData(getInitialFormData());
         }
       }}>
-        <DialogContent className="bg-zinc-900 border-white/10 text-white max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent disableOutsideClick className="bg-zinc-900 border-white/10 text-white max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{isEditMode ? "Edit" : "New"} {displayTab.toUpperCase()} Request</DialogTitle>
           </DialogHeader>
@@ -1249,7 +1483,7 @@ export default function RequestsPage() {
                         ...formData,
                         customer_ids: newIds,
                         customer: newIds.map(id => enterprises.find(e => e.id === id)?.name).filter(Boolean).join(", "),
-                        customer_trunks: newIds.length > 0 ? formData.customer_trunks : [{ trunk: "", destination: "", rate: "" }]
+                        customer_trunks: newIds.length > 0 ? formData.customer_trunks : { "": [{ destination: "", rate: "" }] }
                       });
                     }}
                     placeholder="Select enterprises..."
@@ -1270,117 +1504,210 @@ export default function RequestsPage() {
             {formData.request_type === "rating_routing" && (
               <>
                 <div>
-                  <Label className="text-zinc-400">Enterprise Trunk(s) with Destination and Rate</Label>
-                  <p className="text-xs text-zinc-500 mb-2">Add enterprise trunk with destination and rate for each</p>
-                  {(formData.customer_trunks || []).map((trunk, index) => (
-                    <div key={index} className="flex gap-2 mb-2 items-start flex-wrap">
-                      <Select 
-                        value={trunk.trunk || ""} 
-                        onValueChange={(value) => handleCustomerTrunkChange(index, "trunk", value)} 
-                        required
-                        className="flex-1"
-                      >
-                        <SelectTrigger className="bg-zinc-800 border-zinc-700 text-white">
-                          <SelectValue placeholder="Select enterprise trunk" />
-                        </SelectTrigger>
-                        <SelectContent className="bg-zinc-800 border-zinc-700">
-                          {(formData.customer_ids || []).flatMap(customerId => 
-                            (enterprises.find(e => e.id === customerId)?.customer_trunks || []).map((trunkName) => (
-                              <SelectItem key={`${customerId}-${trunkName}`} value={trunkName} className="text-white">
-                                {enterprises.find(e => e.id === customerId)?.name} - {trunkName}
-                              </SelectItem>
-                            ))
+                  <Label className="text-zinc-400">Enterprise Trunks</Label>
+                  <p className="text-xs text-zinc-500 mb-2">Each enterprise trunk can have multiple destination-rate pairs</p>
+                  
+                  {Object.entries(formData.customer_trunks || {}).map(([trunkName, destRates]) => (
+                    <div key={trunkName} className="border border-zinc-700 rounded-lg p-3 mb-3 bg-zinc-900/50">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Select 
+                          value={trunkName} 
+                          onValueChange={(value) => handleEnterpriseTrunkSelect(trunkName, value)}
+                          required
+                        >
+                          <SelectTrigger className="bg-zinc-800 border-zinc-700 text-white flex-1">
+                            <SelectValue placeholder="Select enterprise trunk" />
+                          </SelectTrigger>
+                          <SelectContent className="bg-zinc-800 border-zinc-700">
+                            {(formData.customer_ids || []).flatMap(customerId => 
+                              (enterprises.find(e => e.id === customerId)?.customer_trunks || []).map((tName) => (
+                                <SelectItem key={`${customerId}-${tName}`} value={tName} className="text-white">
+                                  {enterprises.find(e => e.id === customerId)?.name} - {tName}
+                                </SelectItem>
+                              ))
+                            )}
+                          </SelectContent>
+                        </Select>
+                        {trunkName && Object.keys(formData.customer_trunks || {}).length > 0 && (
+                          <Button 
+                            variant="destructive" 
+                            size="sm" 
+                            onClick={() => removeEnterpriseTrunk(trunkName)}
+                            className="shrink-0"
+                          >
+                            X
+                          </Button>
+                        )}
+                      </div>
+                      
+                      {/* Destination-Rate pairs for this trunk */}
+                      {(destRates || []).map((pair, pairIndex) => (
+                        <div key={pairIndex} className="flex gap-2 mb-2 items-start ml-2">
+                          <Input
+                            value={pair.destination}
+                            onChange={(e) => handleDestinationRateChange(trunkName, pairIndex, "destination", e.target.value)}
+                            placeholder="Destination (e.g., +961)"
+                            className="bg-zinc-800 border-zinc-700 flex-1"
+                          />
+                          <Input
+                            value={pair.rate}
+                            onChange={(e) => handleDestinationRateChange(trunkName, pairIndex, "rate", e.target.value)}
+                            placeholder="Rate"
+                            className="bg-zinc-800 border-zinc-700 w-24"
+                          />
+                          {(destRates || []).length > 1 && (
+                            <Button 
+                              variant="destructive" 
+                              size="sm" 
+                              onClick={() => removeDestinationRatePair(trunkName, pairIndex)}
+                              className="shrink-0"
+                            >
+                              X
+                            </Button>
                           )}
-                        </SelectContent>
-                      </Select>
-                      <Input
-                        value={trunk.destination}
-                        onChange={(e) => handleCustomerTrunkChange(index, "destination", e.target.value)}
-                        placeholder="Destination (e.g., +961)"
-                        className="bg-zinc-800 border-zinc-700 w-32"
-                      />
-                      <Input
-                        value={trunk.rate}
-                        onChange={(e) => handleCustomerTrunkChange(index, "rate", e.target.value)}
-                        placeholder="Rate"
-                        className="bg-zinc-800 border-zinc-700 w-24"
-                      />
-                      {(formData.customer_trunks || []).length > 1 && (
-                        <Button variant="destructive" size="sm" onClick={() => removeCustomerTrunk(index)} className="shrink-0">X</Button>
+                        </div>
+                      ))}
+                      
+                      {/* Add destination-rate pair button */}
+                      {trunkName && (
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          onClick={() => addDestinationRatePair(trunkName)}
+                          className="mt-1 text-xs"
+                        >
+                          <Plus className="h-3 w-3 mr-1" /> Add Destination-Rate
+                        </Button>
                       )}
                     </div>
                   ))}
-                  <Button variant="outline" size="sm" onClick={addCustomerTrunk} className="mt-2">
+                  
+                  <Button variant="outline" size="sm" onClick={addEnterpriseTrunk} className="mt-2">
                     <Plus className="h-4 w-4 mr-1" /> Add Enterprise Trunk
                   </Button>
                 </div>
                 <div>
-                  <Label className="text-zinc-400">Vendor Trunk(s) with Position/Percentage and Cost</Label>
-                  <p className="text-xs text-zinc-500 mb-2">At least one vendor trunk is required</p>
-                  {(formData.rating_vendor_trunks || []).map((trunk, index) => (
-                    <div key={index} className="flex gap-2 mb-2 items-start">
-                      <SearchableSelect
-                        options={vendorTrunkOptions.map(vt => ({ value: vt, label: vt }))}
-                        value={trunk.trunk}
-                        onChange={(value) => handleRatingVendorTrunkChange(index, "trunk", value)}
-                        placeholder="Select vendor trunk"
-                        isRequired={true}
-                        className="flex-1 min-w-[150px]"
-                      />
-                      <Input
-                        value={trunk.position}
-                        onChange={(e) => handleRatingVendorTrunkChange(index, "position", e.target.value)}
-                        placeholder="Position"
-                        className="bg-zinc-800 border-zinc-700 w-20"
-                      />
-                      <Input
-                        value={trunk.percentage}
-                        onChange={(e) => handleRatingVendorTrunkChange(index, "percentage", e.target.value)}
-                        placeholder="%"
-                        className="bg-zinc-800 border-zinc-700 w-16"
-                      />
-                      <Select
-                        value={trunk.cost_type || "fixed"}
-                        onValueChange={(v) => handleRatingVendorTrunkChange(index, "cost_type", v)}
-                      >
-                        <SelectTrigger className="bg-zinc-800 border-zinc-700 w-24">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent className="bg-zinc-800 border-zinc-700">
-                          <SelectItem value="fixed">Fixed</SelectItem>
-                          <SelectItem value="range">Range</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      {trunk.cost_type === "fixed" ? (
-                        <Input
-                          value={trunk.cost_min}
-                          onChange={(e) => handleRatingVendorTrunkChange(index, "cost_min", e.target.value)}
-                          placeholder="Cost"
-                          className="bg-zinc-800 border-zinc-700 w-24"
-                        />
-                      ) : (
-                        <div className="flex gap-1 w-24">
-                          <Input
-                            value={trunk.cost_min}
-                            onChange={(e) => handleRatingVendorTrunkChange(index, "cost_min", e.target.value)}
-                            placeholder="Min"
-                            className="bg-zinc-800 border-zinc-700 w-12"
-                          />
-                          <Input
-                            value={trunk.cost_max}
-                            onChange={(e) => handleRatingVendorTrunkChange(index, "cost_max", e.target.value)}
-                            placeholder="Max"
-                            className="bg-zinc-800 border-zinc-700 w-12"
-                          />
+                  <Label className="text-zinc-400">Vendor Trunk Positions</Label>
+                  <p className="text-xs text-zinc-500 mb-2">Each position can have multiple vendors. Percentages within a position must add up to 100%.</p>
+                  
+                  {Object.entries(formData.rating_vendor_trunks || {}).sort((a, b) => parseInt(a[0]) - parseInt(b[0])).map(([position, vendors]) => {
+                    const vendorsWithTrunk = (vendors || []).filter(v => v.trunk);
+                    const hasMultipleVendors = vendorsWithTrunk.length > 1;
+                    const percentageSum = getPositionPercentageSum(position);
+                    const isPercentageValid = percentageSum === 100;
+                    const positionLabel = position === "1" ? "Position 1 (First)" : `Position ${position}`;
+                    
+                    return (
+                      <div key={position} className="border border-zinc-700 rounded-lg p-3 mb-3 bg-zinc-900/50">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-white font-medium">{positionLabel}</span>
+                            {hasMultipleVendors && (
+                              <span className={`text-xs px-2 py-0.5 rounded ${isPercentageValid ? 'bg-green-900 text-green-300' : 'bg-red-900 text-red-300'}`}>
+                                {percentageSum}%
+                              </span>
+                            )}
+                          </div>
+                          {Object.keys(formData.rating_vendor_trunks || {}).length > 1 && (
+                            <Button 
+                              variant="destructive" 
+                              size="sm" 
+                              onClick={() => removePosition(position)}
+                              className="h-6 w-6 p-0"
+                            >
+                              X
+                            </Button>
+                          )}
                         </div>
-                      )}
-                      {(formData.rating_vendor_trunks || []).length > 1 && (
-                        <Button variant="destructive" size="sm" onClick={() => removeRatingVendorTrunk(index)} className="shrink-0">X</Button>
-                      )}
-                    </div>
-                  ))}
-                  <Button variant="outline" size="sm" onClick={addRatingVendorTrunk} className="mt-2">
-                    <Plus className="h-4 w-4 mr-1" /> Add Vendor Trunk
+                        
+                        {/* Vendor entries for this position */}
+                        {(vendors || []).map((trunk, vendorIndex) => (
+                          <div key={vendorIndex} className="flex gap-2 mb-2 items-start">
+                            <SearchableSelect
+                              options={vendorTrunkOptions.map(vt => ({ value: vt, label: vt }))}
+                              value={trunk.trunk}
+                              onChange={(value) => handleRatingVendorChange(position, vendorIndex, "trunk", value)}
+                              placeholder="Select vendor trunk"
+                              isRequired={true}
+                              className="flex-1 min-w-[150px]"
+                            />
+                            {/* Show percentage only when there are multiple vendors */}
+                            {hasMultipleVendors && (
+                              <div className="flex items-center gap-1">
+                                <Input
+                                  value={trunk.percentage}
+                                  onChange={(e) => handleRatingVendorChange(position, vendorIndex, "percentage", e.target.value)}
+                                  placeholder="%"
+                                  className="bg-zinc-800 border-zinc-700 w-16"
+                                />
+                                <span className="text-zinc-400 text-xs">%</span>
+                              </div>
+                            )}
+                            {/* Cost type and cost fields - always shown */}
+                            <Select
+                              value={trunk.cost_type || "fixed"}
+                              onValueChange={(v) => handleRatingVendorChange(position, vendorIndex, "cost_type", v)}
+                            >
+                              <SelectTrigger className="bg-zinc-800 border-zinc-700 w-24">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent className="bg-zinc-800 border-zinc-700">
+                                <SelectItem value="fixed">Fixed</SelectItem>
+                                <SelectItem value="range">Range</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            {trunk.cost_type === "fixed" ? (
+                              <Input
+                                value={trunk.cost_min}
+                                onChange={(e) => handleRatingVendorChange(position, vendorIndex, "cost_min", e.target.value)}
+                                placeholder="Cost"
+                                className="bg-zinc-800 border-zinc-700 w-24"
+                              />
+                            ) : (
+                              <div className="flex gap-1 w-24">
+                                <Input
+                                  value={trunk.cost_min}
+                                  onChange={(e) => handleRatingVendorChange(position, vendorIndex, "cost_min", e.target.value)}
+                                  placeholder="Min"
+                                  className="bg-zinc-800 border-zinc-700 w-12"
+                                />
+                                <Input
+                                  value={trunk.cost_max}
+                                  onChange={(e) => handleRatingVendorChange(position, vendorIndex, "cost_max", e.target.value)}
+                                  placeholder="Max"
+                                  className="bg-zinc-800 border-zinc-700 w-12"
+                                />
+                              </div>
+                            )}
+                            {(vendors || []).length > 1 && (
+                              <Button 
+                                variant="destructive" 
+                                size="sm" 
+                                onClick={() => removeVendorFromPosition(position, vendorIndex)}
+                                className="shrink-0"
+                              >
+                                X
+                              </Button>
+                            )}
+                          </div>
+                        ))}
+                        
+                        {/* Add vendor to position button */}
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          onClick={() => addVendorToPosition(position)}
+                          className="mt-1 text-xs"
+                        >
+                          <Plus className="h-3 w-3 mr-1" /> Add Vendor to Position {position}
+                        </Button>
+                      </div>
+                    );
+                  })}
+                  
+                  {/* Add new position button */}
+                  <Button variant="outline" size="sm" onClick={addPosition} className="mt-2">
+                    <Plus className="h-4 w-4 mr-1" /> Add Position
                   </Button>
                 </div>
                 
@@ -1389,29 +1716,31 @@ export default function RequestsPage() {
                   <Label className="text-zinc-400">Advanced Settings</Label>
                   <div className="mt-2 space-y-2">
                     {/* By Loss - available for both SMS and Voice */}
-                    <label className="flex items-center gap-2 cursor-pointer">
+                    <div className="flex items-center gap-2">
                       <input
+                        id="by_loss"
                         type="checkbox"
                         checked={formData.by_loss || false}
                         onChange={(e) => setFormData({ ...formData, by_loss: e.target.checked })}
                         className="w-4 h-4 accent-blue-500"
                       />
-                      <span className="text-white text-sm">By Loss</span>
-                    </label>
+                      <label htmlFor="by_loss" className="text-white text-sm cursor-pointer">By Loss</label>
+                    </div>
                     
                     {/* SMS-only Advanced Settings */}
                     {displayTab === "sms" && (
                       <>
                         {/* Enable MNP/HLR */}
-                        <label className="flex items-center gap-2 cursor-pointer">
+                        <div className="flex items-center gap-2">
                           <input
+                            id="enable_mnp_hlr"
                             type="checkbox"
                             checked={formData.enable_mnp_hlr || false}
                             onChange={(e) => setFormData({ ...formData, enable_mnp_hlr: e.target.checked, mnp_hlr_type: e.target.checked ? formData.mnp_hlr_type : "" })}
                             className="w-4 h-4 accent-blue-500"
                           />
-                          <span className="text-white text-sm">Enable MNP/HLR</span>
-                        </label>
+                          <label htmlFor="enable_mnp_hlr" className="text-white text-sm cursor-pointer">Enable MNP/HLR</label>
+                        </div>
                         {formData.enable_mnp_hlr && (
                           <Select 
                             value={formData.mnp_hlr_type || ""} 
@@ -1428,36 +1757,61 @@ export default function RequestsPage() {
                         )}
                         
                         {/* Enable Threshold */}
-                        <label className="flex items-center gap-2 cursor-pointer">
+                        <div className="flex items-center gap-2">
                           <input
+                            id="enable_threshold"
                             type="checkbox"
                             checked={formData.enable_threshold || false}
                             onChange={(e) => setFormData({ ...formData, enable_threshold: e.target.checked, threshold_count: e.target.checked ? formData.threshold_count : "" })}
                             className="w-4 h-4 accent-blue-500"
                           />
-                          <span className="text-white text-sm">Enable Threshold</span>
-                        </label>
+                          <label htmlFor="enable_threshold" className="text-white text-sm cursor-pointer">Enable Threshold</label>
+                        </div>
                         {formData.enable_threshold && (
-                          <div>
-                            <Input
-                              value={formData.threshold_count}
-                              onChange={(e) => setFormData({ ...formData, threshold_count: e.target.value })}
-                              placeholder="Number of messages"
-                              className="bg-zinc-800 border-zinc-700 w-40"
-                            />
+                          <div className="flex flex-col gap-2 mt-2">
+                            <div className="flex items-center gap-2">
+                              <Input
+                                value={formData.threshold_count}
+                                onChange={(e) => setFormData({ ...formData, threshold_count: e.target.value })}
+                                placeholder="Number of messages"
+                                className="bg-zinc-800 border-zinc-700 w-40"
+                              />
+                            </div>
+                            {/* Via Vendor - Select from picked vendor trunks */}
+                            <div className="flex items-center gap-2">
+                              <Label className="text-zinc-400 text-sm">Via Vendor:</Label>
+                              <Select
+                                value={formData.via_vendor || ""}
+                                onValueChange={(value) => setFormData({ ...formData, via_vendor: value })}
+                              >
+                                <SelectTrigger className="bg-zinc-800 border-zinc-700 text-white w-48">
+                                  <SelectValue placeholder="Select vendor trunk" />
+                                </SelectTrigger>
+                                <SelectContent className="bg-zinc-800 border-zinc-700">
+                                  {Object.entries(formData.rating_vendor_trunks || {}).flatMap(([position, vendors]) => 
+                                    (vendors || []).filter(v => v.trunk).map((v, idx) => (
+                                      <SelectItem key={`${position}-${idx}-${v.trunk}`} value={v.trunk} className="text-white">
+                                        {v.trunk}
+                                      </SelectItem>
+                                    ))
+                                  )}
+                                </SelectContent>
+                              </Select>
+                            </div>
                           </div>
                         )}
                         
                         {/* Enable Numbers Whitelisting */}
-                        <label className="flex items-center gap-2 cursor-pointer">
+                        <div className="flex items-center gap-2">
                           <input
+                            id="enable_whitelisting"
                             type="checkbox"
                             checked={formData.enable_whitelisting || false}
                             onChange={(e) => setFormData({ ...formData, enable_whitelisting: e.target.checked })}
                             className="w-4 h-4 accent-blue-500"
                           />
-                          <span className="text-white text-sm">Enable Numbers Whitelisting</span>
-                        </label>
+                          <label htmlFor="enable_whitelisting" className="text-white text-sm cursor-pointer">Enable Numbers Whitelisting</label>
+                        </div>
                       </>
                     )}
                   </div>
@@ -1807,12 +2161,13 @@ export default function RequestsPage() {
                   />
                 </div>
                 <div>
-                  <Label className="text-zinc-400">Investigation Type</Label>
-                  <Input
-                    value={formData.investigation_type}
-                    onChange={(e) => setFormData({ ...formData, investigation_type: e.target.value })}
-                    placeholder="e.g., Failed deliveries, Latency issue"
-                    className="bg-zinc-800 border-zinc-700"
+                  <IssueTypeSelect
+                    selectedTypes={formData.issue_types || []}
+                    otherText={formData.issue_other || ""}
+                    onTypesChange={(types) => setFormData({ ...formData, issue_types: types })}
+                    onOtherChange={(other) => setFormData({ ...formData, issue_other: other })}
+                    ticketType={displayTab}
+                    disabled={false}
                   />
                 </div>
                 <div>
@@ -1956,7 +2311,7 @@ export default function RequestsPage() {
 
       {/* View Request Details Dialog */}
       <Dialog open={viewRequestDialogOpen} onOpenChange={setViewRequestDialogOpen}>
-        <DialogContent className="bg-zinc-900 border-white/10 text-white max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent disableOutsideClick className="bg-zinc-900 border-white/10 text-white max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Request Details</DialogTitle>
           </DialogHeader>
@@ -2002,25 +2357,44 @@ export default function RequestsPage() {
                   <div className="mt-2 space-y-2">
                     {selectedRequest.customer && <p className="text-white">Customer: {selectedRequest.customer}</p>}
                     {(selectedRequest.customer_trunks || selectedRequest.customer_ids) && (
-                      <div>
-                        <Label className="text-zinc-400">Enterprise Trunks:</Label>
+                      <div className="border border-zinc-700 rounded-lg p-4 mt-3 bg-zinc-800/30">
+                        <Label className="text-zinc-300 font-semibold text-lg block mb-3">Enterprise Trunks</Label>
                         {(selectedRequest.customer_trunks || []).length > 0 ? (
-                          (selectedRequest.customer_trunks || []).map((trunk, i) => (
-                            <div key={i} className="text-white ml-2">
-                              - {trunk.trunk} {trunk.destination && `(Destination: ${trunk.destination})`} {trunk.rate && `(Rate: ${trunk.rate})`}
-                            </div>
-                          ))
+                          <div className="space-y-2">
+                            {(selectedRequest.customer_trunks || []).map((trunk, i) => (
+                              <div key={i} className="p-3 bg-zinc-800/50 rounded border border-zinc-700">
+                                <p className="text-white font-semibold">{trunk.trunk}</p>
+                                <div className="flex flex-wrap gap-3 mt-1 text-sm">
+                                  {trunk.destination && (
+                                    <span className="text-zinc-300">
+                                      <span className="text-zinc-500">Destination:</span> {trunk.destination}
+                                    </span>
+                                  )}
+                                  {trunk.rate && (
+                                    <span className="text-zinc-300">
+                                      <span className="text-zinc-500">Rate:</span> {trunk.rate}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
                         ) : (
                           selectedRequest.customer_trunk && (
-                            <div className="text-white ml-2">
-                              - {selectedRequest.customer_trunk} {selectedRequest.destination && `(Destination: ${selectedRequest.destination})`}
+                            <div className="p-3 bg-zinc-800/50 rounded border border-zinc-700">
+                              <p className="text-white font-semibold">{selectedRequest.customer_trunk}</p>
+                              {selectedRequest.destination && (
+                                <p className="text-zinc-300 text-sm mt-1">
+                                  <span className="text-zinc-500">Destination:</span> {selectedRequest.destination}
+                                </p>
+                              )}
                             </div>
                           )
                         )}
                       </div>
                     )}
-                    {selectedRequest.rating && <p className="text-white">Rating: {selectedRequest.rating}</p>}
-                    {selectedRequest.routing && <p className="text-white">Routing: {selectedRequest.routing}</p>}
+                    {selectedRequest.rating && <p className="text-white mt-3">Rating: {selectedRequest.rating}</p>}
+                    {selectedRequest.routing && <p className="text-white mt-1">Routing: {selectedRequest.routing}</p>}
                     
                     {/* Advanced Settings */}
                     {(selectedRequest.by_loss || selectedRequest.enable_mnp_hlr || selectedRequest.enable_threshold || selectedRequest.enable_whitelisting) && (
@@ -2028,19 +2402,61 @@ export default function RequestsPage() {
                         <Label className="text-zinc-400">Advanced Settings:</Label>
                         {selectedRequest.by_loss && <p className="text-white ml-2">- By Loss</p>}
                         {selectedRequest.enable_mnp_hlr && <p className="text-white ml-2">- MNP/HLR: {selectedRequest.mnp_hlr_type}</p>}
-                        {selectedRequest.enable_threshold && <p className="text-white ml-2">- Threshold: {selectedRequest.threshold_count} messages</p>}
+                        {selectedRequest.enable_threshold && (
+                          <>
+                            <p className="text-white ml-2">- Threshold: {selectedRequest.threshold_count} messages</p>
+                            {selectedRequest.via_vendor && <p className="text-white ml-2">- Via Vendor: {selectedRequest.via_vendor}</p>}
+                          </>
+                        )}
                         {selectedRequest.enable_whitelisting && <p className="text-white ml-2">- Numbers Whitelisting: Enabled</p>}
                       </div>
                     )}
                     
                     {(selectedRequest.rating_vendor_trunks || []).length > 0 && (
-                      <div>
-                        <Label className="text-zinc-400">Vendor Trunks:</Label>
-                        {(selectedRequest.rating_vendor_trunks || []).map((trunk, i) => (
-                          <div key={i} className="text-white ml-2">
-                            - {trunk.trunk} {trunk.position && `(Position: ${trunk.position})`} {trunk.percentage && `(${trunk.percentage}%)`} {trunk.cost_type === "fixed" ? trunk.cost_min && `(Cost: ${trunk.cost_min})` : trunk.cost_min && trunk.cost_max && `(Cost: ${trunk.cost_min}-${trunk.cost_max})`}
-                          </div>
-                        ))}
+                      <div className="border border-zinc-700 rounded-lg p-4 mt-3 bg-zinc-800/30">
+                        <Label className="text-zinc-300 font-semibold text-lg block mb-3">Vendor Trunks</Label>
+                        {(() => {
+                          // Group by position
+                          const grouped = {};
+                          (selectedRequest.rating_vendor_trunks || []).forEach(trunk => {
+                            const pos = trunk.position || "1";
+                            if (!grouped[pos]) grouped[pos] = [];
+                            grouped[pos].push(trunk);
+                          });
+                          return Object.entries(grouped).sort((a, b) => parseInt(a[0]) - parseInt(b[0])).map(([position, trunks]) => (
+                            <div key={position} className="mb-4 last:mb-0">
+                              <div className="bg-zinc-700/50 rounded-md p-3 mb-2">
+                                <p className="text-white font-medium text-base">{position === "1" ? "Position 1 (First)" : `Position ${position}`}</p>
+                              </div>
+                              {trunks.map((trunk, i) => (
+                                <div key={i} className="ml-4 mt-2 p-2 bg-zinc-800/50 rounded border border-zinc-700">
+                                  <p className="text-white font-semibold">{trunk.trunk}</p>
+                                  <div className="flex flex-wrap gap-3 mt-1 text-sm">
+                                    {trunk.percentage && (
+                                      <span className="text-zinc-300">
+                                        <span className="text-zinc-500">Percentage:</span> {trunk.percentage}%
+                                      </span>
+                                    )}
+                                    {trunk.cost_type && (
+                                      <span className="text-zinc-300">
+                                        <span className="text-zinc-500">Cost Type:</span> {trunk.cost_type === "fixed" ? "Fixed" : "Range"}
+                                      </span>
+                                    )}
+                                    {trunk.cost_min && (
+                                      <span className="text-zinc-300">
+                                        {trunk.cost_type === "fixed" ? (
+                                          <><span className="text-zinc-500">Cost:</span> {trunk.cost_min}</>
+                                        ) : (
+                                          <><span className="text-zinc-500">Cost Range:</span> {trunk.cost_min} - {trunk.cost_max}</>
+                                        )}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          ));
+                        })()}
                       </div>
                     )}
                   </div>
@@ -2104,7 +2520,12 @@ export default function RequestsPage() {
                 <div className="border-t border-zinc-700 pt-4">
                   <Label className="text-zinc-400">Investigation Details</Label>
                   <div className="mt-2 space-y-2">
-                    <p className="text-white">Type: {selectedRequest.investigation_type}</p>
+                    {(selectedRequest.issue_types && selectedRequest.issue_types.length > 0) && (
+                      <p className="text-white">Issue Type: {selectedRequest.issue_types.join(", ")}</p>
+                    )}
+                    {(selectedRequest.issue_other) && (
+                      <p className="text-white">Other: {selectedRequest.issue_other}</p>
+                    )}
                     <p className="text-white">Customer Trunk: {selectedRequest.customer_trunk}</p>
                     <p className="text-white">Destination: {selectedRequest.investigation_destination}</p>
                     {selectedRequest.issue_description && <p className="text-white">Description: {selectedRequest.issue_description}</p>}
@@ -2156,7 +2577,7 @@ export default function RequestsPage() {
 
       {/* Claim Dialog */}
       <Dialog open={claimDialogOpen} onOpenChange={setClaimDialogOpen}>
-        <DialogContent className="bg-zinc-900 border-white/10 text-white">
+        <DialogContent disableOutsideClick className="bg-zinc-900 border-white/10 text-white">
           <DialogHeader>
             <DialogTitle>Claim Request</DialogTitle>
           </DialogHeader>
@@ -2179,7 +2600,7 @@ export default function RequestsPage() {
 
       {/* Response Dialog */}
       <Dialog open={responseDialogOpen} onOpenChange={setResponseDialogOpen}>
-        <DialogContent className="bg-zinc-900 border-white/10 text-white">
+        <DialogContent disableOutsideClick className="bg-zinc-900 border-white/10 text-white">
           <DialogHeader>
             <DialogTitle>{responseType === "complete" ? "Complete" : "Reject"} Request</DialogTitle>
           </DialogHeader>

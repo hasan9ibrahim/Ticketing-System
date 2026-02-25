@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Outlet, useNavigate, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import axios from "axios";
@@ -36,6 +36,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
 
 export default function DashboardLayout({ user, setUser }) {
@@ -66,6 +67,12 @@ export default function DashboardLayout({ user, setUser }) {
     const saved = localStorage.getItem("dismissedNotifications");
     return saved ? JSON.parse(saved) : {};
   });
+  
+  // Use ref to always have current dismissedNotifications in interval callbacks
+  const dismissedNotificationsRef = useRef(dismissedNotifications);
+  useEffect(() => {
+    dismissedNotificationsRef.current = dismissedNotifications;
+  }, [dismissedNotifications]);
 
   // Load read ticket notifications from localStorage to persist across login/logout
   const [readTicketNotifications, setReadTicketNotifications] = useState(() => {
@@ -90,6 +97,22 @@ export default function DashboardLayout({ user, setUser }) {
     return ticketUnread + alertUnread + requestUnread;
   };
 
+  // Helper to get the highest priority notification type for badge color
+  // Priority: Alert (red) > Ticket (blue) > Request (green)
+  const getHighestPriorityNotificationType = () => {
+    const alertUnread = alertNotifications
+      .filter(n => !dismissedNotifications[n.id] && !readNotificationIds.has(n.id)).length;
+    const ticketUnread = ticketModificationNotifications
+      .filter(n => !dismissedNotifications[n.id] && !readNotificationIds.has(n.id)).length;
+    const requestUnread = user.role === "am" ? requestNotifications
+      .filter(n => !dismissedNotifications[n.id] && !readNotificationIds.has(n.id)).length : 0;
+    
+    if (alertUnread > 0) return 'alert';
+    if (ticketUnread > 0) return 'ticket';
+    if (requestUnread > 0) return 'request';
+    return 'none';
+  };
+
   // Persist readNotificationIds to localStorage whenever it changes
   useEffect(() => {
     localStorage.setItem("readNotificationIds", JSON.stringify([...readNotificationIds]));
@@ -100,7 +123,7 @@ export default function DashboardLayout({ user, setUser }) {
     localStorage.setItem("dismissedNotifications", JSON.stringify(dismissedNotifications));
   }, [dismissedNotifications]);
 
-  // Handle clicking on ticket notification - mark as read and show details
+  // Handle clicking on ticket notification - mark as read and navigate to ticket
   const handleTicketNotificationClick = async (notification) => {
     if (!readNotificationIds.has(notification.id)) {
       try {
@@ -114,12 +137,18 @@ export default function DashboardLayout({ user, setUser }) {
         console.error("Failed to mark notification as read:", error);
       }
     }
-    // Force re-render by incrementing key
-    setNotificationKey(prev => prev + 1);
-    setSelectedNotification(notification);
+    // Navigate to the ticket based on ticket type
+    const ticketType = notification.ticket_type || 'sms';
+    const ticketId = notification.ticket_id || notification.ticket_number;
+    if (ticketId) {
+      const targetPath = ticketType === 'voice' ? '/voice-tickets' : '/sms-tickets';
+      navigate(`${targetPath}?ticket=${ticketId}`);
+    }
+    // Close the popover
+    setShowAlertNotifications(false);
   };
 
-  // Handle clicking on alert notification - mark as read and show details
+  // Handle clicking on alert notification - mark as read and navigate to alert
   const handleAlertNotificationClick = async (notification) => {
     if (!readNotificationIds.has(notification.id)) {
       try {
@@ -133,9 +162,12 @@ export default function DashboardLayout({ user, setUser }) {
         console.error("Failed to mark notification as read:", error);
       }
     }
-    // Force re-render by incrementing key
-    setNotificationKey(prev => prev + 1);
-    setSelectedNotification(notification);
+    // Navigate to the alert
+    if (notification.alert_ticket_number) {
+      navigate(`/references?alert=${notification.alert_ticket_number}`);
+    }
+    // Close the popover
+    setShowAlertNotifications(false);
   };
 
   // Handle clicking on request notification - mark as read and navigate to request
@@ -160,6 +192,8 @@ export default function DashboardLayout({ user, setUser }) {
       // Navigate to requests page
       navigate(`/requests?request=${notification.request_id}&key=${uniqueKey}`);
     }
+    // Close the popover
+    setShowAlertNotifications(false);
   };
 
   // Combine all notifications from backend (both read and unread)
@@ -309,7 +343,10 @@ export default function DashboardLayout({ user, setUser }) {
       const response = await axios.get(`${API}/users/me/alert-notifications`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      setAlertNotifications(response.data || []);
+      const notifications = response.data || [];
+      // Filter out dismissed notifications to prevent them reappearing after refetch
+      const currentDismissed = dismissedNotificationsRef.current;
+      setAlertNotifications(notifications.filter(n => !currentDismissed[n.id]));
     } catch (error) {
       // Silently handle errors - notifications are not critical
       console.log("Alert notifications unavailable:", error.message);
@@ -382,7 +419,10 @@ export default function DashboardLayout({ user, setUser }) {
       const res = await axios.get(`${API}/users/me/request-notifications`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setRequestNotifications(res.data || []);
+      const notifications = res.data || [];
+      // Filter out dismissed notifications to prevent them reappearing after refetch
+      const currentDismissed = dismissedNotificationsRef.current;
+      setRequestNotifications(notifications.filter(n => !currentDismissed[n.id]));
     } catch (error) {
       console.log("Request notifications fetch error:", error.message);
     }
@@ -402,10 +442,19 @@ export default function DashboardLayout({ user, setUser }) {
   };
   const alertBadgeCount = getAlertBadgeCount();
 
-  // Compute pending requests count for sidebar badge (NOC/Admin only)
-  const pendingRequestsCount = (user.role === "noc" || user.role === "admin") 
-    ? sidebarPendingRequests.length 
-    : 0;
+  // Compute pending requests count by priority for sidebar badge (NOC/Admin only)
+  const getPendingRequestsByPriority = () => {
+    if (user.role !== "noc" && user.role !== "admin") return { total: 0, Urgent: 0, High: 0, Medium: 0, Low: 0 };
+    return {
+      total: sidebarPendingRequests.length,
+      Urgent: sidebarPendingRequests.filter(r => r.priority === "Urgent").length,
+      High: sidebarPendingRequests.filter(r => r.priority === "High").length,
+      Medium: sidebarPendingRequests.filter(r => r.priority === "Medium").length,
+      Low: sidebarPendingRequests.filter(r => r.priority === "Low").length,
+    };
+  };
+  const pendingRequestsByPriority = getPendingRequestsByPriority();
+  const pendingRequestsCount = pendingRequestsByPriority.total;
 
   // Refresh sidebar alerts when navigating to References page
   useEffect(() => {
@@ -515,7 +564,12 @@ export default function DashboardLayout({ user, setUser }) {
         headers: { Authorization: `Bearer ${token}` },
       });
       const notifications = response.data || [];
-      setTicketModificationNotifications(notifications);
+      
+      // Filter out notifications that have been dismissed (permanently removed by user)
+      // Use ref to get current value in interval callback
+      const currentDismissed = dismissedNotificationsRef.current;
+      const filteredNotifications = notifications.filter(n => !currentDismissed[n.id]);
+      setTicketModificationNotifications(filteredNotifications);
       
       // Don't auto-show popup - just show in bell dropdown
       // if (notifications.length > 0 && !currentNotification) {
@@ -581,7 +635,7 @@ export default function DashboardLayout({ user, setUser }) {
     { path: "/sms-tickets", label: "SMS Tickets", icon: MessageSquare, roles: ["admin", "am", "noc"], ticketType: "sms" },
     { path: "/voice-tickets", label: "Voice Tickets", icon: Phone, roles: ["admin", "am", "noc"], ticketType: "voice" },
     { path: "/references", label: "References & Alerts", icon: Database, roles: ["admin", "am", "noc"], badgeCount: alertBadgeCount },
-    { path: "/requests", label: "Requests", icon: FileText, roles: ["admin", "am", "noc"], badgeCount: pendingRequestsCount },
+    { path: "/requests", label: "Requests", icon: FileText, roles: ["admin", "am", "noc"], badgeCount: pendingRequestsCount, priorityBadge: pendingRequestsByPriority },
     { path: "/enterprises", label: "Enterprises", icon: Building2, roles: ["admin", "noc"] },
     { path: "/my-enterprises", label: "My Enterprises", icon: Briefcase, roles: ["am"] },
     { path: "/users", label: "Users", icon: Users, roles: ["admin"] },
@@ -629,7 +683,8 @@ export default function DashboardLayout({ user, setUser }) {
   });
 
   return (
-    <div className="flex h-screen bg-zinc-950" data-testid="dashboard-layout">
+    <TooltipProvider>
+      <div className="flex h-screen bg-zinc-950" data-testid="dashboard-layout">
       {/* Unassigned Tickets Alert - Top Left Notification */}
       {showAlerts && activeAlerts.length > 0 && (
         <div className="fixed top-4 left-4 z-50 max-w-md">
@@ -788,7 +843,7 @@ export default function DashboardLayout({ user, setUser }) {
               {filteredNavItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = location.pathname === item.path;
-                return (
+                const navButton = (
                   <Button
                     key={item.path}
                     variant="ghost"
@@ -802,13 +857,63 @@ export default function DashboardLayout({ user, setUser }) {
                   >
                     <Icon className="h-5 w-5" />
                     {sidebarOpen && <span className="ml-3">{item.label}</span>}
-                    {item.badgeCount > 0 && (
+                    {item.priorityBadge ? (
+                      <div className="ml-auto flex gap-1">
+                        {item.priorityBadge.Urgent > 0 && (
+                          <Badge className="h-5 px-1.5 text-xs bg-red-600 hover:bg-red-700 min-w-[20px] justify-center">{item.priorityBadge.Urgent}</Badge>
+                        )}
+                        {item.priorityBadge.High > 0 && (
+                          <Badge className="h-5 px-1.5 text-xs bg-orange-500 hover:bg-orange-600 min-w-[20px] justify-center">{item.priorityBadge.High}</Badge>
+                        )}
+                        {item.priorityBadge.Medium > 0 && (
+                          <Badge className="h-5 px-1.5 text-xs bg-blue-600 hover:bg-blue-700 min-w-[20px] justify-center">{item.priorityBadge.Medium}</Badge>
+                        )}
+                        {item.priorityBadge.Low > 0 && (
+                          <Badge className="h-5 px-1.5 text-xs bg-gray-500 hover:bg-gray-600 min-w-[20px] justify-center">{item.priorityBadge.Low}</Badge>
+                        )}
+                      </div>
+                    ) : item.badgeCount > 0 ? (
                       <Badge variant="destructive" className="ml-auto h-5 px-1.5 text-xs">
                         {item.badgeCount}
                       </Badge>
-                    )}
+                    ) : null}
                   </Button>
                 );
+                
+                // Show tooltip only when sidebar is minimized
+                if (!sidebarOpen) {
+                  return (
+                    <Tooltip key={item.path}>
+                      <TooltipTrigger asChild>
+                        {navButton}
+                      </TooltipTrigger>
+                      <TooltipContent side="right">
+                        {item.label}
+                        {item.priorityBadge && item.priorityBadge.total > 0 && (
+                          <div className="mt-1 flex flex-wrap gap-1">
+                            {item.priorityBadge.Urgent > 0 && (
+                              <span className="text-red-400">U:{item.priorityBadge.Urgent}</span>
+                            )}
+                            {item.priorityBadge.High > 0 && (
+                              <span className="text-orange-400">H:{item.priorityBadge.High}</span>
+                            )}
+                            {item.priorityBadge.Medium > 0 && (
+                              <span className="text-blue-400">M:{item.priorityBadge.Medium}</span>
+                            )}
+                            {item.priorityBadge.Low > 0 && (
+                              <span className="text-gray-400">L:{item.priorityBadge.Low}</span>
+                            )}
+                          </div>
+                        )}
+                        {!item.priorityBadge && item.badgeCount > 0 && (
+                          <span className="ml-2 text-red-400">({item.badgeCount})</span>
+                        )}
+                      </TooltipContent>
+                    </Tooltip>
+                  );
+                }
+                
+                return navButton;
               })}
             </nav>
           </div>
@@ -855,7 +960,7 @@ export default function DashboardLayout({ user, setUser }) {
               <Button variant="ghost" size="icon" className="relative text-zinc-400 hover:text-white">
                 <Bell className="h-5 w-5" />
                 {getUnreadCount() > 0 && (
-                  <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-emerald-500 text-[10px] font-bold text-black flex items-center justify-center">
+                  <span className={`absolute -top-1 -right-1 h-4 w-4 rounded-full text-[10px] font-bold text-black flex items-center justify-center ${getHighestPriorityNotificationType() === 'alert' ? 'bg-red-500' : getHighestPriorityNotificationType() === 'ticket' ? 'bg-blue-500' : 'bg-green-500'}`}>
                     {getUnreadCount() > 9 ? '9+' : getUnreadCount()}
                   </span>
                 )}
@@ -864,39 +969,112 @@ export default function DashboardLayout({ user, setUser }) {
             <PopoverContent className="w-80 bg-zinc-900 border-zinc-700 text-white" align="end">
               <div className="space-y-2">
                 <div className="flex items-center justify-between pb-2 border-b border-zinc-700">
-                  <h3 className="font-semibold text-emerald-400 flex items-center gap-2">
+                  <h3 className="font-semibold flex items-center gap-2">
                     <Bell className="h-4 w-4" />
                     Notifications
                   </h3>
                   <span className="text-xs text-zinc-400">{getUnreadCount()} unread</span>
                 </div>
-                <div className="max-h-80 overflow-y-auto space-y-2">
+                {/* Notification type legend */}
+                <div className="flex gap-3 text-xs pb-2 border-b border-zinc-700">
+                  <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-red-500" /> Alerts</span>
+                  <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-blue-500" /> Tickets</span>
+                  <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-green-500" /> Requests</span>
+                </div>
+                <div className="max-h-80 overflow-y-auto overflow-x-hidden space-y-2">
                   {/* All Notifications Combined and Sorted by Time (Newest First) */}
                   {getAllNotificationsSorted().map((notification) => {
                     // Determine if this is an alert or request notification
                     const isAlert = !!notification.alert_ticket_number;
                     const isRequest = notification.type === "request_update" || !!notification.request_id;
                     
+                    // Determine color based on notification type
+                    const borderColor = isAlert ? 'border-red-500' : isRequest ? 'border-green-500' : 'border-blue-500';
+                    const bgColor = isAlert ? 'bg-red-500/10' : isRequest ? 'bg-green-500/10' : 'bg-blue-500/10';
+                    const indicatorColor = isAlert ? 'bg-red-500' : isRequest ? 'bg-green-500' : 'bg-blue-500';
+                    
                     return (
                       <div 
                         key={notification.id} 
-                        className={`flex items-start justify-between gap-2 p-2 rounded border-l-2 hover:bg-zinc-800 ${readNotificationIds.has(notification.id) ? 'border-zinc-600 bg-zinc-800/30 opacity-60' : 'border-emerald-500 bg-zinc-800/80'}`}
+                        className={`flex items-start justify-between gap-2 p-2 rounded border-l-2 w-full ${readNotificationIds.has(notification.id) ? 'border-zinc-600 bg-zinc-800/30 opacity-60' : `${borderColor} ${bgColor}`}`}
                         onClick={() => isRequest ? handleRequestNotificationClick(notification) : isAlert ? handleAlertNotificationClick(notification) : handleTicketNotificationClick(notification)}
                       >
-                        <div className="flex-1 min-w-0 cursor-pointer">
-                          <p className={`text-sm truncate ${readNotificationIds.has(notification.id) ? 'text-zinc-500' : 'text-white'}`}>{notification.message}</p>
-                          <p className={`text-xs mt-1 ${readNotificationIds.has(notification.id) ? 'text-zinc-600' : 'text-zinc-400'}`}>
-                            {isAlert ? (
-                              <>
-                                {notification.alert_ticket_number} • {notification.ticket_type?.toUpperCase()} • {formatNotificationTime(notification.created_at)}
-                              </>
+                        <div className="flex items-center gap-2">
+                          {!readNotificationIds.has(notification.id) && (
+                            <span className={`h-2 w-2 rounded-full ${indicatorColor} shrink-0`} />
+                          )}
+                          <div className="flex-1 min-w-0 cursor-pointer overflow-hidden">
+                            {/* Title based on notification type */}
+                            {isRequest ? (
+                              <div className={`text-sm font-bold mb-1 ${readNotificationIds.has(notification.id) ? 'text-zinc-500' : 'text-green-400'}`}>
+                                Request Update
+                              </div>
                             ) : (
-                              <>
-                                {notification.ticket_type?.toUpperCase()} • {formatNotificationTime(notification.created_at)}
-                              </>
+                              <div className={`text-sm font-bold mb-1 ${readNotificationIds.has(notification.id) ? 'text-zinc-500' : isAlert ? 'text-red-400' : 'text-blue-400'}`}>
+                                {isAlert ? (
+                                  notification.notification_type === 'created' ? 'New Alert' : 'Alert Update'
+                                ) : (
+                                  notification.event_type === 'created' ? 'New Ticket' : 'Ticket Update'
+                                )}
+                              </div>
                             )}
-                            {readNotificationIds.has(notification.id) && <span className="ml-2 italic">(Read)</span>}
-                          </p>
+                            {/* For request notifications, show the full message */}
+                            {isRequest ? (
+                              <div className={`text-xs whitespace-pre-wrap ${readNotificationIds.has(notification.id) ? 'text-zinc-600' : 'text-zinc-300'}`}>
+                                {notification.message}
+                                <div className="mt-1 text-zinc-500">
+                                  {formatNotificationTime(notification.created_at)}
+                                  {readNotificationIds.has(notification.id) && ' (Read)'}
+                                </div>
+                              </div>
+                            ) : (
+                            /* Structured details for ticket/alert notifications */
+                            <div className={`space-y-0.5 text-xs ${readNotificationIds.has(notification.id) ? 'text-zinc-600' : 'text-zinc-300'}`}>
+                              {notification.priority && (
+                                <div className="flex gap-1">
+                                  <span className="text-zinc-500 shrink-0">Priority:</span>
+                                  <span className={`font-medium ${
+                                    notification.priority === 'Urgent' ? 'text-red-400' :
+                                    notification.priority === 'High' ? 'text-orange-400' :
+                                    notification.priority === 'Medium' ? 'text-blue-400' : 'text-zinc-400'
+                                  }`}>{notification.priority}</span>
+                                </div>
+                              )}
+                              <div className="flex gap-1">
+                                <span className="text-zinc-500 shrink-0">{isAlert ? 'Enterprise:' : 'Customer:'}</span>
+                                <span>{notification.customer_trunk || notification.vendor_trunk || notification.customer || '-'}</span>
+                              </div>
+                              {notification.destination && (
+                                <div className="flex gap-1">
+                                  <span className="text-zinc-500 shrink-0">Destination:</span>
+                                  <span>{notification.destination}</span>
+                                </div>
+                              )}
+                              {notification.issue_type && (
+                                <div className="flex gap-1">
+                                  <span className="text-zinc-500 shrink-0">Issue:</span>
+                                  <span>{notification.issue_type}</span>
+                                </div>
+                              )}
+                              {notification.status && (
+                                <div className="flex gap-1">
+                                  <span className="text-zinc-500 shrink-0">Status:</span>
+                                  <span>{notification.status}</span>
+                                </div>
+                              )}
+                              {notification.assigned_noc && !notification.alert_ticket_number && notification.status !== 'unassigned' && notification.status !== 'Pending' && notification.assigned_noc !== 'unassigned' && (
+                                <div className="flex gap-1">
+                                  <span className="text-zinc-500 shrink-0">NOC Assigned:</span>
+                                  <span>{notification.assigned_noc}</span>
+                                </div>
+                              )}
+                              <div className="flex gap-1 mt-1">
+                                <span className="text-zinc-600">{formatNotificationTime(notification.created_at)}</span>
+                                {readNotificationIds.has(notification.id) && <span className="italic">(Read)</span>}
+                              </div>
+                            </div>
+                            )}
+                          </div>
                         </div>
                         <Button
                           variant="ghost"
@@ -955,7 +1133,7 @@ export default function DashboardLayout({ user, setUser }) {
         <AlertDialogContent className="max-w-md">
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2">
-              <Bell className="h-5 w-5 text-emerald-500" />
+              <Bell className="h-5 w-5" />
               Notification Details
             </AlertDialogTitle>
             <AlertDialogDescription className="text-base">
@@ -1037,5 +1215,6 @@ export default function DashboardLayout({ user, setUser }) {
         </AlertDialogContent>
       </AlertDialog>
     </div>
+    </TooltipProvider>
   );
 }
