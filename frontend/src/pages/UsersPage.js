@@ -61,6 +61,16 @@ export default function UsersPage() {
     }
   };
 
+  // Auto-refresh data every 10 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (!document.hidden) {
+        fetchUsers();
+      }
+    }, 10000);
+    return () => clearInterval(interval);
+  }, []);
+
   const fetchDepartments = async () => {
     try {
       const token = localStorage.getItem("token");

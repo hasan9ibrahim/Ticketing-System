@@ -44,6 +44,7 @@ export default function EnterprisesPage() {
   const [newVendorTrunk, setNewVendorTrunk] = useState("");
 
   useEffect(() => { fetchData(); }, []);
+  
   useEffect(() => { filterEnterprises(); }, [searchTerm, enterprises, filters]);
 
   const fetchData = async () => {
@@ -65,6 +66,16 @@ export default function EnterprisesPage() {
       setLoading(false);
     }
   };
+
+  // Auto-refresh data every 10 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (!document.hidden) {
+        fetchData();
+      }
+    }, 10000);
+    return () => clearInterval(interval);
+  }, []);
 
   const filterEnterprises = () => {
     let filtered = [...enterprises];

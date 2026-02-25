@@ -52,6 +52,16 @@ export default function DepartmentsPage() {
     }
   };
 
+  // Auto-refresh data every 10 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (!document.hidden) {
+        fetchData();
+      }
+    }, 10000);
+    return () => clearInterval(interval);
+  }, []);
+
   const filterDepartments = () => {
     if (!searchTerm) {
       setFilteredDepartments(departments);

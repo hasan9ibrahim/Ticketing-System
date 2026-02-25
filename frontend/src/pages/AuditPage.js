@@ -281,6 +281,16 @@ export default function AuditPage() {
     }
   };
 
+  // Auto-refresh data every 10 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (!document.hidden) {
+        fetchAuditLogs();
+      }
+    }, 10000);
+    return () => clearInterval(interval);
+  }, []);
+
   const filteredLogs = auditLogs.filter(log => {
     // Search filter
     if (searchTerm) {

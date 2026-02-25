@@ -124,31 +124,6 @@ export default function ReferencesPage() {
     vendor_entries: []
   });
 
-  // Handle real-time data updates - polling every 10 seconds when page is visible
-  useEffect(() => {
-    // Poll for updates every 10 seconds
-    const pollInterval = setInterval(() => {
-      // Only poll if page is visible
-      if (!document.hidden) {
-        fetchData();
-      }
-    }, 10000);
-    
-    // Also refetch when page becomes visible again
-    const handleVisibilityChange = () => {
-      if (!document.hidden) {
-        fetchData();
-      }
-    };
-    
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    
-    return () => {
-      clearInterval(pollInterval);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, []);
-
   useEffect(() => {
     fetchData();
     handlePendingAlert();
@@ -325,6 +300,16 @@ export default function ReferencesPage() {
       setLoading(false);
     }
   };
+
+  // Auto-refresh data every 10 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (!document.hidden) {
+        fetchData();
+      }
+    }, 10000);
+    return () => clearInterval(interval);
+  }, []);
 
   const handleOpenDialog = (section, list = null) => {
     setActiveSection(section);

@@ -319,6 +319,16 @@ export default function RequestsPage() {
     }
   };
 
+  // Auto-refresh data every 10 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (!document.hidden) {
+        fetchRequests();
+      }
+    }, 10000);
+    return () => clearInterval(interval);
+  }, []);
+
   const handleRequestTypeChange = (type) => {
     setFormData({
       ...formData,

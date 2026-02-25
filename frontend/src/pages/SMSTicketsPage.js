@@ -169,6 +169,16 @@ export default function SMSTicketsPage() {
     }
   };
 
+  // Auto-refresh data every 10 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (!document.hidden) {
+        fetchData();
+      }
+    }, 10000);
+    return () => clearInterval(interval);
+  }, []);
+
   const getOpenedViaPriority = (openedVia) => {
     if (!openedVia) return 999;
     // Handle array format
