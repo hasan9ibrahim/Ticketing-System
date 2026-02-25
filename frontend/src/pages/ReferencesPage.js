@@ -354,17 +354,6 @@ export default function ReferencesPage() {
         return;
       }
 
-      // Validate destination format ("Country - Network")
-      const destinationPattern = /^[^ -]+ - [^ -]+$/;
-      if (!destinationPattern.test(formData.destination.trim())) {
-        toast({
-          variant: "destructive",
-          title: "Error",
-          description: "Destination must be in 'Country - Network' format (e.g., Ghana - MTN, Nigeria - All Networks)"
-        });
-        return;
-      }
-
       // Validate vendor entries have numeric cost
       for (const entry of formData.vendor_entries) {
         if (entry.cost && isNaN(parseFloat(entry.cost))) {

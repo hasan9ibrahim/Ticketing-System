@@ -603,13 +603,6 @@ export default function SMSTicketsPage() {
       return;
     }
 
-    // ✅ Destination must be in "Country - Network" format
-    const destinationPattern = /^[^ -]+ - [^ -]+$/;
-    if (!destinationPattern.test(formData.destination.trim())) {
-      toast.error("Destination must be in 'Country - Network' format (e.g., Ghana - MTN, Nigeria - All Networks)");
-      return;
-    }
-
     // Validate rate and cost are numeric
     if (formData.rate && isNaN(parseFloat(formData.rate))) {
       toast.error("Rate must be a numeric value");
