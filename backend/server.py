@@ -1473,6 +1473,14 @@ async def logout(current_user: dict = Depends(get_current_user)):
             {"$unset": {"current_session_id": ""}}
         )
     
+    # Broadcast to all connected clients about user logout
+    await manager.broadcast_to_all({
+        "type": "user_logout",
+        "data": {"user_id": current_user.get("id"), "username": current_user.get("username")},
+        "user_id": current_user.get("id"),
+        "username": current_user.get("username")
+    })
+    
     return {"message": "Logged out successfully"}
 
 @api_router.get("/auth/me", response_model=UserResponse)
@@ -2732,6 +2740,15 @@ async def create_reference_list(list_data: ReferenceListCreate, current_user: di
     
     # Return the created list from MongoDB to ensure id is properly returned
     created = await db.reference_lists.find_one({"id": list_dict["id"]}, {"_id": 0})
+    
+    # Broadcast to all connected clients
+    await manager.broadcast_to_all({
+        "type": "reference_created",
+        "data": created,
+        "user_id": current_user.get("id"),
+        "username": current_user.get("username")
+    })
+    
     return created
 
 
@@ -2806,6 +2823,14 @@ async def update_reference_list(list_id: str, list_data: ReferenceListUpdate, cu
         changes={"before": existing, "after": updated}
     )
     
+    # Broadcast to all connected clients
+    await manager.broadcast_to_all({
+        "type": "reference_updated",
+        "data": updated,
+        "user_id": current_user.get("id"),
+        "username": current_user.get("username")
+    })
+    
     # Return updated list
     return updated
 
@@ -2874,6 +2899,14 @@ async def delete_reference_list(list_id: str, current_user: dict = Depends(get_c
         entity_name=f"{existing.get('name', '')} ({existing.get('section', '')})",
         changes={"deleted_reference_list": existing}
     )
+    
+    # Broadcast to all connected clients
+    await manager.broadcast_to_all({
+        "type": "reference_deleted",
+        "data": {"id": list_id, "section": existing.get("section")},
+        "user_id": current_user.get("id"),
+        "username": current_user.get("username")
+    })
     
     return {"message": "Reference list deleted successfully"}
 
@@ -2980,6 +3013,14 @@ async def create_alert(alert_data: AlertCreate, current_user: dict = Depends(get
         created_by=current_user.get("id")
     )
     
+    # Broadcast to all connected clients
+    await manager.broadcast_to_all({
+        "type": "alert_created",
+        "data": alert_dict,
+        "user_id": current_user.get("id"),
+        "username": current_user.get("username")
+    })
+    
     return alert
 
 
@@ -3084,6 +3125,14 @@ async def delete_alert(alert_id: str, current_user: dict = Depends(get_current_u
         changes={"deleted_alert": alert}
     )
     
+    # Broadcast to all connected clients
+    await manager.broadcast_to_all({
+        "type": "alert_deleted",
+        "data": {"id": alert_id},
+        "user_id": current_user.get("id"),
+        "username": current_user.get("username")
+    })
+    
     return {"message": "Alert deleted successfully"}
 
 
@@ -3113,6 +3162,14 @@ async def resolve_alert(alert_id: str, current_user: dict = Depends(get_current_
         notification_type="resolved",
         created_by=current_user.get("id")
     )
+    
+    # Broadcast to all connected clients
+    await manager.broadcast_to_all({
+        "type": "alert_resolved",
+        "data": {"id": alert_id, "ticket_type": alert.get("ticket_type")},
+        "user_id": current_user.get("id"),
+        "username": current_user.get("username")
+    })
     
     return {"message": "Alert resolved successfully"}
 
@@ -5186,6 +5243,13 @@ class ConnectionManager:
         for user_id in participant_ids:
             await self.send_personal_message(message, user_id)
 
+    async def broadcast_to_all(self, message: dict):
+        """Broadcast message to all connected users"""
+        # Get all user_ids with active connections
+        all_user_ids = list(self.active_connections.keys())
+        for user_id in all_user_ids:
+            await self.send_personal_message(message, user_id)
+
 # Global connection manager
 manager = ConnectionManager()
 
@@ -5331,6 +5395,46 @@ async def websocket_chat(websocket: WebSocket, token: str):
         manager.disconnect(websocket)
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
+        manager.disconnect(websocket)
+
+@api_router.websocket("/ws/data/{token}")
+async def websocket_data(websocket: WebSocket, token: str):
+    """WebSocket endpoint for real-time data updates (references, alerts, user status)"""
+    # Verify token and get user
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id: str = payload.get("sub")
+        if user_id is None:
+            await websocket.close(code=4001, reason="Invalid token")
+            return
+    except JWTError:
+        await websocket.close(code=4001, reason="Invalid token")
+        return
+
+    # Get user info
+    user = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1, "name": 1, "username": 1, "department_type": 1})
+    if not user:
+        await websocket.close(code=4002, reason="User not found")
+        return
+
+    await manager.connect(websocket, user_id)
+    
+    # Send welcome message confirming connection
+    await websocket.send_json({
+        "type": "connected",
+        "user_id": user_id,
+        "message": "Connected to real-time data updates"
+    })
+    
+    try:
+        while True:
+            # Keep connection alive, listen for any client messages if needed
+            data = await websocket.receive_json()
+            # Could handle subscription updates here if needed
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
+    except Exception as e:
+        logger.error(f"WebSocket data error: {e}")
         manager.disconnect(websocket)
 
 # ==================== CHAT API ENDPOINTS ====================

@@ -1,6 +1,7 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
+import useDataUpdates from "@/hooks/useDataUpdates";
 import axios from "axios";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -123,6 +124,83 @@ export default function ReferencesPage() {
     custom_traffic_type: "",
     vendor_entries: []
   });
+
+  // Handle real-time data updates from WebSocket
+  const handleDataUpdate = useCallback((message) => {
+    const { type, data, user_id, username } = message;
+    const currentUserId = user?.id;
+    
+    // Don't process our own updates
+    if (user_id === currentUserId) return;
+    
+    switch (type) {
+      case 'reference_created':
+        if (data.section === 'sms') {
+          setSmsLists(prev => [data, ...prev]);
+          toast({ title: "New Reference", description: `${username} added a new SMS reference: ${data.name}` });
+        } else if (data.section === 'voice') {
+          setVoiceLists(prev => [data, ...prev]);
+          toast({ title: "New Reference", description: `${username} added a new Voice reference: ${data.name}` });
+        }
+        break;
+        
+      case 'reference_updated':
+        if (data.section === 'sms') {
+          setSmsLists(prev => prev.map(item => item.id === data.id ? data : item));
+          toast({ title: "Reference Updated", description: `${username} updated SMS reference: ${data.name}` });
+        } else if (data.section === 'voice') {
+          setVoiceLists(prev => prev.map(item => item.id === data.id ? data : item));
+          toast({ title: "Reference Updated", description: `${username} updated Voice reference: ${data.name}` });
+        }
+        break;
+        
+      case 'reference_deleted':
+        if (data.section === 'sms') {
+          setSmsLists(prev => prev.filter(item => item.id !== data.id));
+          toast({ title: "Reference Deleted", description: `${username} deleted an SMS reference` });
+        } else if (data.section === 'voice') {
+          setVoiceLists(prev => prev.filter(item => item.id !== data.id));
+          toast({ title: "Reference Deleted", description: `${username} deleted a Voice reference` });
+        }
+        break;
+        
+      case 'alert_created':
+        if (data.ticket_type === 'sms') {
+          setSmsAlerts(prev => [data, ...prev]);
+          toast({ title: "New Alert", description: `${username} created an SMS alert: ${data.ticket_number}` });
+        } else if (data.ticket_type === 'voice') {
+          setVoiceAlerts(prev => [data, ...prev]);
+          toast({ title: "New Alert", description: `${username} created a Voice alert: ${data.ticket_number}` });
+        }
+        break;
+        
+      case 'alert_resolved':
+        if (data.ticket_type === 'sms') {
+          setSmsAlerts(prev => prev.map(item => item.id === data.id ? { ...item, resolved: true } : item));
+        } else if (data.ticket_type === 'voice') {
+          setVoiceAlerts(prev => prev.map(item => item.id === data.id ? { ...item, resolved: true } : item));
+        }
+        toast({ title: "Alert Resolved", description: `${username} resolved an alert` });
+        break;
+        
+      case 'alert_deleted':
+        setSmsAlerts(prev => prev.filter(item => item.id !== data.id));
+        setVoiceAlerts(prev => prev.filter(item => item.id !== data.id));
+        toast({ title: "Alert Deleted", description: `${username} deleted an alert` });
+        break;
+        
+      case 'user_logout':
+        // Could be used to update online users list
+        console.log(`User ${username} logged out`);
+        break;
+        
+      default:
+        break;
+    }
+  }, [user, toast]);
+
+  // Connect to WebSocket for real-time updates
+  useDataUpdates(handleDataUpdate);
 
   useEffect(() => {
     fetchData();
@@ -967,10 +1045,8 @@ export default function ReferencesPage() {
 
   if (loading) {
     return (
-      <div className="container mx-auto py-6 bg-zinc-950 min-h-screen">
-        <div className="flex items-center justify-center h-64">
-          <div className="text-zinc-400">Loading...</div>
-        </div>
+      <div className="flex items-center justify-center min-h-screen bg-zinc-950">
+        <div className="text-emerald-500">Loading references & Alerts...</div>
       </div>
     );
   }
@@ -1089,7 +1165,7 @@ export default function ReferencesPage() {
                             size="icon"
                             onClick={() => handleOpenDialog("sms", list)}
                           >
-                            <Edit className="h-4 w-4" />
+                            <Edit className="h-4 w-4 text-white" />
                           </Button>
                           <Button
                             variant="ghost"
@@ -1153,7 +1229,7 @@ export default function ReferencesPage() {
                             size="icon"
                             onClick={() => handleOpenDialog("voice", list)}
                           >
-                            <Edit className="h-4 w-4" />
+                            <Edit className="h-4 w-4 text-white" />
                           </Button>
                           <Button
                             variant="ghost"
