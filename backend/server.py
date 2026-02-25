@@ -5279,6 +5279,14 @@ async def websocket_chat(websocket: WebSocket, token: str):
             data = await websocket.receive_json()
             message_type = data.get("type")
 
+            if message_type == "ping":
+                # Heartbeat to keep user online
+                await db.users.update_one(
+                    {"id": user_id},
+                    {"$set": {"last_active": datetime.now(timezone.utc)}}
+                )
+                continue
+
             if message_type == "message":
                 # New message sent
                 message_data = data.get("message")

@@ -57,7 +57,15 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
 
     setWs(wsConnection);
 
+    // Heartbeat to keep user online - send ping every 2 minutes
+    const heartbeatInterval = setInterval(() => {
+      if (wsConnection.readyState === WebSocket.OPEN) {
+        wsConnection.send(JSON.stringify({ type: "ping" }));
+      }
+    }, 120000); // 2 minutes
+
     return () => {
+      clearInterval(heartbeatInterval);
       if (wsConnection.readyState === WebSocket.OPEN) {
         wsConnection.close();
       }
@@ -81,18 +89,42 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
   };
 
   const handleNewMessage = (message) => {
+    // Prevent duplicate messages - check if message already exists by ID or by content+sender+time
+    const isDuplicate = (msg) => {
+      // Check by ID first
+      if (msg.id === message.id) return true;
+      // Check for duplicate local messages (within 3 seconds) - same sender, same conversation, same content
+      const msgTime = new Date(msg.created_at).getTime();
+      const newMsgTime = new Date(message.created_at).getTime();
+      const timeDiff = Math.abs(msgTime - newMsgTime);
+      return (
+        msg.sender_id === message.sender_id &&
+        msg.conversation_id === message.conversation_id &&
+        msg.content === message.content &&
+        timeDiff < 3000 // Within 3 seconds
+      );
+    };
+
     // Add message to the conversation if it's open
     if (activeChat && message.conversation_id === activeChat.conversation_id) {
-      setActiveChat((prev) => ({
-        ...prev,
-        messages: [...(prev.messages || []), message],
-      }));
+      setActiveChat((prev) => {
+        // Check if message already exists
+        const exists = (prev.messages || []).some(isDuplicate);
+        if (exists) return prev;
+        return {
+          ...prev,
+          messages: [...(prev.messages || []), message],
+        };
+      });
     }
 
     // Also update the message in openChats for consistency
     setOpenChats((prev) =>
       prev.map((chat) => {
         if (chat.conversation_id === message.conversation_id) {
+          // Check if message already exists
+          const exists = (chat.messages || []).some(isDuplicate);
+          if (exists) return chat;
           return {
             ...chat,
             messages: [...(chat.messages || []), message],
@@ -140,11 +172,14 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
 
   const handleMessageRead = (data) => {
     // Update messages as read in the active conversation
+    // When user B reads messages from user A, data.read_by = user B's ID
+    // We want to mark messages from user A as read (messages where sender_id != read_by)
     if (activeChat && data.conversation_id === activeChat.conversation_id) {
       setActiveChat((prev) => ({
         ...prev,
         messages: prev.messages?.map((msg) => ({
           ...msg,
+          // Mark as read if the message sender is NOT the one who read (i.e., it's a message from the other person)
           is_read: msg.sender_id !== data.read_by ? true : msg.is_read,
         })) || [],
       }));
@@ -165,6 +200,16 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
         return chat;
       })
     );
+
+    // Also update conversations list to reset unread count
+    setConversations((prev) =>
+      prev.map((conv) => {
+        if (conv.id === data.conversation_id) {
+          return { ...conv, unread_count: 0 };
+        }
+        return conv;
+      })
+    );
   };
 
   // Fetch conversations and users
@@ -173,6 +218,18 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
       fetchConversations();
       fetchUsers();
     }
+  }, [token]);
+
+  // Periodic refresh for online status (every 30 seconds)
+  useEffect(() => {
+    if (!token) return;
+    
+    const interval = setInterval(() => {
+      fetchConversations();
+      fetchUsers();
+    }, 30000); // 30 seconds
+    
+    return () => clearInterval(interval);
   }, [token]);
 
   const fetchConversations = async () => {
@@ -813,6 +870,13 @@ function ChatWindowView({
       }
     }
   }, [chat.conversation_id, chat.messages, loadMessages, loading, messages.length]);
+
+  // Sync read status from parent chat.messages when it changes (e.g., from message_read WebSocket events)
+  useEffect(() => {
+    if (chat.messages && chat.messages.length > 0) {
+      setMessages(chat.messages);
+    }
+  }, [chat.messages]);
 
   // Mark as read after messages are loaded
   useEffect(() => {
