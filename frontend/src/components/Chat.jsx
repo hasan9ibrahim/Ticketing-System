@@ -89,6 +89,19 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
       }));
     }
 
+    // Also update the message in openChats for consistency
+    setOpenChats((prev) =>
+      prev.map((chat) => {
+        if (chat.conversation_id === message.conversation_id) {
+          return {
+            ...chat,
+            messages: [...(chat.messages || []), message],
+          };
+        }
+        return chat;
+      })
+    );
+
     // Update conversations list - don't increment unread count for own messages
     const isOwnMessage = message.sender_id === user?.id;
     setConversations((prev) => {
@@ -136,6 +149,22 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
         })) || [],
       }));
     }
+
+    // Also update messages in openChats for consistency
+    setOpenChats((prev) =>
+      prev.map((chat) => {
+        if (chat.conversation_id === data.conversation_id) {
+          return {
+            ...chat,
+            messages: chat.messages?.map((msg) => ({
+              ...msg,
+              is_read: msg.sender_id !== data.read_by ? true : msg.is_read,
+            })) || [],
+          };
+        }
+        return chat;
+      })
+    );
   };
 
   // Fetch conversations and users
@@ -601,9 +630,18 @@ function ChatListView({
 
   const formatTime = (dateStr) => {
     if (!dateStr) return "";
+    // Parse the date string - handle both UTC (with Z) and local time formats
     const date = new Date(dateStr);
     const now = new Date();
-    const diff = now - date;
+    
+    // Ensure we're comparing in the same timezone by getting UTC milliseconds
+    const dateUtc = date.getTime();
+    const nowUtc = now.getTime();
+    
+    // Handle invalid dates
+    if (isNaN(dateUtc)) return "";
+    
+    const diff = nowUtc - dateUtc;
     const minutes = Math.floor(diff / 60000);
     const hours = Math.floor(diff / 3600000);
     const days = Math.floor(diff / 86400000);
@@ -774,10 +812,14 @@ function ChatWindowView({
         loadMessages();
       }
     }
-    
-    // Mark as read
-    onMarkAsRead?.();
-  }, [chat.conversation_id, chat.messages]);
+  }, [chat.conversation_id, chat.messages, loadMessages, loading, messages.length]);
+
+  // Mark as read after messages are loaded
+  useEffect(() => {
+    if (chat.conversation_id && messages.length > 0) {
+      onMarkAsRead?.();
+    }
+  }, [chat.conversation_id, messages.length]);
 
   // Scroll to bottom when new messages arrive
   useEffect(() => {
