@@ -687,18 +687,23 @@ function ChatListView({
 
   const formatTime = (dateStr) => {
     if (!dateStr) return "";
-    // Parse the date string as UTC to handle timezone correctly
-    const date = new Date(dateStr);
+    // Parse the date - if no timezone info, append 'Z' to treat as UTC
+    // JavaScript will then convert to local time for display
+    let dateStrWithTz = dateStr;
+    if (!dateStr.endsWith('Z') && !dateStr.includes('+') && !dateStr.endsWith('Z')) {
+      dateStrWithTz = dateStr + 'Z';
+    }
+    const date = new Date(dateStrWithTz);
     const now = new Date();
     
-    // Get UTC milliseconds for both dates to ensure consistent comparison
-    const dateUtc = date.getTime();
-    const nowUtc = now.getTime();
+    // Use local time for comparison
+    const dateTime = date.getTime();
+    const nowTime = now.getTime();
     
     // Handle invalid dates
-    if (isNaN(dateUtc)) return "";
+    if (isNaN(dateTime)) return "";
     
-    const diff = nowUtc - dateUtc;
+    const diff = nowTime - dateTime;
     const minutes = Math.floor(diff / 60000);
     const hours = Math.floor(diff / 3600000);
     const days = Math.floor(diff / 86400000);
@@ -707,8 +712,7 @@ function ChatListView({
     if (minutes < 60) return `${minutes}m`;
     if (hours < 24) return `${hours}h`;
     if (days < 7) return `${days}d`;
-    // Use UTC date for older messages
-    return `${date.getUTCFullYear()}-${(date.getUTCMonth() + 1).toString().padStart(2, '0')}-${date.getUTCDate().toString().padStart(2, '0')}`;
+    return date.toLocaleDateString();
   };
 
   return (
@@ -824,6 +828,7 @@ function ChatWindowView({
 }) {
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState([]);
+  const [hasLoadedFromApi, setHasLoadedFromApi] = useState(false);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const [loading, setLoading] = useState(false);
@@ -851,10 +856,18 @@ function ChatWindowView({
         setMessages(apiMessages);
       }
       setHasMore(apiMessages.length === 50);
+      setHasLoadedFromApi(true);
     } catch (error) {
       console.error("Error loading messages:", error);
     }
     setLoading(false);
+  }, [chat.conversation_id]);
+
+  // Reset loaded state when conversation changes
+  useEffect(() => {
+    if (chat.conversation_id) {
+      setHasLoadedFromApi(false);
+    }
   }, [chat.conversation_id]);
 
   // Load and sync messages when conversation changes
@@ -868,9 +881,9 @@ function ChatWindowView({
       return;
     }
     
-    // If parent has messages, sync with them for real-time updates
-    // This includes new messages and read status updates
-    if (chat.messages && chat.messages.length > 0) {
+    // Only sync from parent after we've loaded from API to avoid race conditions
+    // where local messages get overwritten by incomplete parent state
+    if (hasLoadedFromApi && chat.messages && chat.messages.length > 0) {
       // Check if we need to update - either new messages or read status changes
       const parentIds = new Set(chat.messages.map(m => m.id));
       const newMessages = messages.filter(m => !parentIds.has(m.id));
@@ -885,7 +898,7 @@ function ChatWindowView({
         setMessages(chat.messages);
       }
     }
-  }, [chat.conversation_id, chat.messages]);
+  }, [chat.conversation_id, chat.messages, hasLoadedFromApi]);
 
   // Mark as read after messages are loaded
   useEffect(() => {
@@ -941,34 +954,32 @@ function ChatWindowView({
 
   const formatTime = (dateStr) => {
     if (!dateStr) return "";
-    // Parse the date string - handle both UTC (with Z) and local time formats
-    const date = new Date(dateStr);
-    // Use UTC methods to properly display the time as stored on server
-    // This ensures times are displayed in the timezone they were sent
-    const hours = date.getUTCHours();
-    const minutes = date.getUTCMinutes();
-    const period = hours >= 12 ? 'PM' : 'AM';
-    const displayHours = hours % 12 || 12;
-    return `${displayHours}:${minutes.toString().padStart(2, '0')} ${period}`;
+    // Parse the date - if no timezone info, append 'Z' to treat as UTC
+    // JavaScript will then convert to local time for display
+    let dateStrWithTz = dateStr;
+    if (!dateStr.endsWith('Z') && !dateStr.includes('+') && !dateStr.endsWith('Z')) {
+      dateStrWithTz = dateStr + 'Z';
+    }
+    const date = new Date(dateStrWithTz);
+    // Use toLocaleTimeString which automatically converts UTC to local timezone
+    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   };
 
   const formatDate = (dateStr) => {
     if (!dateStr) return "";
-    // Parse as UTC to ensure consistent date handling
-    const date = new Date(dateStr);
+    // Parse the date - if no timezone info, append 'Z' to treat as UTC
+    let dateStrWithTz = dateStr;
+    if (!dateStr.endsWith('Z') && !dateStr.includes('+') && !dateStr.endsWith('Z')) {
+      dateStrWithTz = dateStr + 'Z';
+    }
+    const date = new Date(dateStrWithTz);
     const today = new Date();
     const yesterday = new Date(today);
     yesterday.setDate(yesterday.getDate() - 1);
 
-    // Use UTC methods for date comparison to avoid timezone issues
-    const dateUTC = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
-    const todayUTC = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
-    const yesterdayUTC = Date.UTC(yesterday.getUTCFullYear(), yesterday.getUTCMonth(), yesterday.getUTCDate());
-
-    if (dateUTC === todayUTC) return "Today";
-    if (dateUTC === yesterdayUTC) return "Yesterday";
-    // Use UTC date components for display
-    return `${date.getUTCFullYear()}-${(date.getUTCMonth() + 1).toString().padStart(2, '0')}-${date.getUTCDate().toString().padStart(2, '0')}`;
+    if (date.toDateString() === today.toDateString()) return "Today";
+    if (date.toDateString() === yesterday.toDateString()) return "Yesterday";
+    return date.toLocaleDateString();
   };
 
   const groupMessagesByDate = () => {
