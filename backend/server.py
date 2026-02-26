@@ -91,6 +91,7 @@ class User(BaseModel):
     role: Optional[str] = None  # Deprecated: use department instead
     department_id: Optional[str] = None  # Link to department
     am_type: Optional[str] = None  # Deprecated: use department.department_type instead
+    is_active: bool = True  # Whether user is active
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     last_active: Optional[datetime] = None  # Track when user was last active
     # Notification preferences for AMs
@@ -221,6 +222,65 @@ class DepartmentUpdate(BaseModel):
     can_edit_users: Optional[bool] = None
     can_view_all_tickets: Optional[bool] = None
 
+
+class NOCSchedule(BaseModel):
+    """Model for NOC schedule entries"""
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    noc_user_id: str  # Reference to the NOC user
+    noc_user_name: str  # Cached name for display
+    date: str  # Date in YYYY-MM-DD format
+    shift_type: str = "off"  # "shift_a", "shift_b", "shift_c", "shift_d", "off", "holiday"
+    notes: Optional[str] = None
+    created_by: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class NOCScheduleCreate(BaseModel):
+    """Model for creating NOC schedule entries"""
+    noc_user_id: str
+    date: str  # YYYY-MM-DD
+    shift_type: str = "off"  # "shift_a", "shift_b", "shift_c", "shift_d", "off", "holiday"
+    notes: Optional[str] = None
+
+
+class NOCScheduleUpdate(BaseModel):
+    """Model for updating NOC schedule entries"""
+    noc_user_id: Optional[str] = None
+    date: Optional[str] = None
+    shift_type: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class NOCScheduleBulkCreate(BaseModel):
+    """Model for bulk creating schedule entries (e.g., copying a week)"""
+    schedules: List[NOCScheduleCreate]
+
+
+class NOCMonthlyNote(BaseModel):
+    """Model for monthly notes"""
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    year: int
+    month: int
+    note: str
+    created_by: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class NOCMonthlyNoteCreate(BaseModel):
+    """Model for creating monthly notes"""
+    year: int
+    month: int
+    note: str
+
+
+class NOCMonthlyNoteUpdate(BaseModel):
+    """Model for updating monthly notes"""
+    note: Optional[str] = None
+
 class UserCreate(BaseModel):
     username: str
     name: str  # Full name - required
@@ -245,6 +305,7 @@ class UserResponse(BaseModel):
     department_id: Optional[str] = None
     role: Optional[str] = None  # Deprecated
     am_type: Optional[str] = None  # Deprecated
+    is_active: Optional[bool] = True
     created_at: datetime
     last_active: Optional[datetime] = None
     two_factor_enabled: Optional[bool] = False
@@ -1196,6 +1257,10 @@ async def login(login_data: UserLogin):
     if not user or not verify_password(login_data.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     
+    # Check if user is active
+    if user.get("is_active") is False:
+        raise HTTPException(status_code=403, detail="User account is inactive. Please contact admin.")
+    
     # Check if 2FA is enabled
     if user.get("two_factor_enabled"):
         method = user.get("two_factor_method")
@@ -1654,6 +1719,10 @@ async def verify_2fa_login(login_data: TwoFactorLogin):
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
+    # Check if user is active
+    if user.get("is_active") is False:
+        raise HTTPException(status_code=403, detail="User account is inactive. Please contact admin.")
+    
     method = user.get("two_factor_method")
     
     if method == "totp":
@@ -2062,6 +2131,43 @@ async def delete_user(user_id: str, current_admin: dict = Depends(get_current_ad
     )
     
     return {"message": "User deleted successfully"}
+
+@api_router.patch("/users/{user_id}/active-status")
+async def toggle_user_active_status(user_id: str, request: dict, current_admin: dict = Depends(get_current_admin)):
+    """Toggle user active status - admin only"""
+    active_status = request.get("is_active")
+    
+    if active_status is None:
+        raise HTTPException(status_code=400, detail="is_active field is required")
+    
+    # Get user before update for audit
+    user_before = await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})
+    
+    if not user_before:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    result = await db.users.find_one_and_update(
+        {"id": user_id},
+        {"$set": {"is_active": active_status}},
+        return_document=True,
+        projection={"_id": 0, "password_hash": 0}
+    )
+    
+    if not result:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Create audit log for status change
+    await create_audit_log(
+        user_id=current_admin["id"],
+        username=current_admin.get("username", "admin"),
+        action="toggle_active",
+        entity_type="user",
+        entity_id=user_id,
+        entity_name=user_before.get("username", user_id),
+        changes={"before": {"is_active": user_before.get("is_active", True)}, "after": {"is_active": active_status}}
+    )
+    
+    return {"message": f"User {'activated' if active_status else 'deactivated'} successfully", "is_active": active_status}
 
 # ==================== DEPARTMENT ROUTES ====================
 
@@ -5805,6 +5911,322 @@ async def get_chat_file(filename: str):
     from fastapi.responses import FileResponse
     return FileResponse(file_path)
 
+
+# =====================
+# NOC Schedule Endpoints
+# =====================
+
+@api_router.get("/noc-schedule", response_model=List[NOCSchedule])
+async def get_noc_schedule(
+    year: int,
+    month: int,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get NOC schedule for a specific month"""
+    # Calculate start and end dates for the month
+    start_date = datetime(year, month, 1)
+    if month == 12:
+        end_date = datetime(year + 1, 1, 1)
+    else:
+        end_date = datetime(year, month + 1, 1)
+    
+    # Get active NOC users to filter out inactive ones
+    # Also include users who don't have is_active field (backward compatibility)
+    active_noc_users = await db.users.find(
+        {
+            "department_id": "dept_noc",
+            "$or": [
+                {"is_active": True},
+                {"is_active": {"$exists": False}}
+            ]
+        },
+        {"_id": 0, "id": 1}
+    ).to_list(1000)
+    active_noc_user_ids = [u["id"] for u in active_noc_users]
+    
+    # Fetch schedules for the month only for active NOC users
+    schedules = await db.noc_schedules.find({
+        "date": {
+            "$gte": start_date.strftime("%Y-%m-%d"),
+            "$lt": end_date.strftime("%Y-%m-%d")
+        },
+        "noc_user_id": {"$in": active_noc_user_ids}
+    }).to_list(1000)
+    
+    # Convert and clean up MongoDB documents
+    result = []
+    for schedule in schedules:
+        # Remove MongoDB _id field which can't be serialized by Pydantic
+        schedule.pop("_id", None)
+        
+        # Convert datetime fields
+        if schedule.get("created_at") and hasattr(schedule["created_at"], "isoformat"):
+            schedule["created_at"] = schedule["created_at"].isoformat()
+        if schedule.get("updated_at") and hasattr(schedule["updated_at"], "isoformat"):
+            schedule["updated_at"] = schedule["updated_at"].isoformat()
+        
+        # Validate with Pydantic model
+        try:
+            result.append(NOCSchedule(**schedule))
+        except Exception as e:
+            logger.error(f"Error parsing schedule: {e}, schedule: {schedule}")
+    
+    return result
+
+
+@api_router.post("/noc-schedule", response_model=NOCSchedule)
+async def create_noc_schedule(
+    schedule: NOCScheduleCreate,
+    current_user: dict = Depends(get_current_user)
+):
+    """Create a new NOC schedule entry (Admin only)"""
+    # Check if user is admin
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can create schedules")
+    
+    # Get NOC user info
+    noc_user = await db.users.find_one({"id": schedule.noc_user_id})
+    if not noc_user:
+        raise HTTPException(status_code=404, detail="NOC user not found")
+    
+    # Check if schedule already exists
+    existing = await db.noc_schedules.find_one({
+        "noc_user_id": schedule.noc_user_id,
+        "date": schedule.date
+    })
+    
+    noc_user_name = noc_user.get("name", noc_user.get("username", "Unknown"))
+    now = datetime.now(timezone.utc)
+    
+    if existing:
+        # Update existing
+        await db.noc_schedules.update_one(
+            {"id": existing["id"]},
+            {"$set": {
+                "shift_type": schedule.shift_type,
+                "notes": schedule.notes,
+                "updated_at": now
+            }}
+        )
+    else:
+        # Create new
+        schedule_obj = NOCSchedule(
+            noc_user_id=schedule.noc_user_id,
+            noc_user_name=noc_user_name,
+            date=schedule.date,
+            shift_type=schedule.shift_type,
+            notes=schedule.notes,
+            created_by=current_user.get("id")
+        )
+        await db.noc_schedules.insert_one(schedule_obj.model_dump())
+    
+    # Return the schedule
+    updated = await db.noc_schedules.find_one({
+        "noc_user_id": schedule.noc_user_id,
+        "date": schedule.date
+    })
+    
+    # Remove MongoDB _id field
+    if updated:
+        updated.pop("_id", None)
+    
+    if updated.get("created_at") and hasattr(updated["created_at"], "isoformat"):
+        updated["created_at"] = updated["created_at"].isoformat()
+    if updated.get("updated_at") and hasattr(updated["updated_at"], "isoformat"):
+        updated["updated_at"] = updated["updated_at"].isoformat()
+    
+    return NOCSchedule(**updated)
+
+
+@api_router.put("/noc-schedule/{schedule_id}", response_model=NOCSchedule)
+async def update_noc_schedule(
+    schedule_id: str,
+    schedule_update: NOCScheduleUpdate,
+    current_user: dict = Depends(get_current_user)
+):
+    """Update a NOC schedule entry (Admin only)"""
+    # Check if user is admin
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can update schedules")
+    
+    # Check if schedule exists
+    existing = await db.noc_schedules.find_one({"id": schedule_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    
+    # Build update fields
+    update_data = schedule_update.model_dump(exclude_unset=True)
+    update_data["updated_at"] = datetime.now(timezone.utc)
+    
+    # If noc_user_id is being changed, update the name too
+    if "noc_user_id" in update_data:
+        noc_user = await db.users.find_one({"id": update_data["noc_user_id"]})
+        if noc_user:
+            update_data["noc_user_name"] = noc_user.get("name", noc_user.get("username", "Unknown"))
+    
+    await db.noc_schedules.update_one(
+        {"id": schedule_id},
+        {"$set": update_data}
+    )
+    
+    # Return updated schedule
+    updated = await db.noc_schedules.find_one({"id": schedule_id})
+    
+    # Remove MongoDB _id field
+    if updated:
+        updated.pop("_id", None)
+    
+    if updated.get("created_at") and hasattr(updated["created_at"], "isoformat"):
+        updated["created_at"] = updated["created_at"].isoformat()
+    if updated.get("updated_at") and hasattr(updated["updated_at"], "isoformat"):
+        updated["updated_at"] = updated["updated_at"].isoformat()
+    
+    return NOCSchedule(**updated)
+
+
+@api_router.delete("/noc-schedule/{schedule_id}")
+async def delete_noc_schedule(
+    schedule_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Delete a NOC schedule entry (Admin only)"""
+    # Check if user is admin
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can delete schedules")
+    
+    # Check if schedule exists
+    existing = await db.noc_schedules.find_one({"id": schedule_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    
+    await db.noc_schedules.delete_one({"id": schedule_id})
+    
+    return {"message": "Schedule deleted successfully"}
+
+
+@api_router.post("/noc-schedule/bulk", response_model=List[NOCSchedule])
+async def bulk_create_noc_schedule(
+    bulk_data: NOCScheduleBulkCreate,
+    current_user: dict = Depends(get_current_user)
+):
+    """Bulk create NOC schedule entries (Admin only)"""
+    # Check if user is admin
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can create schedules")
+    
+    created_schedules = []
+    
+    for schedule_data in bulk_data.schedules:
+        # Get NOC user info
+        noc_user = await db.users.find_one({"id": schedule_data.noc_user_id})
+        if not noc_user:
+            continue  # Skip invalid users
+        
+        # Check if schedule already exists for this user on this date
+        existing = await db.noc_schedules.find_one({
+            "noc_user_id": schedule_data.noc_user_id,
+            "date": schedule_data.date
+        })
+        if existing:
+            continue  # Skip existing schedules
+        
+        # Create schedule
+        schedule_obj = NOCSchedule(
+            noc_user_id=schedule_data.noc_user_id,
+            noc_user_name=noc_user.get("name", noc_user.get("username", "Unknown")),
+            date=schedule_data.date,
+            shift_type=schedule_data.shift_type,
+            notes=schedule_data.notes,
+            created_by=current_user.get("id")
+        )
+        
+        await db.noc_schedules.insert_one(schedule_obj.model_dump())
+        
+        # Convert to dict and add to results
+        result = schedule_obj.model_dump()
+        created_schedules.append(result)
+    
+    return created_schedules
+
+
+# =====================
+# NOC Monthly Notes Endpoints
+# =====================
+
+@api_router.get("/noc-schedule/monthly-note", response_model=Optional[NOCMonthlyNote])
+async def get_monthly_note(
+    year: int,
+    month: int,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get monthly note for NOC schedule"""
+    note = await db.noc_monthly_notes.find_one({
+        "year": year,
+        "month": month
+    })
+    
+    if note:
+        # Remove MongoDB _id field
+        note.pop("_id", None)
+        
+        if note.get("created_at") and hasattr(note["created_at"], "isoformat"):
+            note["created_at"] = note["created_at"].isoformat()
+        if note.get("updated_at") and hasattr(note["updated_at"], "isoformat"):
+            note["updated_at"] = note["updated_at"].isoformat()
+        
+        return NOCMonthlyNote(**note)
+    
+    return None
+
+
+@api_router.post("/noc-schedule/monthly-note", response_model=NOCMonthlyNote)
+async def create_or_update_monthly_note(
+    note_data: NOCMonthlyNoteCreate,
+    current_user: dict = Depends(get_current_user)
+):
+    """Create or update monthly note (Admin only)"""
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can update monthly notes")
+    
+    # Check if note exists
+    existing = await db.noc_monthly_notes.find_one({
+        "year": note_data.year,
+        "month": note_data.month
+    })
+    
+    if existing:
+        # Update existing
+        await db.noc_monthly_notes.update_one(
+            {"id": existing["id"]},
+            {"$set": {
+                "note": note_data.note,
+                "updated_at": datetime.now(timezone.utc)
+            }}
+        )
+        updated = await db.noc_monthly_notes.find_one({"id": existing["id"]})
+    else:
+        # Create new
+        note_obj = NOCMonthlyNote(
+            year=note_data.year,
+            month=note_data.month,
+            note=note_data.note,
+            created_by=current_user.get("id")
+        )
+        await db.noc_monthly_notes.insert_one(note_obj.model_dump())
+        updated = note_obj.model_dump()
+    
+    # Remove MongoDB _id field
+    if updated:
+        updated.pop("_id", None)
+    
+    if updated.get("created_at") and hasattr(updated["created_at"], "isoformat"):
+        updated["created_at"] = updated["created_at"].isoformat()
+    if updated.get("updated_at") and hasattr(updated["updated_at"], "isoformat"):
+        updated["updated_at"] = updated["updated_at"].isoformat()
+    
+    return NOCMonthlyNote(**updated)
+
+
 # Include router
 app.include_router(api_router)
 
@@ -5859,6 +6281,18 @@ async def startup_init():
         await db.audit_logs.create_index("timestamp")
         await db.audit_logs.create_index("user_id")
         await db.audit_logs.create_index("entity_type")
+        
+        # Create noc_schedules collection if it doesn't exist
+        if "noc_schedules" not in await db.list_collection_names():
+            await db.create_collection("noc_schedules")
+        await db.noc_schedules.create_index("date")
+        await db.noc_schedules.create_index("noc_user_id")
+        await db.noc_schedules.create_index([("noc_user_id", 1), ("date", 1)])
+        
+        # Create noc_monthly_notes collection if it doesn't exist
+        if "noc_monthly_notes" not in await db.list_collection_names():
+            await db.create_collection("noc_monthly_notes")
+        await db.noc_monthly_notes.create_index([("year", 1), ("month", 1)])
         
         logger.info("Chat collections initialized successfully")
     except Exception as e:

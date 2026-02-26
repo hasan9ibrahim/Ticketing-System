@@ -15,6 +15,7 @@ import DepartmentsPage from "./pages/DepartmentsPage";
 import ReferencesPage from "./pages/ReferencesPage";
 import RequestsPage from "./pages/RequestsPage";
 import TwoFactorSetupPage from "./pages/TwoFactorSetupPage";
+import NOCSchedulePage from "./pages/NOCSchedulePage";
 import { Toaster } from "@/components/ui/toaster";
 import axios from "axios";
 
@@ -111,6 +112,7 @@ function App() {
             <Route path="references" element={<ReferencesPage />} />
             <Route path="requests" element={<RequestsPage />} />
             <Route path="two-factor-setup" element={<TwoFactorSetupPage />} />
+            <Route path="noc-schedule" element={<NOCSchedulePage />} />
           </Route>
         </Routes>
       </BrowserRouter>

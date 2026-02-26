@@ -263,6 +263,7 @@ export default function UsersPage() {
               <TableHead className="text-zinc-400">Phone</TableHead>
               <TableHead className="text-zinc-400">Department</TableHead>
               <TableHead className="text-zinc-400">2FA</TableHead>
+              <TableHead className="text-zinc-400">Active</TableHead>
               <TableHead className="text-zinc-400">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -295,6 +296,23 @@ export default function UsersPage() {
                         <span className="text-xs text-zinc-500">Off</span>
                       </div>
                     )}
+                  </TableCell>
+                  <TableCell>
+                    <Switch
+                      checked={user.is_active !== false}
+                      onCheckedChange={async (checked) => {
+                        try {
+                          const token = localStorage.getItem("token");
+                          await axios.patch(`${API}/users/${user.id}/active-status`, { is_active: checked }, {
+                            headers: { Authorization: `Bearer ${token}` },
+                          });
+                          toast.success(`User ${checked ? "activated" : "deactivated"} successfully`);
+                          fetchUsers();
+                        } catch (error) {
+                          toast.error("Failed to update user status");
+                        }
+                      }}
+                    />
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-2">
