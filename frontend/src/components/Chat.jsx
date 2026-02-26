@@ -839,8 +839,18 @@ function ChatWindowView({
         `${API}/chat/conversations/${chat.conversation_id}/messages?limit=50`,
         { headers: { Authorization: `Bearer ${localStorage.getItem("token")}` } }
       );
-      setMessages(response.data);
-      setHasMore(response.data.length === 50);
+      // Merge API messages with any existing local messages (e.g., messages sent while loading)
+      const apiMessages = response.data;
+      const existingLocalIds = new Set(apiMessages.map(m => m.id));
+      const localOnlyMessages = messages.filter(m => !existingLocalIds.has(m.id));
+      
+      if (localOnlyMessages.length > 0) {
+        // Combine API messages with locally-added messages
+        setMessages([...apiMessages, ...localOnlyMessages]);
+      } else {
+        setMessages(apiMessages);
+      }
+      setHasMore(apiMessages.length === 50);
     } catch (error) {
       console.error("Error loading messages:", error);
     }
