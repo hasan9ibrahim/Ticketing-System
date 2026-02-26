@@ -70,6 +70,7 @@ export default function RequestsPage() {
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState("sms");
+  const [requestSubTab, setRequestSubTab] = useState("active"); // "active" or "archive" for sub-tabs
   const [requests, setRequests] = useState([]);
   
   // Get user info early to use in computations
@@ -108,6 +109,29 @@ export default function RequestsPage() {
   const [claimDialogOpen, setClaimDialogOpen] = useState(false);
   const [requestToClaim, setRequestToClaim] = useState(null);
   const [isEditMode, setIsEditMode] = useState(false);
+
+  // Refs for auto-refresh to avoid stale closures
+  const activeTabRef = useRef(activeTab);
+  const requestSubTabRef = useRef(requestSubTab);
+  const userRoleRef = useRef(userRole);
+  const statusFilterRef = useRef(statusFilter);
+
+  // Update refs when values change
+  useEffect(() => {
+    activeTabRef.current = activeTab;
+  }, [activeTab]);
+
+  useEffect(() => {
+    requestSubTabRef.current = requestSubTab;
+  }, [requestSubTab]);
+
+  useEffect(() => {
+    userRoleRef.current = userRole;
+  }, [userRole]);
+
+  useEffect(() => {
+    statusFilterRef.current = statusFilter;
+  }, [statusFilter]);
   const [editingRequest, setEditingRequest] = useState(null);
   
   // For customer and vendor trunk selection
@@ -173,7 +197,7 @@ export default function RequestsPage() {
   
   useEffect(() => {
     fetchRequests();
-  }, [activeTab, statusFilter]);
+  }, [activeTab, statusFilter, requestSubTab]);
 
   // Handle URL parameters for pre-filling form (e.g., from ticket pages)
   // Use useEffect to check URL params and open dialog
@@ -300,11 +324,19 @@ export default function RequestsPage() {
     try {
       const token = localStorage.getItem("token");
       const params = new URLSearchParams();
-      // For AMs, filter by their department; for admins, use activeTab
-      params.append("department", userRole === "am" ? displayTab : activeTab);
-      if (statusFilter !== "all") {
-        params.append("status", statusFilter);
-      }
+      
+      // Compute displayTab using refs to avoid stale closures
+      const currentUserRole = userRoleRef.current;
+      const currentActiveTab = activeTabRef.current;
+      const isSmsDept = userDepartment?.startsWith("sms") || userDepartment === "sms";
+      const isVoiceDept = userDepartment?.startsWith("voice") || userDepartment === "voice";
+      const currentDisplayTab = currentUserRole === "am" 
+        ? (isSmsDept ? "sms" : isVoiceDept ? "voice" : userDepartment) 
+        : currentActiveTab;
+      
+      // For NOC/Admin: fetch all requests for the department (API returns all statuses)
+      // For AM: fetch requests for their department
+      params.append("department", currentUserRole === "am" ? currentDisplayTab : currentActiveTab);
       
       const response = await fetch(`${API}/requests?${params}`, {
         headers: { Authorization: `Bearer ${token}` }
@@ -852,6 +884,58 @@ export default function RequestsPage() {
     setDialogOpen(true);
   };
 
+  // Create LCR Request from completed Testing Request for AM
+  const handleCreateLcrFromTesting = (request) => {
+    setIsEditMode(false);
+    setEditingRequest(null);
+    // Populate formData with LCR request type, pre-filling common fields from Testing request
+    setFormData({
+      request_type: "lcr",
+      request_type_label: "LCR Request",
+      priority: request.priority || "Medium",
+      customer: request.customer || "",
+      customer_id: request.customer_id || "",
+      customer_ids: request.customer_ids || (request.customer_id ? [request.customer_id] : []),
+      // Pre-fill common fields from Testing request
+      ticket_id: request.ticket_id || "",
+      destination: request.destination || "",
+      vendor_trunks: request.vendor_trunks?.length > 0 ? request.vendor_trunks : [{ trunk: "", sid_content_pairs: [{sid: "", content: ""}] }],
+      // LCR-specific fields (will be filled by AM)
+      lcr_type: "",
+      lcr_change: "",
+      // Clear other fields not needed for LCR
+      rating: "",
+      routing: "",
+      customer_trunk: "",
+      customer_trunks: { "": [{ destination: "", rate: "" }] },
+      by_loss: false,
+      enable_mnp_hlr: false,
+      mnp_hlr_type: "",
+      enable_threshold: false,
+      threshold_count: "",
+      via_vendor: "",
+      enable_whitelisting: false,
+      rating_vendor_trunks: { "1": [{ trunk: "", percentage: "", cost_type: "fixed", cost_min: "", cost_max: "" }] },
+      translation_type: "",
+      trunk_type: "",
+      trunk_name: "",
+      old_value: "",
+      new_value: "",
+      old_sid: "",
+      new_sid: "",
+      word_to_remove: "",
+      translation_destination: "",
+      enterprise_id: request.enterprise_id || request.customer_id || "",
+      test_type: "",
+      test_description: "",
+      issue_types: [],
+      issue_other: "",
+      investigation_destination: "",
+      issue_description: ""
+    });
+    setDialogOpen(true);
+  };
+
   const handleDeleteRequest = async (requestId) => {
     setRequestToDelete(requestId);
     setDeleteDialogOpen(true);
@@ -976,6 +1060,17 @@ export default function RequestsPage() {
   };
 
   const filteredRequests = requests.filter(req => {
+    // Filter by subtab (active vs archive)
+    // For NOC/Admin: API returns requests filtered by department (sms/voice)
+    // For AM: API returns requests for their department, client-side doesn't need extra filtering
+    if (requestSubTab === "active") {
+      // Active: show pending and claimed requests
+      if (req.status !== "pending" && req.status !== "in_progress") return false;
+    } else {
+      // Archive: show completed and rejected requests
+      if (req.status !== "completed" && req.status !== "rejected") return false;
+    }
+    
     if (!searchTerm) return true;
     const search = searchTerm.toLowerCase();
     return (
@@ -1008,13 +1103,27 @@ export default function RequestsPage() {
     });
   });
 
-  // Sort requests by priority (Urgent -> High -> Medium -> Low)
+  // Sort requests: Active tab = by priority, Archive tab = by time (newest first)
   const priorityOrder = { "Urgent": 1, "High": 2, "Medium": 3, "Low": 4 };
-  filteredRequests.sort((a, b) => {
-    const priorityA = priorityOrder[a.priority] || 5;
-    const priorityB = priorityOrder[b.priority] || 5;
-    return priorityA - priorityB;
-  });
+  
+  // Create a copy for sorting to avoid mutating the original array
+  const sortedRequests = [...filteredRequests];
+  
+  if (requestSubTab === "active") {
+    // Active tab: sort by priority (Urgent -> High -> Medium -> Low)
+    sortedRequests.sort((a, b) => {
+      const priorityA = priorityOrder[a.priority] || 5;
+      const priorityB = priorityOrder[b.priority] || 5;
+      return priorityA - priorityB;
+    });
+  } else {
+    // Archive tab: sort by time (newest first)
+    sortedRequests.sort((a, b) => {
+      const dateA = new Date(a.created_at || 0);
+      const dateB = new Date(b.created_at || 0);
+      return dateB - dateA; // Newest first
+    });
+  }
 
   // For AMs, only show their department
   // Use flexible matching to handle different department name formats
@@ -1200,9 +1309,9 @@ export default function RequestsPage() {
         />
       </div>
 
-      {/* Tabs - Only show for NOC/Admin */}
-      {userRole !== "am" && (
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
+      {/* Tabs - For NOC/Admin show both SMS/Voice, for AM show only their department */}
+      {userRole !== "am" ? (
+        <Tabs value={activeTab} onValueChange={(val) => { setActiveTab(val); setRequestSubTab("active"); }}>
           <TabsList className="bg-zinc-800">
             <TabsTrigger value="sms" className="data-[state=active]:bg-amber-500 data-[state=active]:text-black">
               SMS Requests
@@ -1212,11 +1321,33 @@ export default function RequestsPage() {
             </TabsTrigger>
           </TabsList>
         </Tabs>
+      ) : (
+        <div className="text-lg font-semibold text-white mb-2">
+          {isSmsDepartment ? "SMS Requests" : isVoiceDepartment ? "Voice Requests" : "My Requests"}
+        </div>
       )}
+
+      {/* Sub-tabs for Active/Archive - show for all users */}
+      <div className="mt-4 flex gap-2">
+        <Button
+          variant={requestSubTab === "active" ? "default" : "outline"}
+          onClick={() => setRequestSubTab("active")}
+          className={requestSubTab === "active" ? "bg-green-600 hover:bg-green-700" : "border-zinc-600 text-zinc-300 hover:bg-zinc-800"}
+        >
+          Active
+        </Button>
+        <Button
+          variant={requestSubTab === "archive" ? "default" : "outline"}
+          onClick={() => setRequestSubTab("archive")}
+          className={requestSubTab === "archive" ? "bg-blue-600 hover:bg-blue-700" : "border-zinc-600 text-zinc-300 hover:bg-zinc-800"}
+        >
+          Archive
+        </Button>
+      </div>
 
       {/* Requests List */}
       <div className="grid gap-4">
-        {filteredRequests.length === 0 ? (
+        {sortedRequests.length === 0 ? (
           <Card className="bg-zinc-900 border-zinc-800">
             <CardContent className="flex flex-col items-center justify-center py-12">
               <Filter className="h-12 w-12 text-zinc-600 mb-4" />
@@ -1224,7 +1355,7 @@ export default function RequestsPage() {
             </CardContent>
           </Card>
         ) : (
-          filteredRequests.map((request) => {
+          sortedRequests.map((request) => {
             const statusConfig = getStatusConfig(request.status);
             const StatusIcon = statusConfig.icon;
             
@@ -1368,6 +1499,20 @@ export default function RequestsPage() {
                         className="border-zinc-600 text-zinc-300 hover:bg-zinc-800 hover:text-white"
                       >
                         <Copy className="h-4 w-4 mr-1" /> Clone/Resend
+                      </Button>
+                    </div>
+                  )}
+                  
+                  {/* Create LCR Request button for AMs - only for completed Testing requests in Voice */}
+                  {userRole === "am" && request.created_by === user.id && request.status === "completed" && (request.request_type === "testing" || request.request_type_label?.includes("Testing")) && (
+                    <div className="flex gap-2 mt-3 pt-3 border-t border-zinc-800">
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        onClick={() => handleCreateLcrFromTesting(request)}
+                        className="border-zinc-600 text-amber-400 hover:bg-amber-900/20 hover:text-amber-300"
+                      >
+                        <Plus className="h-4 w-4 mr-1" /> Create LCR Request
                       </Button>
                     </div>
                   )}

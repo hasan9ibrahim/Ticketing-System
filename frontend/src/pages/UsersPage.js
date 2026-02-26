@@ -147,7 +147,7 @@ export default function UsersPage() {
       role: user.role || "noc",
       am_type: user.am_type || "",
       two_factor_enabled: user.two_factor_enabled || false,
-      two_factor_method: user.two_factor_method || "email",
+      two_factor_method: user.two_factor_method || "totp",
     });
     setSheetOpen(true);
   };
@@ -469,14 +469,13 @@ export default function UsersPage() {
                   <div className="space-y-2">
                     <Label className="text-zinc-400">2FA Method</Label>
                     <Select
-                      value={formData.two_factor_method || "email"}
+                      value={formData.two_factor_method || "totp"}
                       onValueChange={(value) => setFormData({ ...formData, two_factor_method: value })}
                     >
                       <SelectTrigger className="bg-zinc-800 border-zinc-700">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent className="bg-zinc-800 border-zinc-700">
-                        <SelectItem value="email">Email</SelectItem>
                         <SelectItem value="totp">Google Authenticator</SelectItem>
                       </SelectContent>
                     </Select>

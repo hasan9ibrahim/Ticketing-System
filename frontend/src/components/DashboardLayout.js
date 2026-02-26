@@ -955,7 +955,27 @@ export default function DashboardLayout({ user, setUser }) {
       {/* Main Content */}
       <main className="flex-1 flex flex-col overflow-auto">
         {/* Top Header Bar with Notifications */}
-        <header className="h-14 bg-zinc-900 border-b border-white/5 flex items-center justify-end px-4 gap-4">
+        <header className="h-14 bg-zinc-900 border-b border-white/5 flex items-center justify-between px-4 gap-4">
+          {/* Mobile Sidebar Expand Button - Only shows on mobile when sidebar is collapsed */}
+          {!sidebarOpen ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setSidebarOpen(true)}
+              className="lg:hidden text-zinc-400 hover:text-white hover:bg-zinc-800"
+            >
+              <Menu className="h-5 w-5" />
+            </Button>
+          ) : (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setSidebarOpen(false)}
+              className="lg:hidden text-zinc-400 hover:text-white hover:bg-zinc-800"
+            >
+              <X className="h-5 w-5" />
+            </Button>
+          )}
           {/* Combined Notifications Bell Icon - Shows both Alert and Ticket notifications */}
           <Popover open={showAlertNotifications} onOpenChange={setShowAlertNotifications}>
             <PopoverTrigger asChild>

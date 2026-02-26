@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Shield, ShieldCheck, ShieldOff, Smartphone, Mail, QrCode, Copy, Check } from "lucide-react";
+import { Shield, ShieldCheck, ShieldOff, Smartphone, QrCode, Copy, Check } from "lucide-react";
 import { toast } from "sonner";
 
 const BACKEND_URL = process.env.REACT_APP_API_URL;
@@ -15,7 +15,7 @@ export default function TwoFactorSetupPage() {
   const [loading, setLoading] = useState(true);
   const [settingUp, setSettingUp] = useState(false);
   const [verifying, setVerifying] = useState(false);
-  const [method, setMethod] = useState("email");
+  const [method, setMethod] = useState("totp");
   const [secret, setSecret] = useState(null);
   const [qrCode, setQrCode] = useState(null);
   const [code, setCode] = useState("");
@@ -153,7 +153,7 @@ export default function TwoFactorSetupPage() {
               2FA is Enabled
             </CardTitle>
             <CardDescription className="text-zinc-400">
-              Your account is protected with {user.two_factor_method === "totp" ? "Google Authenticator" : "email verification"}
+              Your account is protected with Google Authenticator
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -248,26 +248,12 @@ export default function TwoFactorSetupPage() {
           <CardHeader>
             <CardTitle className="text-white">Enable Two-Factor Authentication</CardTitle>
             <CardDescription className="text-zinc-400">
-              Choose how you want to receive verification codes
+              Set up Google Authenticator for two-factor authentication
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4">
               <div
-                onClick={() => setMethod("email")}
-                className={`p-4 rounded-lg border-2 cursor-pointer transition-colors ${
-                  method === "email"
-                    ? "border-emerald-500 bg-emerald-500/10"
-                    : "border-zinc-700 hover:border-zinc-600"
-                }`}
-              >
-                <Mail className={`h-8 w-8 mb-2 ${method === "email" ? "text-emerald-500" : "text-zinc-400"}`} />
-                <div className="font-medium text-white">Email</div>
-                <div className="text-sm text-zinc-400">Receive codes via email</div>
-              </div>
-
-              <div
-                onClick={() => setMethod("totp")}
                 className={`p-4 rounded-lg border-2 cursor-pointer transition-colors ${
                   method === "totp"
                     ? "border-emerald-500 bg-emerald-500/10"
@@ -275,8 +261,8 @@ export default function TwoFactorSetupPage() {
                 }`}
               >
                 <Smartphone className={`h-8 w-8 mb-2 ${method === "totp" ? "text-emerald-500" : "text-zinc-400"}`} />
-                <div className="font-medium text-white">Authenticator</div>
-                <div className="text-sm text-zinc-400">Use Google Authenticator app</div>
+                <div className="font-medium text-white">Google Authenticator</div>
+                <div className="text-sm text-zinc-400">Use the Google Authenticator app</div>
               </div>
             </div>
 
@@ -286,7 +272,7 @@ export default function TwoFactorSetupPage() {
               className="w-full bg-emerald-500 text-black hover:bg-emerald-400"
             >
               <Shield className="h-4 w-4 mr-2" />
-              {settingUp ? "Setting up..." : `Continue with ${method === "email" ? "Email" : "Google Authenticator"}`}
+              {settingUp ? "Setting up..." : "Set up Google Authenticator"}
             </Button>
           </CardContent>
         </Card>

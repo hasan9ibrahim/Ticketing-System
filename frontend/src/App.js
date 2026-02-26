@@ -16,7 +16,7 @@ import ReferencesPage from "./pages/ReferencesPage";
 import RequestsPage from "./pages/RequestsPage";
 import TwoFactorSetupPage from "./pages/TwoFactorSetupPage";
 import NOCSchedulePage from "./pages/NOCSchedulePage";
-import { Toaster } from "@/components/ui/toaster";
+import { Toaster } from "@/components/ui/sonner";
 import axios from "axios";
 
 const API = `${process.env.REACT_APP_API_URL}/api`;

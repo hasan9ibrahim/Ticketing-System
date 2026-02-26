@@ -179,6 +179,13 @@ export default function ReferencesPage() {
     }
   }, [searchParams, smsAlerts, voiceAlerts]);
 
+  // Clear URL parameter when alert is closed to prevent auto-refresh from reopening it
+  useEffect(() => {
+    if (!selectedAlert && searchParams.get("alert")) {
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, [selectedAlert, searchParams]);
+
   const alertProcessedRef = useRef(false);
 
   // Handle pending alert from ticket page
@@ -514,14 +521,8 @@ export default function ReferencesPage() {
         description: "Comment added successfully"
       });
       
-      // Create the new comment object directly from the request
-      const newComment = {
-        id: Date.now().toString(),
-        text: commentText,
-        alternative_vendor: alternativeVendor,
-        created_by: "current_user",
-        created_at: new Date().toISOString()
-      };
+      // Use the comment from the API response which contains the correct username
+      const newComment = response.data.comment;
       
       // Update selectedAlert immediately with the new comment
       const updatedComments = [...(selectedAlert.comments || []), newComment];

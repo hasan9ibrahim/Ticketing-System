@@ -82,16 +82,6 @@ export default function NOCSchedulePage() {
     fetchMonthlyNote();
   }, [year, month]);
 
-  // Auto-refresh data every 10 seconds
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (!document.hidden) {
-        fetchSchedules();
-        fetchMonthlyNote();
-      }
-    }, 10000);
-    return () => clearInterval(interval);
-  }, [year, month]);
 
   const fetchNOCUsers = async () => {
     try {

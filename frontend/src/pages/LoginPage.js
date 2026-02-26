@@ -28,7 +28,6 @@ export default function LoginPage({ setUser }) {
   const [resetCode, setResetCode] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [resetMethod, setResetMethod] = useState("");
   const navigate = useNavigate();
 
   const handleLogin = async (e) => {
@@ -137,7 +136,6 @@ export default function LoginPage({ setUser }) {
       const response = await axios.post(`${API}/auth/password-reset/request`, {
         identifier: resetIdentifier
       });
-      setResetMethod(response.data.method);
       setResetStep(2);
       toast.success(response.data.message);
     } catch (error) {
@@ -275,9 +273,7 @@ export default function LoginPage({ setUser }) {
                   </div>
                   <h2 className="text-xl font-semibold text-white">Two-Factor Authentication</h2>
                   <p className="text-slate-400 text-sm mt-2">
-                    {twoFactorMethod === "email" 
-                      ? "Enter the code sent to your email" 
-                      : "Enter the code from your authenticator app"}
+                    Enter the code from your Google Authenticator app
                   </p>
                 </div>
                 
@@ -465,6 +461,7 @@ export default function LoginPage({ setUser }) {
                 </svg>
               </div>
               <h2 className="text-2xl font-semibold text-white">Reset Password</h2>
+              <p className="text-slate-400 text-sm mt-2">Use Google Authenticator to verify your identity</p>
             </div>
             
             {resetStep === 1 && (
@@ -487,7 +484,7 @@ export default function LoginPage({ setUser }) {
                   type="submit"
                   className="w-full bg-gradient-to-r from-emerald-500 to-emerald-400 text-slate-900 font-semibold h-12 transition-all duration-300 shadow-lg shadow-emerald-500/20"
                 >
-                  Send Verification Code
+                  Continue
                 </Button>
                 <Button
                   type="button"
@@ -503,9 +500,7 @@ export default function LoginPage({ setUser }) {
             {resetStep === 2 && (
               <form onSubmit={handlePasswordResetVerify} className="space-y-4">
                 <p className="text-slate-400 text-sm text-center mb-4">
-                  {resetMethod === "email" 
-                    ? "Enter the code sent to your email" 
-                    : "Enter the code from your Google Authenticator app"}
+                  Enter the code from your Google Authenticator app
                 </p>
                 <div>
                   <Label htmlFor="resetCode" className="text-slate-300 text-sm font-medium">

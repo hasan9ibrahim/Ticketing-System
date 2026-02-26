@@ -850,16 +850,15 @@ function ChatWindowView({
   useEffect(() => {
     if (!chat.conversation_id) return;
     
-    // If parent has messages, merge with local messages to avoid overwriting new ones
+    // If parent has messages, always sync with them to ensure real-time updates
     if (chat.messages && chat.messages.length > 0) {
-      const localIds = new Set(messages.map(m => m.id));
-      const newMessages = chat.messages.filter(m => !localIds.has(m.id));
+      // Check for new messages by comparing all messages from parent
+      // This ensures we capture messages added in real-time (both local and remote)
+      const parentIds = new Set(chat.messages.map(m => m.id));
+      const newMessages = messages.filter(m => !parentIds.has(m.id));
       
-      if (newMessages.length > 0) {
-        // Only add new messages that don't exist locally
-        setMessages(prev => [...prev, ...newMessages]);
-      } else if (messages.length === 0) {
-        // Only set from parent if we have no local messages
+      if (newMessages.length > 0 || messages.length !== chat.messages.length) {
+        // Update local state with all messages from parent
         setMessages(chat.messages);
       }
     } else if (messages.length === 0 && !loading) {

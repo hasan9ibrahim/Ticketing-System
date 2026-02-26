@@ -4,7 +4,7 @@ import { useSearchParams, useNavigate } from "react-router-dom";
 import { startOfWeek, endOfWeek } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, Search, ArrowUpDown, Calendar, Trash2, MessageSquare, ListChecks, X, Pencil, Bell, User } from "lucide-react";
+import { Plus, Search, ArrowUpDown, Calendar, Trash2, MessageSquare, ListChecks, X, Pencil, Bell, User, Copy } from "lucide-react";
 import { toast } from "sonner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -131,6 +131,13 @@ export default function SMSTicketsPage() {
     }
   }, [searchParams, tickets]);
 
+  // Clear URL parameter when sheet is closed to prevent auto-refresh from reopening it
+  useEffect(() => {
+    if (!sheetOpen && searchParams.get("ticket")) {
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, [sheetOpen, searchParams]);
+
   // Helper to get display text for issues
   const getIssueDisplayText = (ticket) => {
     const issues = ticket.issue_types || [];
@@ -212,9 +219,13 @@ export default function SMSTicketsPage() {
       filtered = filtered.filter((t) => t.status === "Unassigned");
     } else if (activeTab === "assigned") {
       filtered = filtered.filter((t) => t.status === "Assigned");
-    } else if (activeTab === "other") {
+    } else if (activeTab === "pending") {
       filtered = filtered.filter((t) => 
-        !["Unassigned", "Assigned"].includes(t.status)
+        ["Awaiting Client", "Awaiting Vendor", "Awaiting AM"].includes(t.status)
+      );
+    } else if (activeTab === "resolved") {
+      filtered = filtered.filter((t) => 
+        ["Resolved", "Unresolved"].includes(t.status)
       );
     }
 
@@ -454,10 +465,50 @@ export default function SMSTicketsPage() {
   };
 
   const copyAutoReplyTemplate = async (ticketNumber) => {
-    const template = `Hello team, We have received your request with ticket #: ${ticketNumber}. Rest assured we are working on your request and we will update you as soon as possible. Thank you for your patience!`;
+    const template = `Hello Team, your request (Ticket ${ticketNumber}) has been received and is being processed. We'll update you soon.`;
     try {
       await navigator.clipboard.writeText(template);
       toast.success("Auto-reply template copied to clipboard!");
+    } catch (err) {
+      toast.error("Failed to copy to clipboard");
+    }
+  };
+
+  const copyResolvedTemplate = async () => {
+    const template = `Dear Partner,\nWe've conducted recent tests, and are pleased to inform you that they were successful.\nYour assistance throughout this process is much appreciated.\nThank you!`;
+    try {
+      await navigator.clipboard.writeText(template);
+      toast.success("Resolved template copied to clipboard!");
+    } catch (err) {
+      toast.error("Failed to copy to clipboard");
+    }
+  };
+
+  const copyAwaitingClientTemplate = async () => {
+    const template = `Dear Team,\nKindly let us know if you have any updates regarding this matter.\nThank you in advance.`;
+    try {
+      await navigator.clipboard.writeText(template);
+      toast.success("Awaiting Client template copied to clipboard!");
+    } catch (err) {
+      toast.error("Failed to copy to clipboard");
+    }
+  };
+
+  const copyAwaitingVendorForClientTemplate = async () => {
+    const template = `Dear Team,\nKindly be informed that we have escalated the reported issue to our partner and are currently awaiting their update.\nRest assured, we will inform you promptly once we receive any feedback.\nThank you for your patience in the meantime.`;
+    try {
+      await navigator.clipboard.writeText(template);
+      toast.success("Awaiting Vendor (For Client) template copied to clipboard!");
+    } catch (err) {
+      toast.error("Failed to copy to clipboard");
+    }
+  };
+
+  const copyAwaitingVendorForVendorTemplate = async () => {
+    const template = `Dear Team,\nKindly let us know if you have any updates regarding the mentioned issue.\nThank you in advance.`;
+    try {
+      await navigator.clipboard.writeText(template);
+      toast.success("Awaiting Vendor (For Vendor) template copied to clipboard!");
     } catch (err) {
       toast.error("Failed to copy to clipboard");
     }
@@ -919,7 +970,8 @@ export default function SMSTicketsPage() {
 
   const unassignedCount = tickets.filter(t => t.status === "Unassigned").length;
   const assignedCount = tickets.filter(t => t.status === "Assigned").length;
-  const otherCount = tickets.filter(t => !["Unassigned", "Assigned"].includes(t.status)).length;
+  const pendingCount = tickets.filter(t => ["Awaiting Client", "Awaiting Vendor", "Awaiting AM"].includes(t.status)).length;
+  const resolvedCount = tickets.filter(t => ["Resolved", "Unresolved"].includes(t.status)).length;
 
   return (
     <div className="p-6 lg:p-8 space-y-6 max-w-[1920px] mx-auto" data-testid="sms-tickets-page">
@@ -1102,7 +1154,7 @@ export default function SMSTicketsPage() {
 
       {/* Status Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full max-w-md grid-cols-3 bg-zinc-900 border border-white/10">
+        <TabsList className="grid w-full max-w-lg grid-cols-4 bg-zinc-900 border border-white/10">
           <TabsTrigger 
             value="unassigned" 
             className="data-[state=active]:bg-emerald-500 data-[state=active]:text-black"
@@ -1118,11 +1170,18 @@ export default function SMSTicketsPage() {
             Assigned ({assignedCount})
           </TabsTrigger>
           <TabsTrigger 
-            value="other"
+            value="pending"
             className="data-[state=active]:bg-emerald-500 data-[state=active]:text-black"
-            data-testid="tab-other"
+            data-testid="tab-pending"
           >
-            Other ({otherCount})
+            Pending ({pendingCount})
+          </TabsTrigger>
+          <TabsTrigger 
+            value="resolved"
+            className="data-[state=active]:bg-emerald-500 data-[state=active]:text-black"
+            data-testid="tab-resolved"
+          >
+            Resolved ({resolvedCount})
           </TabsTrigger>
         </TabsList>
 
@@ -1192,7 +1251,65 @@ export default function SMSTicketsPage() {
                               <TableCell className="text-zinc-300 max-w-xs truncate">{getIssueDisplayText(ticket)}</TableCell>
                               <TableCell className="text-zinc-300">{getOpenedViaDisplayText(ticket) || "-"}</TableCell>
                               <TableCell>
-                                <StatusBadge status={ticket.status} />
+                                {ticket.status === "Resolved" ? (
+                                  <span
+                                    className="cursor-pointer hover:text-blue-400 transition-colors"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      copyResolvedTemplate();
+                                    }}
+                                    title="Click to copy resolved template"
+                                  >
+                                    <StatusBadge status={ticket.status} />
+                                  </span>
+                                ) : ticket.status === "Awaiting Client" ? (
+                                  <span
+                                    className="cursor-pointer hover:text-blue-400 transition-colors"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      copyAwaitingClientTemplate();
+                                    }}
+                                    title="Click to copy awaiting client template"
+                                  >
+                                    <StatusBadge status={ticket.status} />
+                                  </span>
+                                ) : ticket.status === "Awaiting Vendor" ? (
+                                  <Popover>
+                                    <PopoverTrigger asChild>
+                                      <span
+                                        className="cursor-pointer hover:text-blue-400 transition-colors"
+                                        onClick={(e) => e.stopPropagation()}
+                                        title="Click to select template"
+                                      >
+                                        <StatusBadge status={ticket.status} />
+                                      </span>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-48 bg-zinc-800 border-zinc-700">
+                                      <div className="space-y-2">
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            copyAwaitingVendorForClientTemplate();
+                                          }}
+                                          className="w-full text-left text-sm text-white hover:bg-zinc-700 p-2 rounded"
+                                        >
+                                          <div className="font-medium">For Client</div>
+                                        </button>
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            copyAwaitingVendorForVendorTemplate();
+                                          }}
+                                          className="w-full text-left text-sm text-white hover:bg-zinc-700 p-2 rounded"
+                                        >
+                                          <div className="font-medium">For Vendor</div>
+                                        </button>
+                                      </div>
+                                    </PopoverContent>
+                                  </Popover>
+                                ) : (
+                                  <StatusBadge status={ticket.status} />
+                                )}
                               </TableCell>
                               <TableCell className="text-zinc-300">{assignedUser?.username || "Unassigned"}</TableCell>
                               <TableCell className="text-zinc-400 tabular-nums">

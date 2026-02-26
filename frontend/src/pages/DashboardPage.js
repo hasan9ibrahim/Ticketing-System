@@ -26,6 +26,17 @@ export default function DashboardPage() {
   const [onlineUsers, setOnlineUsers] = useState([]);
   const [currentUser, setCurrentUser] = useState(null);
 
+  // Determine what stats to show based on user role
+  const showSmsStats = !currentUser || 
+    (currentUser.role !== 'am') || 
+    (currentUser.am_type === 'sms');
+  const showVoiceStats = !currentUser || 
+    (currentUser.role !== 'am') || 
+    (currentUser.am_type === 'voice');
+
+  // Get user display type for filtering
+  const userType = currentUser?.role === 'am' ? currentUser.am_type : (currentUser?.role || 'unknown');
+
   useEffect(() => {
     // Get current user
     const userData = localStorage.getItem("user");
@@ -193,25 +204,29 @@ export default function DashboardPage() {
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card className="bg-zinc-900/50 border-white/10 grid-border" data-testid="sms-tickets-card">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-zinc-400">Total SMS Tickets</CardTitle>
-            <MessageSquare className="h-4 w-4 text-emerald-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-white tabular-nums">{stats?.total_sms_tickets || 0}</div>
-          </CardContent>
-        </Card>
+        {showSmsStats && (
+          <Card className="bg-zinc-900/50 border-white/10 grid-border" data-testid="sms-tickets-card">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium text-zinc-400">Total SMS Tickets</CardTitle>
+              <MessageSquare className="h-4 w-4 text-emerald-500" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl font-bold text-white tabular-nums">{stats?.total_sms_tickets || 0}</div>
+            </CardContent>
+          </Card>
+        )}
 
-        <Card className="bg-zinc-900/50 border-white/10 grid-border" data-testid="voice-tickets-card">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-zinc-400">Total Voice Tickets</CardTitle>
-            <Phone className="h-4 w-4 text-emerald-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-white tabular-nums">{stats?.total_voice_tickets || 0}</div>
-          </CardContent>
-        </Card>
+        {showVoiceStats && (
+          <Card className="bg-zinc-900/50 border-white/10 grid-border" data-testid="voice-tickets-card">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium text-zinc-400">Total Voice Tickets</CardTitle>
+              <Phone className="h-4 w-4 text-emerald-500" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl font-bold text-white tabular-nums">{stats?.total_voice_tickets || 0}</div>
+            </CardContent>
+          </Card>
+        )}
 
         <Card className="bg-zinc-900/50 border-white/10 grid-border">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -220,7 +235,7 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold text-white tabular-nums">
-              {(stats?.sms_pending || 0) + (stats?.voice_pending || 0)}
+              {(showSmsStats ? (stats?.sms_pending || 0) : 0) + (showVoiceStats ? (stats?.voice_pending || 0) : 0)}
             </div>
           </CardContent>
         </Card>
@@ -232,7 +247,7 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold text-white tabular-nums">
-              {(stats?.sms_by_status?.Resolved || 0) + (stats?.voice_by_status?.Resolved || 0)}
+              {(showSmsStats ? (stats?.sms_by_status?.Resolved || 0) : 0) + (showVoiceStats ? (stats?.voice_by_status?.Resolved || 0) : 0)}
             </div>
           </CardContent>
         </Card>
@@ -240,67 +255,71 @@ export default function DashboardPage() {
 
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card className="bg-zinc-900/50 border-white/10">
-          <CardHeader>
-            <CardTitle className="text-white">SMS Tickets by Status</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {smsStatusData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={300}>
-                <PieChart>
-                  <Pie
-                    data={smsStatusData}
-                    cx="50%"
-                    cy="50%"
-                    labelLine={false}
-                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                    outerRadius={80}
-                    fill="#8884d8"
-                    dataKey="value"
-                  >
-                    {smsStatusData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip contentStyle={{ backgroundColor: "#000", border: "1px solid rgba(255,255,255,0.1)" }} itemStyle={{ color: "#fff" }} />
-                </PieChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="h-[300px] flex items-center justify-center text-zinc-500">No SMS tickets yet</div>
-            )}
-          </CardContent>
-        </Card>
+        {showSmsStats && (
+          <Card className="bg-zinc-900/50 border-white/10">
+            <CardHeader>
+              <CardTitle className="text-white">SMS Tickets by Status</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {smsStatusData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={300}>
+                  <PieChart>
+                    <Pie
+                      data={smsStatusData}
+                      cx="50%"
+                      cy="50%"
+                      labelLine={false}
+                      label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                      outerRadius={80}
+                      fill="#8884d8"
+                      dataKey="value"
+                    >
+                      {smsStatusData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip contentStyle={{ backgroundColor: "#000", border: "1px solid rgba(255,255,255,0.1)" }} itemStyle={{ color: "#fff" }} />
+                  </PieChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="h-[300px] flex items-center justify-center text-zinc-500">No SMS tickets yet</div>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
-        <Card className="bg-zinc-900/50 border-white/10">
-          <CardHeader>
-            <CardTitle className="text-white">Voice Tickets by Status</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {voiceStatusData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={300}>
-                <PieChart>
-                  <Pie
-                    data={voiceStatusData}
-                    cx="50%"
-                    cy="50%"
-                    labelLine={false}
-                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                    outerRadius={80}
-                    fill="#8884d8"
-                    dataKey="value"
-                  >
-                    {voiceStatusData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip contentStyle={{ backgroundColor: "#000", border: "1px solid rgba(255,255,255,0.1)" }} itemStyle={{ color: "#fff" }} />
-                </PieChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="h-[300px] flex items-center justify-center text-zinc-500">No voice tickets yet</div>
-            )}
-          </CardContent>
-        </Card>
+        {showVoiceStats && (
+          <Card className="bg-zinc-900/50 border-white/10">
+            <CardHeader>
+              <CardTitle className="text-white">Voice Tickets by Status</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {voiceStatusData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={300}>
+                  <PieChart>
+                    <Pie
+                      data={voiceStatusData}
+                      cx="50%"
+                      cy="50%"
+                      labelLine={false}
+                      label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                      outerRadius={80}
+                      fill="#8884d8"
+                      dataKey="value"
+                    >
+                      {voiceStatusData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip contentStyle={{ backgroundColor: "#000", border: "1px solid rgba(255,255,255,0.1)" }} itemStyle={{ color: "#fff" }} />
+                  </PieChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="h-[300px] flex items-center justify-center text-zinc-500">No voice tickets yet</div>
+              )}
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       {/* Recent Tickets */}
@@ -311,25 +330,33 @@ export default function DashboardPage() {
         <CardContent>
           {stats?.recent_tickets && stats.recent_tickets.length > 0 ? (
             <div className="space-y-3" data-testid="recent-tickets-list">
-              {stats.recent_tickets.map((ticket) => (
-                <div
-                  key={ticket.id}
-                  className="flex items-center justify-between p-3 bg-zinc-800/50 rounded-lg border border-white/5 hover:border-white/10 transition-colors"
-                  data-testid="recent-ticket-item"
-                >
-                  <div className="flex items-center space-x-4">
-                    <PriorityIndicator priority={ticket.priority} />
-                    <div>
-                      <div className="flex items-center space-x-2">
-                        <span className="text-white font-medium">{ticket.ticket_number}</span>
-                        <span className="text-xs text-zinc-500">({ticket.type})</span>
+              {stats.recent_tickets
+                .filter(ticket => {
+                  if (!currentUser) return true; // Show all if no user
+                  if (currentUser.role !== 'am') return true; // NOC/Admin see all
+                  if (currentUser.am_type === 'sms') return ticket.type === 'SMS';
+                  if (currentUser.am_type === 'voice') return ticket.type === 'Voice';
+                  return true;
+                })
+                .map((ticket) => (
+                  <div
+                    key={ticket.id}
+                    className="flex items-center justify-between p-3 bg-zinc-800/50 rounded-lg border border-white/5 hover:border-white/10 transition-colors"
+                    data-testid="recent-ticket-item"
+                  >
+                    <div className="flex items-center space-x-4">
+                      <PriorityIndicator priority={ticket.priority} />
+                      <div>
+                        <div className="flex items-center space-x-2">
+                          <span className="text-white font-medium">{ticket.ticket_number}</span>
+                          <span className="text-xs text-zinc-500">({ticket.type})</span>
+                        </div>
+                        <p className="text-sm text-zinc-400">{ticket.customer}</p>
                       </div>
-                      <p className="text-sm text-zinc-400">{ticket.customer}</p>
                     </div>
+                    <StatusBadge status={ticket.status} />
                   </div>
-                  <StatusBadge status={ticket.status} />
-                </div>
-              ))}
+                ))}
             </div>
           ) : (
             <div className="text-center py-8 text-zinc-500">No recent tickets</div>
