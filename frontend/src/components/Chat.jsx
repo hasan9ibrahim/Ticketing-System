@@ -687,11 +687,11 @@ function ChatListView({
 
   const formatTime = (dateStr) => {
     if (!dateStr) return "";
-    // Parse the date string - handle both UTC (with Z) and local time formats
+    // Parse the date string as UTC to handle timezone correctly
     const date = new Date(dateStr);
     const now = new Date();
     
-    // Ensure we're comparing in the same timezone by getting UTC milliseconds
+    // Get UTC milliseconds for both dates to ensure consistent comparison
     const dateUtc = date.getTime();
     const nowUtc = now.getTime();
     
@@ -707,7 +707,8 @@ function ChatListView({
     if (minutes < 60) return `${minutes}m`;
     if (hours < 24) return `${hours}h`;
     if (days < 7) return `${days}d`;
-    return date.toLocaleDateString();
+    // Use UTC date for older messages
+    return `${date.getUTCFullYear()}-${(date.getUTCMonth() + 1).toString().padStart(2, '0')}-${date.getUTCDate().toString().padStart(2, '0')}`;
   };
 
   return (
@@ -850,20 +851,29 @@ function ChatWindowView({
   useEffect(() => {
     if (!chat.conversation_id) return;
     
-    // If parent has messages, always sync with them to ensure real-time updates
+    // Always load messages from API when opening a chat (fresh or from closed state)
+    // This ensures we get the full message history
+    if (!loading && messages.length === 0) {
+      loadMessages();
+      return;
+    }
+    
+    // If parent has messages, sync with them for real-time updates
+    // This includes new messages and read status updates
     if (chat.messages && chat.messages.length > 0) {
-      // Check for new messages by comparing all messages from parent
-      // This ensures we capture messages added in real-time (both local and remote)
+      // Check if we need to update - either new messages or read status changes
       const parentIds = new Set(chat.messages.map(m => m.id));
       const newMessages = messages.filter(m => !parentIds.has(m.id));
       
-      if (newMessages.length > 0 || messages.length !== chat.messages.length) {
-        // Update local state with all messages from parent
+      // Check if read status changed for any message
+      const readStatusChanged = messages.some(msg => {
+        const parentMsg = chat.messages.find(m => m.id === msg.id);
+        return parentMsg && parentMsg.is_read !== msg.is_read;
+      });
+      
+      if (newMessages.length > 0 || messages.length !== chat.messages.length || readStatusChanged) {
         setMessages(chat.messages);
       }
-    } else if (messages.length === 0 && !loading) {
-      // Load from API if no messages at all
-      loadMessages();
     }
   }, [chat.conversation_id, chat.messages]);
 
@@ -921,20 +931,34 @@ function ChatWindowView({
 
   const formatTime = (dateStr) => {
     if (!dateStr) return "";
+    // Parse the date string - handle both UTC (with Z) and local time formats
     const date = new Date(dateStr);
-    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    // Use UTC methods to properly display the time as stored on server
+    // This ensures times are displayed in the timezone they were sent
+    const hours = date.getUTCHours();
+    const minutes = date.getUTCMinutes();
+    const period = hours >= 12 ? 'PM' : 'AM';
+    const displayHours = hours % 12 || 12;
+    return `${displayHours}:${minutes.toString().padStart(2, '0')} ${period}`;
   };
 
   const formatDate = (dateStr) => {
     if (!dateStr) return "";
+    // Parse as UTC to ensure consistent date handling
     const date = new Date(dateStr);
     const today = new Date();
     const yesterday = new Date(today);
     yesterday.setDate(yesterday.getDate() - 1);
 
-    if (date.toDateString() === today.toDateString()) return "Today";
-    if (date.toDateString() === yesterday.toDateString()) return "Yesterday";
-    return date.toLocaleDateString();
+    // Use UTC methods for date comparison to avoid timezone issues
+    const dateUTC = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+    const todayUTC = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
+    const yesterdayUTC = Date.UTC(yesterday.getUTCFullYear(), yesterday.getUTCMonth(), yesterday.getUTCDate());
+
+    if (dateUTC === todayUTC) return "Today";
+    if (dateUTC === yesterdayUTC) return "Yesterday";
+    // Use UTC date components for display
+    return `${date.getUTCFullYear()}-${(date.getUTCMonth() + 1).toString().padStart(2, '0')}-${date.getUTCDate().toString().padStart(2, '0')}`;
   };
 
   const groupMessagesByDate = () => {
