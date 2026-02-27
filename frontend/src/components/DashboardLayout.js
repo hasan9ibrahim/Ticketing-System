@@ -237,8 +237,10 @@ export default function DashboardLayout({ user, setUser }) {
       await axios.post(`${API}/dashboard/ticket-modifications/${notificationId}/read`, {}, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      // Add to dismissed list so it doesn't come back
-      setDismissedNotifications(prev => ({ ...prev, [notificationId]: Date.now() }));
+      // Add to dismissed list so it doesn't come back - also update ref synchronously to prevent race condition
+      const updatedDismissed = { ...dismissedNotificationsRef.current, [notificationId]: Date.now() };
+      dismissedNotificationsRef.current = updatedDismissed;
+      setDismissedNotifications(updatedDismissed);
       // Remove from UI
       setTicketModificationNotifications(prev => prev.filter(n => n.id !== notificationId));
       setReadNotificationIds(prev => {
@@ -258,8 +260,10 @@ export default function DashboardLayout({ user, setUser }) {
       await axios.post(`${API}/users/me/alert-notifications/${notificationId}/read`, {}, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      // Add to dismissed list so it doesn't come back
-      setDismissedNotifications(prev => ({ ...prev, [notificationId]: Date.now() }));
+      // Add to dismissed list so it doesn't come back - also update ref synchronously to prevent race condition
+      const updatedDismissed = { ...dismissedNotificationsRef.current, [notificationId]: Date.now() };
+      dismissedNotificationsRef.current = updatedDismissed;
+      setDismissedNotifications(updatedDismissed);
       // Remove from UI
       setAlertNotifications(prev => prev.filter(n => n.id !== notificationId));
       setReadNotificationIds(prev => {
@@ -279,8 +283,10 @@ export default function DashboardLayout({ user, setUser }) {
       await axios.post(`${API}/users/me/request-notifications/${notificationId}/read`, {}, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      // Add to dismissed list so it doesn't come back
-      setDismissedNotifications(prev => ({ ...prev, [notificationId]: Date.now() }));
+      // Add to dismissed list so it doesn't come back - also update ref synchronously to prevent race condition
+      const updatedDismissed = { ...dismissedNotificationsRef.current, [notificationId]: Date.now() };
+      dismissedNotificationsRef.current = updatedDismissed;
+      setDismissedNotifications(updatedDismissed);
       // Remove from UI
       setRequestNotifications(prev => prev.filter(n => n.id !== notificationId));
       setReadNotificationIds(prev => {
@@ -976,34 +982,38 @@ export default function DashboardLayout({ user, setUser }) {
               <X className="h-5 w-5" />
             </Button>
           )}
-          {/* Combined Notifications Bell Icon - Shows both Alert and Ticket notifications */}
-          <Popover open={showAlertNotifications} onOpenChange={setShowAlertNotifications}>
-            <PopoverTrigger asChild>
-              <Button variant="ghost" size="icon" className="relative text-zinc-400 hover:text-white">
-                <Bell className="h-5 w-5" />
-                {getUnreadCount() > 0 && (
-                  <span className={`absolute -top-1 -right-1 h-4 w-4 rounded-full text-[10px] font-bold text-black flex items-center justify-center ${getHighestPriorityNotificationType() === 'alert' ? 'bg-red-500' : getHighestPriorityNotificationType() === 'ticket' ? 'bg-blue-500' : 'bg-green-500'}`}>
-                    {getUnreadCount() > 9 ? '9+' : getUnreadCount()}
-                  </span>
-                )}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-80 bg-zinc-900 border-zinc-700 text-white" align="end">
-              <div className="space-y-2">
-                <div className="flex items-center justify-between pb-2 border-b border-zinc-700">
-                  <h3 className="font-semibold flex items-center gap-2">
-                    <Bell className="h-4 w-4" />
-                    Notifications
-                  </h3>
-                  <span className="text-xs text-zinc-400">{getUnreadCount()} unread</span>
-                </div>
-                {/* Notification type legend */}
-                <div className="flex gap-3 text-xs pb-2 border-b border-zinc-700">
-                  <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-red-500" /> Alerts</span>
-                  <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-blue-500" /> Tickets</span>
-                  <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-green-500" /> Requests</span>
-                </div>
-                <div className="max-h-80 overflow-y-auto overflow-x-hidden space-y-2">
+          {/* Spacer to push items to the right */}
+          <div className="flex-1" />
+          {/* Right side - Bell Icon and Date/Time */}
+          <div className="flex items-center gap-4">
+            {/* Combined Notifications Bell Icon - Shows both Alert and Ticket notifications */}
+            <Popover open={showAlertNotifications} onOpenChange={setShowAlertNotifications}>
+              <PopoverTrigger asChild>
+                <Button variant="ghost" size="icon" className="relative text-zinc-400 hover:text-white">
+                  <Bell className="h-5 w-5" />
+                  {getUnreadCount() > 0 && (
+                    <span className={`absolute -top-1 -right-1 h-4 w-4 rounded-full text-[10px] font-bold text-black flex items-center justify-center ${getHighestPriorityNotificationType() === 'alert' ? 'bg-red-500' : getHighestPriorityNotificationType() === 'ticket' ? 'bg-blue-500' : 'bg-green-500'}`}>
+                      {getUnreadCount() > 9 ? '9+' : getUnreadCount()}
+                    </span>
+                  )}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-80 bg-zinc-900 border-zinc-700 text-white" align="end">
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between pb-2 border-b border-zinc-700">
+                    <h3 className="font-semibold flex items-center gap-2">
+                      <Bell className="h-4 w-4" />
+                      Notifications
+                    </h3>
+                    <span className="text-xs text-zinc-400">{getUnreadCount()} unread</span>
+                  </div>
+                  {/* Notification type legend */}
+                  <div className="flex gap-3 text-xs pb-2 border-b border-zinc-700">
+                    <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-red-500" /> Alerts</span>
+                    <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-blue-500" /> Tickets</span>
+                    <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-green-500" /> Requests</span>
+                  </div>
+                  <div className="max-h-80 overflow-y-auto overflow-x-hidden space-y-2">
                   {/* All Notifications Combined and Sorted by Time (Newest First) */}
                   {getAllNotificationsSorted().map((notification) => {
                     // Determine if this is an alert or request notification
@@ -1131,6 +1141,7 @@ export default function DashboardLayout({ user, setUser }) {
           <div className="text-sm text-zinc-400 flex items-center gap-2">
             <span>{currentTime.toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}</span>
             <span className="text-white font-medium">{currentTime.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}</span>
+          </div>
           </div>
         </header>
         

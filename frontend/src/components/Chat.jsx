@@ -19,48 +19,114 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
 
   // Get token
   const token = localStorage.getItem("token");
+  const wsRef = useRef(null);
+  const wsConnectedRef = useRef(false);
+  
+  // Ref to store callback for direct message addition in ChatWindowView
+  const messageSentRef = useRef(null);
+  
+  // Function for ChatWindowView to register its callback
+  const registerMessageCallback = useCallback((callback) => {
+    messageSentRef.current = callback;
+  }, []);
 
-  // Short polling for new messages - replaces WebSocket
+  // WebSocket for real-time chat
   useEffect(() => {
     if (!token || !user?.id) return;
 
-    // Poll for new conversations and messages every 2 seconds
-    const pollInterval = setInterval(async () => {
+    // Connect to WebSocket
+    const wsUrl = `${process.env.REACT_APP_WS_URL || 'ws://localhost:8000'}/api/ws/chat/${token}`;
+    const ws = new WebSocket(wsUrl);
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      console.log('WebSocket connected');
+      wsConnectedRef.current = true;
+    };
+
+    ws.onmessage = (event) => {
       try {
-        // Fetch conversations list
+        const data = JSON.parse(event.data);
+        handleWebSocketMessage(data);
+      } catch (error) {
+        console.error('Error parsing WebSocket message:', error);
+      }
+    };
+
+    ws.onerror = (error) => {
+      console.error('WebSocket error:', error);
+    };
+
+    ws.onclose = () => {
+      console.log('WebSocket disconnected');
+      wsConnectedRef.current = false;
+      // Reconnect after 3 seconds
+      setTimeout(() => {
+        if (!wsConnectedRef.current && token && user?.id) {
+          const reconnectWs = new WebSocket(wsUrl);
+          wsRef.current = reconnectWs;
+        }
+      }, 3000);
+    };
+
+    return () => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.close();
+      }
+    };
+  }, [token, user?.id]);
+
+  // Also fetch conversations on mount (for initial load)
+  useEffect(() => {
+    if (!token || !user?.id) return;
+
+    const fetchConversations = async () => {
+      try {
         const convResponse = await axios.get(`${API}/chat/conversations`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         setConversations(convResponse.data);
-
-        // Also fetch messages for open chats
-        const openChatIds = openChats.map(c => c.conversation_id);
-        for (const chatId of openChatIds) {
-          const msgResponse = await axios.get(
-            `${API}/chat/conversations/${chatId}/messages?limit=50`,
-            { headers: { Authorization: `Bearer ${token}` } }
-          );
-          
-          // Update openChats with new messages
-          setOpenChats(prev => prev.map(chat => {
-            if (chat.conversation_id === chatId) {
-              // Merge with existing local messages (from messages just sent)
-              const existingIds = new Set(msgResponse.data.map(m => m.id));
-              const localOnly = (chat.messages || []).filter(m => !existingIds.has(m.id));
-              return { ...chat, messages: [...msgResponse.data, ...localOnly] };
-            }
-            return chat;
-          }));
-        }
       } catch (error) {
-        console.error("Polling error:", error);
+        console.error('Error fetching conversations:', error);
       }
-    }, 2000);
-
-    return () => {
-      clearInterval(pollInterval);
     };
-  }, [token, user?.id, openChats]);
+
+    fetchConversations();
+  }, [token, user?.id]);
+
+  // Send message via WebSocket
+  const sendWebSocketMessage = (message) => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify(message));
+    }
+  };
+
+  // Callback to directly add message to ChatWindowView's local state for instant display
+  const handleMessageSent = useCallback((messageData) => {
+    const { conversationId, message } = messageData;
+    
+    // Update openChats with the new message
+    setOpenChats((prev) => prev.map(chat =>
+      chat.conversation_id === conversationId
+        ? { ...chat, messages: [...(chat.messages || []), message] }
+        : chat
+    ));
+    
+    // Also update activeChat if it's the same conversation
+    if (activeChat && activeChat.conversation_id === conversationId) {
+      setActiveChat((prev) => ({
+        ...prev,
+        messages: [...(prev.messages || []), message],
+      }));
+    }
+    
+    // Update conversations
+    setConversations((prev) => prev.map(conv =>
+      conv.id === conversationId
+        ? { ...conv, unread_count: 0, last_message: message.content, last_message_time: message.created_at, last_message_sender_id: message.sender_id }
+        : conv
+    ));
+  }, [activeChat]);
 
   const handleWebSocketMessage = (data) => {
     switch (data.type) {
@@ -81,17 +147,30 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
   const handleNewMessage = (message) => {
     // Prevent duplicate messages - check if message already exists by ID or by content+sender+time
     const isDuplicate = (msg) => {
-      // Check by ID first
-      if (msg.id === message.id) return true;
-      // Check for duplicate local messages (within 3 seconds) - same sender, same conversation, same content
+      // Check by ID first - handle both string and number IDs
+      if (String(msg.id) === String(message.id)) return true;
+      // Check for duplicate local messages (within 5 seconds) - same sender, same conversation, same content
       const msgTime = new Date(msg.created_at).getTime();
       const newMsgTime = new Date(message.created_at).getTime();
       const timeDiff = Math.abs(msgTime - newMsgTime);
+      // Also check if it's the same message based on content + sender + conversation
       return (
         msg.sender_id === message.sender_id &&
         msg.conversation_id === message.conversation_id &&
         msg.content === message.content &&
-        timeDiff < 3000 // Within 3 seconds
+        timeDiff < 5000 // Within 5 seconds
+      );
+    };
+
+    // Check if this is an echo of our own message (sent by us, within last 5 seconds)
+    // If so, we want to replace the local temp message with the server's version
+    const isOwnMessageEcho = () => {
+      const msgTime = new Date(message.created_at).getTime();
+      const now = Date.now();
+      const timeDiff = Math.abs(msgTime - now);
+      return (
+        message.sender_id === user?.id &&
+        timeDiff < 10000 // Within 10 seconds
       );
     };
 
@@ -100,7 +179,26 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
       setActiveChat((prev) => {
         // Check if message already exists
         const exists = (prev.messages || []).some(isDuplicate);
-        if (exists) return prev;
+        if (exists) {
+          // Check if this is an echo of our own message - replace the temp message with server version
+          if (isOwnMessageEcho()) {
+            const updatedMessages = (prev.messages || []).map((msg) => {
+              // Find the local message that matches this server message
+              const isLocalVersion = (
+                msg.sender_id === message.sender_id &&
+                msg.conversation_id === message.conversation_id &&
+                msg.content === message.content &&
+                !msg.id?.includes('-') // Local temp IDs are numeric strings, server IDs are UUIDs
+              );
+              if (isLocalVersion) {
+                return message; // Replace with server version
+              }
+              return msg;
+            });
+            return { ...prev, messages: updatedMessages };
+          }
+          return prev;
+        }
         return {
           ...prev,
           messages: [...(prev.messages || []), message],
@@ -114,7 +212,25 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
         if (chat.conversation_id === message.conversation_id) {
           // Check if message already exists
           const exists = (chat.messages || []).some(isDuplicate);
-          if (exists) return chat;
+          if (exists) {
+            // Check if this is an echo of our own message
+            if (isOwnMessageEcho()) {
+              const updatedMessages = (chat.messages || []).map((msg) => {
+                const isLocalVersion = (
+                  msg.sender_id === message.sender_id &&
+                  msg.conversation_id === message.conversation_id &&
+                  msg.content === message.content &&
+                  !msg.id?.includes('-')
+                );
+                if (isLocalVersion) {
+                  return message;
+                }
+                return msg;
+              });
+              return { ...chat, messages: updatedMessages };
+            }
+            return chat;
+          }
           return {
             ...chat,
             messages: [...(chat.messages || []), message],
@@ -227,7 +343,22 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
       const response = await axios.get(`${API}/chat/conversations`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      setConversations(response.data);
+      // Merge API response with existing local state to preserve local changes (like unread_count: 0)
+      const apiConversations = response.data;
+      setConversations(prevConversations => {
+        // Create a map of existing conversations for quick lookup
+        const existingConvMap = new Map(prevConversations.map(c => [c.id, c]));
+        
+        // Merge: use API data but preserve local unread_count if it's 0 (meaning user already read)
+        return apiConversations.map(apiConv => {
+          const existingConv = existingConvMap.get(apiConv.id);
+          if (existingConv && existingConv.unread_count === 0) {
+            // Preserve local unread_count: 0
+            return { ...apiConv, unread_count: 0 };
+          }
+          return apiConv;
+        });
+      });
     } catch (error) {
       console.error("Error fetching conversations:", error);
     }
@@ -327,6 +458,11 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
         : conv
     ));
 
+    // Call the callback for instant update in ChatWindowView
+    if (messageSentRef.current) {
+      messageSentRef.current(localMessage);
+    }
+
     // Send to API
     try {
       await axios.post(
@@ -347,9 +483,23 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
     }
   };
 
-  const sendTyping = () => {
-    // Typing indicator - could be implemented with API in future
-    // For now, just local state update
+  const sendTyping = (conversationId = null) => {
+    // Send typing indicator via WebSocket
+    const targetConvId = conversationId || (activeChat ? activeChat.conversation_id : null);
+    if (!targetConvId) return;
+    
+    const targetChat = conversationId 
+      ? openChats.find(c => c.conversation_id === conversationId)
+      : activeChat;
+    
+    if (!targetChat?.participant) return;
+    
+    sendWebSocketMessage({
+      type: "typing",
+      conversation_id: targetConvId,
+      user_id: user.id,
+      recipient_id: targetChat.participant.id
+    });
   };
 
   const markAsRead = async (conversationId = null) => {
@@ -360,28 +510,60 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
     
     if (!targetConvId || !targetChat?.participant) return;
     
+    const otherUserId = targetChat.participant.id;
+    
     // Mark as read via API
     try {
       await axios.post(
         `${API}/chat/messages/read`,
         {
           conversation_id: targetConvId,
-          other_user_id: targetChat.participant.id,
+          other_user_id: otherUserId,
         },
         { headers: { Authorization: `Bearer ${token}` } }
       );
+      
+      // Notify other user via WebSocket for real-time update
+      sendWebSocketMessage({
+        type: "message_read",
+        conversation_id: targetConvId,
+        read_by: user.id,
+        recipient_id: otherUserId
+      });
     } catch (error) {
       console.error("Error marking as read:", error);
     }
     
-    // Update local state
-    if (conversationId) {
-      setOpenChats(prev => prev.map(chat =>
-        chat.conversation_id === conversationId
-          ? { ...chat, unreadCount: 0 }
-          : chat
-      ));
+    // Update local message read status for messages from the other user
+    const updateMessagesReadStatus = (msgs) => {
+      return (msgs || []).map(msg => {
+        // Mark as read if it's from the other user
+        if (msg.sender_id === otherUserId) {
+          return { ...msg, is_read: true };
+        }
+        return msg;
+      });
+    };
+    
+    // Update activeChat if it's the target conversation
+    if (activeChat && activeChat.conversation_id === targetConvId) {
+      setActiveChat(prev => ({
+        ...prev,
+        messages: updateMessagesReadStatus(prev.messages)
+      }));
     }
+    
+    // Update openChats
+    setOpenChats(prev => prev.map(chat => {
+      if (chat.conversation_id === targetConvId) {
+        return { 
+          ...chat, 
+          unreadCount: 0,
+          messages: updateMessagesReadStatus(chat.messages)
+        };
+      }
+      return chat;
+    }));
     
     setConversations(prev => prev.map(conv =>
       conv.id === targetConvId
@@ -522,6 +704,7 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
                 chat={chat}
                 user={user}
                 onSendMessage={(content, type, fileData) => sendMessage(content, type, fileData, chat.conversation_id)}
+                onRegisterMessageCallback={registerMessageCallback}
                 onTyping={sendTyping}
                 onMarkAsRead={() => markAsRead(chat.conversation_id)}
                 typingUser={typingUsers[chat.conversation_id]}
@@ -568,47 +751,12 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
 
       {!minimized && (
         <>
-          {/* Chat List View - always show in main panel */}
-          <ChatListView
-            conversations={conversations}
-            users={users}
-            onSelectConversation={(conv) => {
-              console.log("onSelectConversation called with:", conv);
-              // Find or create chat - opens as floating window
-              const existingChat = openChats.find(
-                (c) => c.conversation_id === conv.id
-              );
-              console.log("Existing chat:", existingChat);
-              if (existingChat) {
-                // If exists and minimized, maximize it
-                if (existingChat.minimized) {
-                  setOpenChats(prev => prev.map(chat => 
-                    chat.conversation_id === conv.id 
-                      ? { ...chat, minimized: false } 
-                      : chat
-                  ));
-                }
-                setActiveChat(existingChat);
-              } else {
-                const newChat = {
-                  conversation_id: conv.id,
-                  participant: conv.participants?.[0],
-                  messages: [],
-                  unreadCount: conv.unread_count || 0,
-                  minimized: false,
-                };
-                console.log("Adding new chat from recent:", newChat);
-                setOpenChats((prev) => [...prev, newChat]);
-                setActiveChat(newChat);
-              }
-            }}
-            onStartConversation={(user) => {
-              // Call the API to create a new conversation
-              startConversation(user);
-            }}
-            userId={user?.id}
-            getInitials={getInitials}
-          />
+          {/* Chat List View - Coming soon message instead */}
+          <div className="flex flex-col flex-1 bg-black border border-t-0 border-gray-800 rounded-b-lg overflow-hidden p-4">
+            <div className="flex-1 flex items-center justify-center">
+              <div className="text-white text-lg">Coming soon...</div>
+            </div>
+          </div>
         </>
       )}
 
@@ -796,6 +944,7 @@ function ChatWindowView({
   chat,
   user,
   onSendMessage,
+  onRegisterMessageCallback,
   onTyping,
   onMarkAsRead,
   typingUser,
@@ -809,11 +958,22 @@ function ChatWindowView({
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState([]);
   const [hasLoadedFromApi, setHasLoadedFromApi] = useState(false);
+  const [hasMarkedAsRead, setHasMarkedAsRead] = useState(false);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const [loading, setLoading] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const messagesContainerRef = useRef(null);
+
+  // Register callback for direct message addition when sending messages
+  useEffect(() => {
+    if (onRegisterMessageCallback) {
+      onRegisterMessageCallback((messageData) => {
+        // Directly add message to local state for instant display
+        setMessages(prev => [...prev, messageData.message]);
+      });
+    }
+  }, [onRegisterMessageCallback]);
 
   // Load messages function wrapped in useCallback - must be defined before useEffect that uses it
   const loadMessages = useCallback(async () => {
@@ -824,18 +984,28 @@ function ChatWindowView({
         `${API}/chat/conversations/${chat.conversation_id}/messages?limit=50`,
         { headers: { Authorization: `Bearer ${localStorage.getItem("token")}` } }
       );
-      // Merge API messages with any existing local messages (e.g., messages sent while loading)
       const apiMessages = response.data;
-      const existingLocalIds = new Set(apiMessages.map(m => m.id));
-      const localOnlyMessages = messages.filter(m => !existingLocalIds.has(m.id));
-      
-      if (localOnlyMessages.length > 0) {
-        // Combine API messages with locally-added messages
-        setMessages([...apiMessages, ...localOnlyMessages]);
-      } else {
-        setMessages(apiMessages);
-      }
       setHasMore(apiMessages.length === 50);
+      
+      // Merge API messages with any existing local messages (e.g., messages sent while loading)
+      // Use functional update to avoid stale closure
+      setMessages(prevMessages => {
+        if (prevMessages.length === 0) {
+          // No local messages - just use API messages
+          return apiMessages;
+        }
+        
+        // There are local messages - need to merge
+        // Get IDs from API messages to check what's already on server
+        const apiMessageIds = new Set(apiMessages.map(m => m.id));
+        
+        // Filter local messages that are NOT in API response
+        // These are messages that were sent locally but not yet acknowledged by server
+        const localOnlyMessages = prevMessages.filter(m => !apiMessageIds.has(m.id));
+        
+        // Combine API messages with local-only messages
+        return [...apiMessages, ...localOnlyMessages];
+      });
       setHasLoadedFromApi(true);
     } catch (error) {
       console.error("Error loading messages:", error);
@@ -847,6 +1017,7 @@ function ChatWindowView({
   useEffect(() => {
     if (chat.conversation_id) {
       setHasLoadedFromApi(false);
+      setHasMarkedAsRead(false);
     }
   }, [chat.conversation_id]);
 
@@ -860,35 +1031,57 @@ function ChatWindowView({
       return;
     }
     
-    // Only sync from parent if we have loaded from API and parent has messages
-    // This prevents overwriting loaded messages with stale parent state
-    if (hasLoadedFromApi && chat.messages && chat.messages.length > 0) {
-      // Check if parent has more/different messages than local state
+    // Sync messages from parent to local state
+    // Always sync when parent has messages to ensure UI stays up to date
+    if (hasLoadedFromApi && chat.messages) {
+      // Check if parent has different messages than local state
       const parentIds = new Set(chat.messages.map(m => m.id));
       const localIds = new Set(messages.map(m => m.id));
       
       // Check if there's any message in parent that's not in local
       const hasNewMessages = chat.messages.some(m => !localIds.has(m.id));
       
-      // Check if read status changed for any message
-      const readStatusChanged = messages.some(msg => {
-        const parentMsg = chat.messages.find(m => m.id === msg.id);
-        return parentMsg && parentMsg.is_read !== msg.is_read;
-      });
+      // Also check if local has messages not in parent (shouldn't happen but handle it)
+      const hasLocalOnly = messages.some(m => !parentIds.has(m.id));
       
-      // Only update if there are new messages from parent or read status changes
-      if (hasNewMessages || readStatusChanged) {
-        setMessages(chat.messages);
+      // Sync if there are new messages or local-only messages
+      if (hasNewMessages || hasLocalOnly) {
+        // Merge parent messages with local read status preserved
+        const mergedMessages = chat.messages.map(parentMsg => {
+          const localMsg = messages.find(m => m.id === parentMsg.id);
+          // If local has is_read=true, preserve it - never overwrite with false
+          if (localMsg?.is_read === true) {
+            return { ...parentMsg, is_read: true };
+          }
+          return { ...parentMsg, is_read: parentMsg.is_read || false };
+        });
+        
+        // Add any local-only messages (should be rare)
+        const localOnlyMessages = messages.filter(m => !parentIds.has(m.id));
+        
+        setMessages([...mergedMessages, ...localOnlyMessages]);
       }
     }
   }, [chat.conversation_id, chat.messages, hasLoadedFromApi, loadMessages, loading, messages.length]);
 
-  // Mark as read after messages are loaded
+  // Mark as read after messages are loaded - only mark as read when there are UNREAD messages
   useEffect(() => {
-    if (chat.conversation_id && messages.length > 0) {
-      onMarkAsRead?.();
+    if (chat.conversation_id && messages.length > 0 && !hasMarkedAsRead && hasLoadedFromApi) {
+      // Check if there are any unread messages from other users
+      const hasUnreadMessages = messages.some(msg => 
+        msg.sender_id !== user?.id && msg.is_read !== true
+      );
+      
+      // Only mark as read if there are unread messages
+      if (hasUnreadMessages) {
+        setHasMarkedAsRead(true);
+        onMarkAsRead?.();
+      } else {
+        // Already all read, just mark as done
+        setHasMarkedAsRead(true);
+      }
     }
-  }, [chat.conversation_id, messages.length]);
+  }, [chat.conversation_id, messages.length, hasLoadedFromApi, hasMarkedAsRead, user, onMarkAsRead]);
 
   // Scroll to bottom when new messages arrive
   useEffect(() => {

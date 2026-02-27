@@ -1382,39 +1382,119 @@ export default function RequestsPage() {
                       </p>
                       
                       {/* Show relevant details based on request type */}
-                      {request.request_type === "rating_routing" && (request.rating || request.routing) && (
+                      {request.request_type === "rating_routing" && (
                         <div className="mt-2 text-sm text-zinc-400">
-                          {request.rating && <span>Rating: {request.rating}</span>}
-                          {request.rating && request.routing && <span> | </span>}
-                          {request.routing && <span>Routing: {request.routing}</span>}
+                          {/* Enterprise Trunks */}
+                          {request.customer_trunks && request.customer_trunks.length > 0 && (
+                            <div className="mb-1">
+                              <span className="text-zinc-500">Enterprise Trunk(s): </span>
+                              {request.customer_trunks.map((ct, idx) => (
+                                <span key={idx}>
+                                  {idx > 0 && ", "}{ct.trunk}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          {/* Destinations */}
+                          {request.customer_trunks && request.customer_trunks.length > 0 && (
+                            <div>
+                              <span className="text-zinc-500">Destination(s): </span>
+                              {request.customer_trunks.map((ct, idx) => (
+                                <span key={idx}>
+                                  {idx > 0 && ", "}{ct.destination}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          {/* Legacy rating/routing fields */}
+                          {(request.rating || request.routing) && (
+                            <>
+                              {request.rating && <div><span className="text-zinc-500">Rating: </span>{request.rating}</div>}
+                              {request.routing && <div><span className="text-zinc-500">Routing: </span>{request.routing}</div>}
+                            </>
+                          )}
                         </div>
                       )}
                       
-                      {(request.request_type === "testing" || request.request_type_label?.includes("Testing")) && request.destination && (
+                      {(request.request_type === "testing" || request.request_type_label?.includes("Testing")) && (
                         <div className="mt-2 text-sm text-zinc-400">
-                          Destination: {request.destination}
-                          {(request.test_type || request.test_description) && (
-                            <>
-                              {request.test_type && <span> | Test Type: {request.test_type === "tool_test" ? "Tool Test" : request.test_type === "manual_test" ? "Manual Test" : request.test_type}</span>}
-                              {request.test_description && <div className="mt-1">Description: {request.test_description}</div>}
-                            </>
+                          {request.vendor_trunks && request.vendor_trunks.length > 0 && (
+                            <div className="mb-1">
+                              <span className="text-zinc-500">Vendor Trunk(s): </span>
+                              {request.vendor_trunks.map((vt, idx) => (
+                                <span key={idx}>
+                                  {idx > 0 && ", "}{vt.trunk}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          {request.destination && (
+                            <div>
+                              <span className="text-zinc-500">Destination(s): </span>
+                              {request.destination}
+                            </div>
                           )}
                         </div>
                       )}
                       
                       {request.request_type === "translation" && (
                         <div className="mt-2 text-sm text-zinc-400">
-                          {request.trunk_type} trunk: {request.trunk_name}
+                          {request.trunk_name && (
+                            <div className="mb-1">
+                              <span className="text-zinc-500">Enterprise Trunk: </span>
+                              {request.trunk_name}
+                            </div>
+                          )}
+                          {request.trunk_type && (
+                            <div className="mb-1">
+                              <span className="text-zinc-500">Trunk Type: </span>
+                              {request.trunk_type}
+                            </div>
+                          )}
+                          {request.translation_destination && (
+                            <div>
+                              <span className="text-zinc-500">Destination: </span>
+                              {request.translation_destination}
+                            </div>
+                          )}
                         </div>
                       )}
                       
+                      {request.request_type === "lcr" && (
+                        <div className="mt-2 text-sm text-zinc-400">
+                          {request.vendor_trunks && request.vendor_trunks.length > 0 && (
+                            <div className="mb-1">
+                              <span className="text-zinc-500">Vendor Trunk(s): </span>
+                              {request.vendor_trunks.map((vt, idx) => (
+                                <span key={idx}>
+                                  {idx > 0 && ", "}{vt.trunk}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          {request.destination && (
+                            <div>
+                              <span className="text-zinc-500">Destination(s): </span>
+                              {request.destination}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
                       {request.request_type === "investigation" && (
                         <div className="mt-2 text-sm text-zinc-400">
-                          {(request.issue_types && request.issue_types.length > 0) && (
-                            <span>Issue: {request.issue_types.join(", ")}</span>
+                          {request.customer_trunk && (
+                            <div className="mb-1">
+                              <span className="text-zinc-500">Enterprise Trunk: </span>
+                              {request.customer_trunk}
+                            </div>
                           )}
-                          {(request.issue_types && request.issue_types.length > 0) && request.investigation_destination && <span> • </span>}
-                          {request.investigation_destination && <span>→ {request.investigation_destination}</span>}
+                          {request.investigation_destination && (
+                            <div>
+                              <span className="text-zinc-500">Destination: </span>
+                              {request.investigation_destination}
+                            </div>
+                          )}
                         </div>
                       )}
                       

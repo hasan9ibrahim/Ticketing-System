@@ -878,11 +878,11 @@ class Client(BaseModel):
 class ClientCreate(BaseModel):
     name: str  # Required
     contact_person: Optional[str] = None  # Optional
-    contact_email: str  # Required
+    contact_email: Optional[str] = None  # Optional
     contact_phone: Optional[str] = None  # Optional
     assigned_am_id: Optional[str] = None
-    tier: str  # Required
-    noc_emails: str  # Required
+    tier: Optional[str] = None
+    noc_emails: Optional[str] = None
     notes: Optional[str] = None  # Optional
     enterprise_type: str  # Required - "sms" or "voice"
     customer_trunks: Optional[List[str]] = Field(default_factory=list)  # List of customer trunk names
@@ -2427,6 +2427,31 @@ async def delete_client(client_id: str, current_admin: dict = Depends(get_curren
     
     return {"message": "Client deleted successfully"}
 
+@api_router.delete("/clients/delete-all")
+async def delete_all_clients(current_admin: dict = Depends(get_current_admin)):
+    """Delete all clients. Admin only endpoint."""
+    # Get all clients before delete for audit
+    all_clients = await db.clients.find({}, {"_id": 0}).to_list(length=None)
+    
+    if not all_clients or len(all_clients) == 0:
+        return {"message": "No clients to delete", "deleted_count": 0}
+    
+    # Delete all clients
+    result = await db.clients.delete_many({})
+    
+    # Create audit log for bulk deletion
+    await create_audit_log(
+        user_id=current_admin["id"],
+        username=current_admin.get("username", "admin"),
+        action="delete_all",
+        entity_type="client",
+        entity_id="all",
+        entity_name="all_clients",
+        changes={"deleted_clients": all_clients, "deleted_count": result.deleted_count}
+    )
+    
+    return {"message": f"Successfully deleted {result.deleted_count} clients", "deleted_count": result.deleted_count}
+
 @api_router.post("/clients/import")
 async def import_clients(
     file: UploadFile = File(...),
@@ -2434,8 +2459,8 @@ async def import_clients(
 ):
     """
     Import enterprises from a CSV file.
-    Required columns: name, enterprise_type, tier, contact_email, noc_emails
-    Optional columns: contact_person, contact_phone, notes, customer_trunks, vendor_trunks
+    Required columns: name, enterprise_type
+    Optional columns: tier, contact_person, contact_email, contact_phone, noc_emails, notes, customer_trunks, vendor_trunks, assigned_am
     """
     # Check if user has permission to create clients
     dept = await get_user_department(current_user)
@@ -2453,7 +2478,7 @@ async def import_clients(
         df = pd.read_csv(io.BytesIO(contents))
         
         # Validate required columns
-        required_columns = ['name', 'enterprise_type', 'tier', 'contact_email', 'noc_emails']
+        required_columns = ['name', 'enterprise_type']
         missing_columns = [col for col in required_columns if col not in df.columns]
         if missing_columns:
             raise HTTPException(
@@ -2467,24 +2492,25 @@ async def import_clients(
         for index, row in df.iterrows():
             try:
                 # Validate required fields
-                if pd.isna(row['name']) or pd.isna(row['enterprise_type']) or pd.isna(row['tier']):
-                    errors.append(f"Row {index + 2}: Missing required fields (name, enterprise_type, tier)")
+                if pd.isna(row['name']) or pd.isna(row['enterprise_type']):
+                    errors.append(f"Row {index + 2}: Missing required fields (name, enterprise_type)")
                     continue
                     
-                if pd.isna(row['contact_email']) or pd.isna(row['noc_emails']):
-                    errors.append(f"Row {index + 2}: Missing required fields (contact_email, noc_emails)")
-                    continue
-                
                 # Validate enterprise_type
                 if row['enterprise_type'] not in ['sms', 'voice']:
                     errors.append(f"Row {index + 2}: enterprise_type must be 'sms' or 'voice'")
                     continue
                 
-                # Validate tier
-                valid_tiers = ['Tier 1', 'Tier 2', 'Tier 3', 'Tier 4']
-                if row['tier'] not in valid_tiers:
-                    errors.append(f"Row {index + 2}: tier must be one of {valid_tiers}")
-                    continue
+                # Validate tier if provided
+                if 'tier' in df.columns and not pd.isna(row.get('tier')):
+                    valid_tiers = ['Tier 1', 'Tier 2', 'Tier 3', 'Tier 4']
+                    if row['tier'] not in valid_tiers:
+                        errors.append(f"Row {index + 2}: tier must be one of {valid_tiers}, skipping tier assignment")
+                        tier_value = None
+                    else:
+                        tier_value = str(row['tier']).strip()
+                else:
+                    tier_value = None
                 
                 # Parse trunks (semicolon-separated)
                 customer_trunks = []
@@ -2495,20 +2521,32 @@ async def import_clients(
                 if 'vendor_trunks' in df.columns and not pd.isna(row.get('vendor_trunks')):
                     vendor_trunks = [t.strip() for t in str(row['vendor_trunks']).split(';') if t.strip()]
                 
+                # Parse assigned_am (by username)
+                assigned_am_id = None
+                if 'assigned_am' in df.columns and not pd.isna(row.get('assigned_am')):
+                    am_username = str(row['assigned_am']).strip()
+                    if am_username:
+                        # Look up the AM user by username
+                        am_user = await db.users.find_one({"username": am_username, "role": "am"})
+                        if am_user:
+                            assigned_am_id = am_user.get("id")
+                        else:
+                            errors.append(f"Row {index + 2}: AM user '{am_username}' not found, enterprise will be unassigned")
+                
                 # Create client document
                 client_doc = {
                     "id": str(uuid.uuid4()),
                     "name": str(row['name']).strip(),
                     "enterprise_type": str(row['enterprise_type']).strip().lower(),
-                    "tier": str(row['tier']).strip(),
-                    "contact_email": str(row['contact_email']).strip(),
+                    "tier": tier_value,
+                    "contact_email": str(row['contact_email']).strip() if not pd.isna(row.get('contact_email')) else None,
                     "contact_person": str(row.get('contact_person', '')).strip() if not pd.isna(row.get('contact_person')) else None,
                     "contact_phone": str(row.get('contact_phone', '')).strip() if not pd.isna(row.get('contact_phone')) else None,
-                    "noc_emails": str(row['noc_emails']).strip(),
+                    "noc_emails": str(row['noc_emails']).strip() if not pd.isna(row.get('noc_emails')) else None,
                     "notes": str(row.get('notes', '')).strip() if not pd.isna(row.get('notes')) else None,
                     "customer_trunks": customer_trunks,
                     "vendor_trunks": vendor_trunks,
-                    "assigned_am_id": None,
+                    "assigned_am_id": assigned_am_id,
                     "created_at": datetime.now(timezone.utc)
                 }
                 
@@ -2524,7 +2562,7 @@ async def import_clients(
                     entity_type="client",
                     entity_id=client_doc["id"],
                     entity_name=client_doc["name"],
-                    changes={"imported": True, "enterprise_type": client_doc["enterprise_type"], "tier": client_doc["tier"]}
+                    changes={"imported": True, "enterprise_type": client_doc["enterprise_type"], "tier": client_doc.get("tier")}
                 )
                 
             except Exception as e:
@@ -5650,6 +5688,44 @@ async def get_conversation_messages(
             msg["created_at"] = msg["created_at"].isoformat()
 
     return messages
+
+@api_router.post("/chat/messages/read")
+async def mark_messages_as_read(
+    conversation_id: str,
+    other_user_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Mark all messages from another user as read in a conversation"""
+    user_id = current_user["id"]
+    
+    # Verify user is part of conversation
+    conv = await db.conversations.find_one({
+        "id": conversation_id,
+        "participant_ids": user_id
+    })
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    
+    # Mark all messages from the other user as read
+    result = await db.chat_messages.update_many(
+        {
+            "conversation_id": conversation_id,
+            "sender_id": other_user_id,
+            "is_read": False
+        },
+        {"$set": {"is_read": True}}
+    )
+    
+    # Reset unread count for current user
+    await db.conversations.update_one(
+        {"id": conversation_id},
+        {"$set": {f"unread_counts.{user_id}": 0}}
+    )
+    
+    return {
+        "message": f"Marked {result.modified_count} messages as read",
+        "modified_count": result.modified_count
+    }
 
 @api_router.post("/chat/messages")
 async def create_message(

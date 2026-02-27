@@ -726,12 +726,22 @@ export default function ReferencesPage() {
                     <Badge variant="outline" className="mr-2 bg-zinc-800 text-zinc-300 border-zinc-600">
                       {alert.customer}
                     </Badge>
-                    <Badge variant="secondary" className="bg-zinc-700 text-zinc-300">
-                      {alert.destination || "No destination"}
-                    </Badge>
+                    {/* Enterprise Destination */}
+                    {(alert.customer_trunk || alert.destination) && (
+                      <Badge variant="secondary" className="bg-zinc-700 text-zinc-300 mr-2">
+                        {alert.customer_trunk || alert.destination}
+                      </Badge>
+                    )}
+                    {/* SID for SMS alerts */}
+                    {alert.ticket_type === "sms" && alert.sms_details?.length > 0 && (
+                      <Badge variant="secondary" className="bg-blue-900/50 text-blue-300">
+                        SID: {alert.sms_details[0]?.sid || "-"}
+                      </Badge>
+                    )}
                   </CardDescription>
                 </div>
-                <div className="text-xs text-zinc-500">
+                <div className="flex items-center gap-2 text-xs text-zinc-500">
+                  {!alert.resolved && <Bell className="h-3 w-3 text-red-400" />}
                   {new Date(alert.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                 </div>
               </div>

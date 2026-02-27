@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import axios from "axios";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, Search, Trash2, X, FileDown, FileUp } from "lucide-react";
+import { Plus, Search, Trash2, X, FileDown, FileUp, Trash } from "lucide-react";
 import { toast } from "sonner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -27,6 +27,7 @@ export default function EnterprisesPage() {
   const [editingEnterprise, setEditingEnterprise] = useState(null);
   const [formData, setFormData] = useState({});
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteAllDialogOpen, setDeleteAllDialogOpen] = useState(false);
   const [enterpriseToDelete, setEnterpriseToDelete] = useState(null);
   const [currentUser, setCurrentUser] = useState(null);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
@@ -195,6 +196,18 @@ export default function EnterprisesPage() {
     }
   };
 
+  const handleDeleteAll = async () => {
+    try {
+      const token = localStorage.getItem("token");
+      const response = await axios.delete(`${API}/clients/delete-all`, { headers: { Authorization: `Bearer ${token}` } });
+      toast.success(response.data.message || "All enterprises deleted successfully");
+      setDeleteAllDialogOpen(false);
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Failed to delete all enterprises");
+    }
+  };
+
   // Trunk management functions
   const addCustomerTrunk = () => {
     if (newCustomerTrunk.trim() && !customerTrunks.includes(newCustomerTrunk.trim())) {
@@ -231,7 +244,8 @@ export default function EnterprisesPage() {
       'noc_emails',
       'notes',
       'customer_trunks',
-      'vendor_trunks'
+      'vendor_trunks',
+      'assigned_am'
     ];
     
     // Example row with mandatory fields filled
@@ -245,7 +259,8 @@ export default function EnterprisesPage() {
       'noc@example.com',
       'Example notes',
       'trunk1;trunk2',
-      'vendor1;vendor2'
+      'vendor1;vendor2',
+      'am_username'
     ];
     
     const csvContent = [
@@ -394,6 +409,11 @@ export default function EnterprisesPage() {
               <Button onClick={openCreateSheet} data-testid="create-enterprise-button" className="bg-emerald-500 text-black hover:bg-emerald-400 h-9"><Plus className="h-4 w-4 mr-2" />New Enterprise</Button>
             </>
           )}
+          {canDelete && (
+            <Button onClick={() => setDeleteAllDialogOpen(true)} variant="outline" className="border-red-500/50 text-red-500 hover:bg-red-500/10 hover:text-red-400">
+              <Trash className="h-4 w-4 mr-2" />Delete All
+            </Button>
+          )}
         </div>
       </div>
       <div className="flex gap-4 items-start">
@@ -424,12 +444,12 @@ export default function EnterprisesPage() {
           <form onSubmit={handleSubmit} className="space-y-4 mt-6">
             <div className="space-y-2"><Label>Enterprise Name *</Label><Input value={formData.name || ""} onChange={(e) => setFormData({ ...formData, name: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" data-testid="enterprise-name-input" required /></div>
             <div className="space-y-2"><Label>SMS/Voice *</Label><Select value={formData.enterprise_type || ""} onValueChange={(value) => setFormData({ ...formData, enterprise_type: value })} required><SelectTrigger className="bg-zinc-800 border-zinc-700" data-testid="enterprise-type-select"><SelectValue placeholder="Select type" /></SelectTrigger><SelectContent className="bg-zinc-800 border-zinc-700"><SelectItem value="sms">SMS</SelectItem><SelectItem value="voice">Voice</SelectItem></SelectContent></Select></div>
-            <div className="space-y-2"><Label>Tier *</Label><Select value={formData.tier} onValueChange={(value) => setFormData({ ...formData, tier: value })} required><SelectTrigger className="bg-zinc-800 border-zinc-700" data-testid="tier-select"><SelectValue placeholder="Select tier" /></SelectTrigger><SelectContent className="bg-zinc-800 border-zinc-700"><SelectItem value="Tier 1">Tier 1</SelectItem><SelectItem value="Tier 2">Tier 2</SelectItem><SelectItem value="Tier 3">Tier 3</SelectItem><SelectItem value="Tier 4">Tier 4</SelectItem></SelectContent></Select></div>
+            <div className="space-y-2"><Label>Tier</Label><Select value={formData.tier} onValueChange={(value) => setFormData({ ...formData, tier: value })}><SelectTrigger className="bg-zinc-800 border-zinc-700" data-testid="tier-select"><SelectValue placeholder="Select tier" /></SelectTrigger><SelectContent className="bg-zinc-800 border-zinc-700"><SelectItem value="Tier 1">Tier 1</SelectItem><SelectItem value="Tier 2">Tier 2</SelectItem><SelectItem value="Tier 3">Tier 3</SelectItem><SelectItem value="Tier 4">Tier 4</SelectItem></SelectContent></Select></div>
             <div className="space-y-2"><Label>Contact Person</Label><Input value={formData.contact_person || ""} onChange={(e) => setFormData({ ...formData, contact_person: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" /></div>
-            <div className="space-y-2"><Label>Contact Email *</Label><Input type="email" value={formData.contact_email || ""} onChange={(e) => setFormData({ ...formData, contact_email: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" required /></div>
+            <div className="space-y-2"><Label>Contact Email</Label><Input type="email" value={formData.contact_email || ""} onChange={(e) => setFormData({ ...formData, contact_email: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" /></div>
             <div className="space-y-2"><Label>Contact Phone</Label><Input value={formData.contact_phone || ""} onChange={(e) => setFormData({ ...formData, contact_phone: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" /></div>
             <div className="space-y-2"><Label>Assigned Account Manager</Label><Select value={formData.assigned_am_id} onValueChange={(value) => setFormData({ ...formData, assigned_am_id: value })}><SelectTrigger className="bg-zinc-800 border-zinc-700" data-testid="assigned-am-select"><SelectValue placeholder="Select AM" /></SelectTrigger><SelectContent className="bg-zinc-800 border-zinc-700">{users.map((user) => <SelectItem key={user.id} value={user.id}>{user.username}</SelectItem>)}</SelectContent></Select></div>
-            <div className="space-y-2"><Label>NOC Emails *</Label><Textarea value={formData.noc_emails || ""} onChange={(e) => setFormData({ ...formData, noc_emails: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" placeholder="email1@example.com, email2@example.com" required /></div>
+            <div className="space-y-2"><Label>NOC Emails</Label><Textarea value={formData.noc_emails || ""} onChange={(e) => setFormData({ ...formData, noc_emails: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" placeholder="email1@example.com, email2@example.com" /></div>
             <div className="space-y-2"><Label>Notes</Label><Textarea value={formData.notes || ""} onChange={(e) => setFormData({ ...formData, notes: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" /></div>
             
             {/* Customer Trunks and Vendor Trunks in adjacent columns */}
@@ -470,6 +490,21 @@ export default function EnterprisesPage() {
         </AlertDialogContent>
       </AlertDialog>
 
+      <AlertDialog open={deleteAllDialogOpen} onOpenChange={setDeleteAllDialogOpen}>
+        <AlertDialogContent className="bg-zinc-900 border-white/10">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-white">Delete All Enterprises</AlertDialogTitle>
+            <AlertDialogDescription className="text-zinc-400">
+              Are you sure you want to delete ALL enterprises? This action cannot be undone and will remove all {enterprises.length} enterprises from the system.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="border-zinc-700 text-white hover:bg-zinc-800">Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteAll} className="bg-red-500 text-white hover:bg-red-600">Delete All</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <Dialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>
         <DialogContent className="bg-zinc-900 border-white/10 text-white sm:max-w-md">
           <DialogHeader>
@@ -479,7 +514,7 @@ export default function EnterprisesPage() {
             <div className="space-y-2">
               <Label className="text-zinc-300">Select CSV File</Label>
               <p className="text-sm text-zinc-500">
-                Upload a CSV file with the following columns: name, enterprise_type, tier, contact_person, contact_email, contact_phone, noc_emails, notes, customer_trunks, vendor_trunks.
+                Upload a CSV file with the following columns: name, enterprise_type, tier, contact_person, contact_email, contact_phone, noc_emails, notes, customer_trunks, vendor_trunks, assigned_am.
                 Use the Template button to download a sample file.
               </p>
               <Input
