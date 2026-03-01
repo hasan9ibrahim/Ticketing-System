@@ -1,28 +1,44 @@
+version: "3.8"
+
 services:
   mongodb:
     image: mongo:6
-    container_name: mongodb
+    container_name: ticketing_mongo
     restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: hasan1ibrahim_db_user
+      MONGO_INITDB_ROOT_PASSWORD: PhGPrfp3hGotMnVM
     volumes:
       - mongo_data:/data/db
-    ports:
-      - "27017:27017"
+    networks:
+      - ticketing_network
+    # IMPORTANT: no ports exposed
 
   backend:
     build: ./backend
+    container_name: ticketing_backend
+    restart: unless-stopped
     env_file:
       - ./backend/.env
     depends_on:
       - mongodb
+    networks:
+      - ticketing_network
     ports:
-      - "8000:8000"
-    restart: unless-stopped
+      - "127.0.0.1:8000:8000"   # only accessible from VPS
 
   frontend:
     build: ./frontend
-    ports:
-      - "8080:80"
+    container_name: ticketing_frontend
     restart: unless-stopped
+    networks:
+      - ticketing_network
+    ports:
+      - "127.0.0.1:8080:80"     # only accessible from VPS
 
 volumes:
   mongo_data:
+
+networks:
+  ticketing_network:
+    driver: bridge

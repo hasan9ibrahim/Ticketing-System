@@ -1,0 +1,44 @@
+services:
+  mongodb:
+    image: mongo:6
+    container_name: mongodb-local
+    restart: unless-stopped
+    volumes:
+      - mongo_data_local:/data/db
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_DATABASE: ticketdb
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: backend-local
+    env_file:
+      - ./backend/.env
+    depends_on:
+      - mongodb
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    volumes:
+      - ./backend:/app
+    environment:
+      - PYTHONUNBUFFERED=1
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: frontend-local
+    ports:
+      - "8080:80"
+    restart: unless-stopped
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend:/app
+
+volumes:
+  mongo_data_local:
