@@ -12,8 +12,8 @@ services:
 
   backend:
     build:
-      context: .
-      dockerfile: backend/Dockerfile
+      context: ./backend
+      dockerfile: Dockerfile
     container_name: backend-local
     env_file:
       - ./backend/.env
@@ -22,23 +22,19 @@ services:
     ports:
       - "8000:8000"
     restart: unless-stopped
-    volumes:
-      - ./backend:/app
     environment:
       - PYTHONUNBUFFERED=1
 
   frontend:
     build:
-      context: .
-      dockerfile: frontend/Dockerfile
+      context: ./frontend
+      dockerfile: Dockerfile
     container_name: frontend-local
     ports:
       - "8080:80"
     restart: unless-stopped
     depends_on:
       - backend
-    volumes:
-      - ./frontend:/app
 
 volumes:
   mongo_data_local:

@@ -2405,28 +2405,6 @@ async def update_client_contact(client_id: str, contact_data: ClientContactUpdat
     
     return Client(**result)
 
-@api_router.delete("/clients/{client_id}")
-async def delete_client(client_id: str, current_admin: dict = Depends(get_current_admin)):
-    # Get client before delete for audit
-    client_before = await db.clients.find_one({"id": client_id}, {"_id": 0})
-    
-    result = await db.clients.delete_one({"id": client_id})
-    if result.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Client not found")
-    
-    # Create audit log for client deletion
-    await create_audit_log(
-        user_id=current_admin["id"],
-        username=current_admin.get("username", "admin"),
-        action="delete",
-        entity_type="client",
-        entity_id=client_id,
-        entity_name=client_before.get("name", client_id) if client_before else client_id,
-        changes={"deleted_client": client_before}
-    )
-    
-    return {"message": "Client deleted successfully"}
-
 @api_router.delete("/clients/delete-all")
 async def delete_all_clients(current_admin: dict = Depends(get_current_admin)):
     """Delete all clients. Admin only endpoint."""
@@ -2451,6 +2429,28 @@ async def delete_all_clients(current_admin: dict = Depends(get_current_admin)):
     )
     
     return {"message": f"Successfully deleted {result.deleted_count} clients", "deleted_count": result.deleted_count}
+
+@api_router.delete("/clients/{client_id}")
+async def delete_client(client_id: str, current_admin: dict = Depends(get_current_admin)):
+    # Get client before delete for audit
+    client_before = await db.clients.find_one({"id": client_id}, {"_id": 0})
+    
+    result = await db.clients.delete_one({"id": client_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Client not found")
+    
+    # Create audit log for client deletion
+    await create_audit_log(
+        user_id=current_admin["id"],
+        username=current_admin.get("username", "admin"),
+        action="delete",
+        entity_type="client",
+        entity_id=client_id,
+        entity_name=client_before.get("name", client_id) if client_before else client_id,
+        changes={"deleted_client": client_before}
+    )
+    
+    return {"message": "Client deleted successfully"}
 
 @api_router.post("/clients/import")
 async def import_clients(
