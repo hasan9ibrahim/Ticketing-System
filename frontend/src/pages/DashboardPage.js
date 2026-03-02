@@ -121,13 +121,13 @@ export default function DashboardPage() {
 
   const smsStatusData = Object.entries(stats?.sms_by_status || {}).map(([name, value]) => ({
     name,
-    value,
+    value: typeof value === 'number' ? value : 0,
     color: statusColors[name] || "#71717a",
   }));
 
   const voiceStatusData = Object.entries(stats?.voice_by_status || {}).map(([name, value]) => ({
     name,
-    value,
+    value: typeof value === 'number' ? value : 0,
     color: statusColors[name] || "#71717a",
   }));
 
@@ -328,7 +328,7 @@ export default function DashboardPage() {
           <CardTitle className="text-white">Recent Tickets</CardTitle>
         </CardHeader>
         <CardContent>
-          {stats?.recent_tickets && stats.recent_tickets.length > 0 ? (
+          {stats?.recent_tickets && Array.isArray(stats.recent_tickets) && stats.recent_tickets.length > 0 ? (
             <div className="space-y-3" data-testid="recent-tickets-list">
               {stats.recent_tickets
                 .filter(ticket => {

@@ -350,7 +350,11 @@ export default function DashboardLayout({ user, setUser }) {
       const response = await axios.get(`${API}/users/me/alert-notifications`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      const notifications = response.data || [];
+      let notifications = response.data || [];
+      // Ensure notifications is an array
+      if (!Array.isArray(notifications)) {
+        notifications = [];
+      }
       // Filter out dismissed notifications to prevent them reappearing after refetch
       const currentDismissed = dismissedNotificationsRef.current;
       setAlertNotifications(notifications.filter(n => !currentDismissed[n.id]));
@@ -426,7 +430,11 @@ export default function DashboardLayout({ user, setUser }) {
       const res = await axios.get(`${API}/users/me/request-notifications`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      const notifications = res.data || [];
+      let notifications = res.data || [];
+      // Ensure notifications is an array
+      if (!Array.isArray(notifications)) {
+        notifications = [];
+      }
       // Filter out dismissed notifications to prevent them reappearing after refetch
       const currentDismissed = dismissedNotificationsRef.current;
       setRequestNotifications(notifications.filter(n => !currentDismissed[n.id]));
@@ -570,7 +578,11 @@ export default function DashboardLayout({ user, setUser }) {
       const response = await axios.get(`${API}/dashboard/ticket-modifications`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      const notifications = response.data || [];
+      let notifications = response.data || [];
+      // Ensure notifications is an array
+      if (!Array.isArray(notifications)) {
+        notifications = [];
+      }
       
       // Filter out notifications that have been dismissed (permanently removed by user)
       // Use ref to get current value in interval callback
