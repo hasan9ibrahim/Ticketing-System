@@ -55,7 +55,7 @@ const PRIORITIES = [
   { value: "Low", color: "bg-zinc-500", text: "text-zinc-100", description: "To be done in 30 mins" },
   { value: "Medium", color: "bg-blue-500", text: "text-white", description: "To be done in 20 mins" },
   { value: "High", color: "bg-orange-500", text: "text-white", description: "To be done in 10 mins" },
-  { value: "Urgent", color: "bg-red-600", text: "text-white", description: "To be done in 5 mins" }
+  { value: "Urgent", color: "bg-red-600", text: "text-white", description: "To be done in 5 mins (Only in case of Live Traffic)" }
 ];
 
 const STATUS_CONFIG = {
@@ -1384,10 +1384,10 @@ export default function RequestsPage() {
                       {/* Show relevant details based on request type */}
                       {request.request_type === "rating_routing" && (
                         <div className="mt-2 text-sm text-zinc-400">
-                          {/* Enterprise Trunks */}
+                          {/* Customer Trunks */}
                           {request.customer_trunks && request.customer_trunks.length > 0 && (
                             <div className="mb-1">
-                              <span className="text-zinc-500">Enterprise Trunk(s): </span>
+                              <span className="text-zinc-500">Customer Trunk(s): </span>
                               {request.customer_trunks.map((ct, idx) => (
                                 <span key={idx}>
                                   {idx > 0 && ", "}{ct.trunk}
@@ -1441,7 +1441,7 @@ export default function RequestsPage() {
                         <div className="mt-2 text-sm text-zinc-400">
                           {request.trunk_name && (
                             <div className="mb-1">
-                              <span className="text-zinc-500">Enterprise Trunk: </span>
+                              <span className="text-zinc-500">Customer Trunk: </span>
                               {request.trunk_name}
                             </div>
                           )}
@@ -1485,7 +1485,7 @@ export default function RequestsPage() {
                         <div className="mt-2 text-sm text-zinc-400">
                           {request.customer_trunk && (
                             <div className="mb-1">
-                              <span className="text-zinc-500">Enterprise Trunk: </span>
+                              <span className="text-zinc-500">Customer Trunk: </span>
                               {request.customer_trunk}
                             </div>
                           )}
@@ -1765,11 +1765,11 @@ export default function RequestsPage() {
               </div>
             )}
 
-            {/* Customer/Enterprise - Show only when request type is selected and not for Testing/Investigation/Translation/LCR */}
+            {/* Customer - Show only when request type is selected and not for Testing/Investigation/Translation/LCR */}
             {formData.request_type && formData.request_type !== "testing" && formData.request_type !== "investigation" && formData.request_type !== "translation" && formData.request_type !== "lcr" && (
               <div>
                 <Label className="text-zinc-400">
-                  {formData.request_type === "translation" || formData.request_type === "rating_routing" ? "Enterprise(s)" : "Customer"}
+                  {formData.request_type === "translation" || formData.request_type === "rating_routing" ? "Customer(s)" : "Customer"}
                 </Label>
                 {formData.request_type === "rating_routing" ? (
                   <MultiSelect
@@ -1793,7 +1793,7 @@ export default function RequestsPage() {
                   <Input
                     value={formData.customer}
                     onChange={(e) => setFormData({ ...formData, customer: e.target.value })}
-                    placeholder={formData.request_type === "translation" ? "Enterprise name" : "Customer name"}
+                    placeholder={formData.request_type === "translation" ? "Customer name" : "Customer name"}
                     className="bg-zinc-800 border-zinc-700"
                   />
                 )}
@@ -1804,8 +1804,8 @@ export default function RequestsPage() {
             {formData.request_type === "rating_routing" && (
               <>
                 <div>
-                  <Label className="text-zinc-400">Enterprise Trunks</Label>
-                  <p className="text-xs text-zinc-500 mb-2">Each enterprise trunk can have multiple destination-rate pairs</p>
+                  <Label className="text-white">Customer Trunks</Label>
+                  <p className="text-xs text-zinc-500 mb-2">Each customer trunk can have multiple destination-rate pairs</p>
                   
                   {Object.entries(formData.customer_trunks || {}).map(([trunkName, destRates]) => (
                     <div key={trunkName} className="border border-zinc-700 rounded-lg p-3 mb-3 bg-zinc-900/50">
@@ -1816,7 +1816,7 @@ export default function RequestsPage() {
                           required
                         >
                           <SelectTrigger className="bg-zinc-800 border-zinc-700 text-white flex-1">
-                            <SelectValue placeholder="Select enterprise trunk" />
+                            <SelectValue placeholder="Select customer trunk" />
                           </SelectTrigger>
                           <SelectContent className="bg-zinc-800 border-zinc-700">
                             {(formData.customer_ids || []).flatMap(customerId => 
@@ -1883,11 +1883,11 @@ export default function RequestsPage() {
                   ))}
                   
                   <Button variant="outline" size="sm" onClick={addEnterpriseTrunk} className="mt-2">
-                    <Plus className="h-4 w-4 mr-1" /> Add Enterprise Trunk
+                    <Plus className="h-4 w-4 mr-1" /> Add Customer Trunk
                   </Button>
                 </div>
                 <div>
-                  <Label className="text-zinc-400">Vendor Trunk Positions</Label>
+                  <Label className="text-white">Vendor Trunk Positions</Label>
                   <p className="text-xs text-zinc-500 mb-2">Each position can have multiple vendors. Percentages within a position must add up to 100%.</p>
                   
                   {Object.entries(formData.rating_vendor_trunks || {}).sort((a, b) => parseInt(a[0]) - parseInt(b[0])).map(([position, vendors]) => {
@@ -2471,10 +2471,10 @@ export default function RequestsPage() {
                   />
                 </div>
                 <div>
-                  <Label className="text-zinc-400">Enterprise Trunk *</Label>
+                  <Label className="text-zinc-400">Customer Trunk *</Label>
                   <Select value={formData.customer_trunk || ""} onValueChange={(value) => setFormData({ ...formData, customer_trunk: value })} required disabled={!formData.customer_id}>
                     <SelectTrigger className="bg-zinc-800 border-zinc-700 text-white">
-                      <SelectValue placeholder={formData.customer_id ? "Select enterprise trunk" : "Select enterprise first"} />
+                      <SelectValue placeholder={formData.customer_id ? "Select customer trunk" : "Select customer first"} />
                     </SelectTrigger>
                     <SelectContent className="bg-zinc-800 border-zinc-700">
                       {(formData.customer_id 
@@ -2635,7 +2635,7 @@ export default function RequestsPage() {
                 </div>
                 {selectedRequest.request_type !== "testing" && selectedRequest.request_type !== "lcr" && (
                 <div>
-                  <Label className="text-zinc-400">Customer/Enterprise</Label>
+                  <Label className="text-zinc-400">Customer</Label>
                   <p className="text-white">{selectedRequest.customer || selectedRequest.enterprise?.name || "N/A"}</p>
                 </div>
                 )}
@@ -2657,7 +2657,7 @@ export default function RequestsPage() {
                     {selectedRequest.customer && <p className="text-white">Customer: {selectedRequest.customer}</p>}
                     {(selectedRequest.customer_trunks || selectedRequest.customer_ids) && (
                       <div className="border border-zinc-700 rounded-lg p-4 mt-3 bg-zinc-800/30">
-                        <Label className="text-zinc-300 font-semibold text-lg block mb-3">Enterprise Trunks</Label>
+                        <Label className="text-white font-semibold text-lg block mb-3">Customer Trunks</Label>
                         {(selectedRequest.customer_trunks || []).length > 0 ? (
                           <div className="space-y-2">
                             {(selectedRequest.customer_trunks || []).map((trunk, i) => (

@@ -108,6 +108,8 @@ export default function ReferencesPage() {
   const [filters, setFilters] = useState([]);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [listToDelete, setListToDelete] = useState(null);
+  const [selectedListForView, setSelectedListForView] = useState(null);
+  const [isEditMode, setIsEditMode] = useState(false);
   const [selectedAlert, setSelectedAlert] = useState(null);
   const [commentText, setCommentText] = useState("");
   const [alternativeVendor, setAlternativeVendor] = useState("");
@@ -344,6 +346,29 @@ export default function ReferencesPage() {
     setDialogOpen(true);
   };
 
+  // Handle opening a list in view mode
+  const handleViewList = (list, section) => {
+    setActiveSection(section);
+    setSelectedListForView(list);
+    setIsEditMode(false);
+  };
+
+  // Handle edit from view mode
+  const handleEditFromView = () => {
+    if (selectedListForView) {
+      setIsEditMode(true);
+      setEditingList(selectedListForView);
+      setFormData({
+        name: selectedListForView.name,
+        destination: selectedListForView.destination,
+        traffic_type: selectedListForView.traffic_type,
+        custom_traffic_type: selectedListForView.custom_traffic_type || "",
+        vendor_entries: selectedListForView.vendor_entries || []
+      });
+      setDialogOpen(true);
+    }
+  };
+
   const handleSave = async () => {
     try {
       const token = localStorage.getItem("token");
@@ -484,6 +509,10 @@ export default function ReferencesPage() {
       });
       setDeleteDialogOpen(false);
       setListToDelete(null);
+      // Close view panel if the deleted list was being viewed
+      if (selectedListForView && (selectedListForView.id === listToDelete?.id || selectedListForView._id === listToDelete?._id)) {
+        setSelectedListForView(null);
+      }
       fetchData();
     } catch (error) {
       console.error("Failed to delete:", error);
@@ -1092,7 +1121,11 @@ export default function ReferencesPage() {
             ) : (
               <div className="grid gap-4">
                 {filterLists(smsLists).map((list) => (
-                  <Card key={list.id || list._id} className="bg-zinc-900 border-zinc-800">
+                  <Card 
+                    key={list.id || list._id} 
+                    className="bg-zinc-900 border-zinc-800 cursor-pointer hover:border-zinc-600"
+                    onClick={() => handleViewList(list, "sms")}
+                  >
                     <CardHeader className="pb-3">
                       <div className="flex items-start justify-between">
                         <div>
@@ -1100,9 +1133,14 @@ export default function ReferencesPage() {
                           <CardDescription className="mt-1">
                             <Badge variant="outline" className="mr-2 bg-zinc-800 text-zinc-300 border-zinc-600">{list.destination}</Badge>
                             <Badge variant="secondary" className="bg-zinc-700 text-zinc-300">{list.traffic_type}</Badge>
+                            {list.vendor_entries?.length > 0 && (
+                              <span className="ml-2 text-xs text-zinc-500">
+                                ({list.vendor_entries.length} vendor{list.vendor_entries.length !== 1 ? 's' : ''})
+                              </span>
+                            )}
                           </CardDescription>
                         </div>
-                        <div className="flex gap-2">
+                        <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
                           <Button
                             variant="ghost"
                             size="icon"
@@ -1120,9 +1158,6 @@ export default function ReferencesPage() {
                         </div>
                       </div>
                     </CardHeader>
-                    <CardContent>
-                      {renderReferenceTable(list)}
-                    </CardContent>
                   </Card>
                 ))}
               </div>
@@ -1156,7 +1191,11 @@ export default function ReferencesPage() {
             ) : (
               <div className="grid gap-4">
                 {filterLists(voiceLists).map((list) => (
-                  <Card key={list.id || list._id} className="bg-zinc-900 border-zinc-800">
+                  <Card 
+                    key={list.id || list._id} 
+                    className="bg-zinc-900 border-zinc-800 cursor-pointer hover:border-zinc-600"
+                    onClick={() => handleViewList(list, "voice")}
+                  >
                     <CardHeader className="pb-3">
                       <div className="flex items-start justify-between">
                         <div>
@@ -1164,9 +1203,14 @@ export default function ReferencesPage() {
                           <CardDescription className="mt-1">
                             <Badge variant="outline" className="mr-2 bg-zinc-800 text-zinc-300 border-zinc-600">{list.destination}</Badge>
                             <Badge variant="secondary" className="bg-zinc-700 text-zinc-300">{list.traffic_type}</Badge>
+                            {list.vendor_entries?.length > 0 && (
+                              <span className="ml-2 text-xs text-zinc-500">
+                                ({list.vendor_entries.length} vendor{list.vendor_entries.length !== 1 ? 's' : ''})
+                              </span>
+                            )}
                           </CardDescription>
                         </div>
-                        <div className="flex gap-2">
+                        <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
                           <Button
                             variant="ghost"
                             size="icon"
@@ -1184,9 +1228,6 @@ export default function ReferencesPage() {
                         </div>
                       </div>
                     </CardHeader>
-                    <CardContent>
-                      {renderReferenceTable(list)}
-                    </CardContent>
                   </Card>
                 ))}
               </div>
@@ -1236,8 +1277,102 @@ export default function ReferencesPage() {
         </Tabs>
       </>)}
 
+      {/* View Panel Sidebar */}
+      {selectedListForView && (
+        <div className="fixed inset-y-0 right-0 w-[500px] bg-zinc-900 border-l border-zinc-800 p-4 overflow-y-auto shadow-lg z-50">
+          <div className="flex justify-between items-center mb-6">
+            <h3 className="text-lg font-semibold text-white">Reference List Details</h3>
+            <Button variant="ghost" size="icon" onClick={() => setSelectedListForView(null)}>
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+          
+          <div className="space-y-6">
+            {/* Basic Info */}
+            <div className="bg-zinc-800 rounded-lg p-4">
+              <h4 className="text-sm font-medium text-zinc-400 mb-3">Basic Information</h4>
+              <div className="space-y-3">
+                <div>
+                  <span className="text-xs text-zinc-500">List Name</span>
+                  <p className="text-white font-medium">{selectedListForView.name}</p>
+                </div>
+                <div>
+                  <span className="text-xs text-zinc-500">Destination</span>
+                  <p className="text-white">{selectedListForView.destination}</p>
+                </div>
+                <div>
+                  <span className="text-xs text-zinc-500">Traffic Type</span>
+                  <Badge variant="secondary" className="bg-zinc-700 text-zinc-300 mt-1">
+                    {selectedListForView.traffic_type}
+                  </Badge>
+                </div>
+              </div>
+            </div>
+
+            {/* Vendor Entries */}
+            <div className="bg-zinc-800 rounded-lg p-4">
+              <h4 className="text-sm font-medium text-zinc-400 mb-3">
+                Vendor Entries ({selectedListForView.vendor_entries?.length || 0})
+              </h4>
+              {(selectedListForView.vendor_entries && selectedListForView.vendor_entries.length > 0) ? (
+                <Table>
+                  <TableHeader>
+                    <TableRow className="hover:bg-zinc-700 border-zinc-600">
+                      <TableHead className="w-12 text-zinc-300">#</TableHead>
+                      <TableHead className="text-zinc-300">Vendor Trunk</TableHead>
+                      <TableHead className="text-zinc-300">Cost</TableHead>
+                      <TableHead className="text-zinc-300">Notes</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {selectedListForView.vendor_entries.map((vendor, idx) => (
+                      <TableRow key={idx} className="border-zinc-600">
+                        <TableCell className="w-12">
+                          <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-zinc-600 text-xs font-medium text-white">
+                            {idx + 1}
+                          </span>
+                        </TableCell>
+                        <TableCell className="font-medium text-white">{vendor.trunk}</TableCell>
+                        <TableCell className="text-zinc-300">{vendor.cost || '-'}</TableCell>
+                        <TableCell className="text-zinc-300 max-w-[200px] truncate" title={vendor.notes || ''}>
+                          {vendor.notes || '-'}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              ) : (
+                <p className="text-zinc-500 text-sm">No vendors added yet</p>
+              )}
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-3">
+              <Button 
+                onClick={handleEditFromView}
+                className="flex-1 gap-2"
+              >
+                <Edit className="h-4 w-4" />
+                Edit List
+              </Button>
+              <Button 
+                variant="destructive"
+                onClick={() => {
+                  handleDelete(selectedListForView);
+                  setSelectedListForView(null);
+                }}
+                className="gap-2"
+              >
+                <Trash2 className="h-4 w-4" />
+                Delete
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Create/Edit Dialog */}
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen} onInteractOutside={(e) => e.preventDefault()}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto bg-zinc-950 border-zinc-800 text-white">
           <DialogHeader>
             <DialogTitle className="text-white">

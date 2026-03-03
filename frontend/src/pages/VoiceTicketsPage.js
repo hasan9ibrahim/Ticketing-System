@@ -14,6 +14,8 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
 import StatusBadge from "@/components/custom/StatusBadge";
@@ -73,6 +75,7 @@ export default function VoiceTicketsPage() {
   const [vendorTrunksOpen, setVendorTrunksOpen] = useState(false);
   const [vendorTrunkSearch, setVendorTrunkSearch] = useState("");
   const [sendingAlert, setSendingAlert] = useState(false);
+  const [ticketDetailsDialogOpen, setTicketDetailsDialogOpen] = useState(false);
 
   useEffect(() => {
     const userData = localStorage.getItem("user");
@@ -223,7 +226,7 @@ export default function VoiceTicketsPage() {
       const ticketDate = new Date(ticket.date);
       if (ticketDate < today || ticketDate >= tomorrow) return false;
       
-      // Check for Enterprise match
+      // Check for Customer match
       const enterpriseMatch = ticket.customer_id === customerId;
       // Check for Trunk match
       const trunkMatch = !customerTrunk || (ticket.customer_trunk && customerTrunk.toLowerCase() === ticket.customer_trunk.toLowerCase());
@@ -501,6 +504,12 @@ export default function VoiceTicketsPage() {
   };
 
   const openEditSheet = (ticket) => {
+    if (isAM) {
+      // For AM users, open details in a dialog instead of the form
+      setEditingTicket(ticket);
+      setTicketDetailsDialogOpen(true);
+      return;
+    }
     setEditingTicket(ticket);
     // Normalize opened_via to array
     const openedVia = Array.isArray(ticket.opened_via) 
@@ -555,15 +564,15 @@ export default function VoiceTicketsPage() {
       return;
     }
 
-    // ✅ Enterprise required
+    // ✅ Customer required
     if (!formData.customer_id) {
-      toast.error("Enterprise is required");
+      toast.error("Customer is required");
       return;
     }
 
-    // ✅ Enterprise Trunk required
+    // ✅ Customer Trunk required
     if (!formData.customer_trunk) {
-      toast.error("Enterprise Trunk is required");
+      toast.error("Customer Trunk is required");
       return;
     }
 
@@ -628,7 +637,7 @@ export default function VoiceTicketsPage() {
       }
     }
     
-        // Check for same-day identical tickets (Enterprise, Trunk, Destination, Issue)
+        // Check for same-day identical tickets (Customer, Trunk, Destination, Issue)
     if (!editingTicket) {
       const sameDayIdentical = findSameDayIdenticalTickets(
         formData.customer_id,
@@ -796,7 +805,7 @@ export default function VoiceTicketsPage() {
       // Get the enterprise for this ticket
       const enterprise = enterprises.find(e => e.id === selectedTicket.customer_id);
       if (!enterprise) {
-        toast.error("Enterprise not found for this ticket");
+        toast.error("Customer not found for this ticket");
         return;
       }
 
@@ -901,7 +910,7 @@ export default function VoiceTicketsPage() {
         <Select value={enterpriseFilter} onValueChange={setEnterpriseFilter}>
           <SelectTrigger className="bg-zinc-900 border-zinc-700 text-white"><SelectValue placeholder="Enterprise" /></SelectTrigger>
           <SelectContent className="bg-zinc-800 border-zinc-700">
-            <SelectItem value="all" className="text-white">All Enterprises</SelectItem>
+            <SelectItem value="all" className="text-white">All Customers</SelectItem>
             {enterprises.map((e) => <SelectItem key={e.id} value={e.id} className="text-white">{e.name}</SelectItem>)}
           </SelectContent>
         </Select>
@@ -978,23 +987,6 @@ export default function VoiceTicketsPage() {
         <TabsContent value={activeTab} className="mt-4">
           <div className="bg-zinc-900/50 border border-white/10 rounded-lg overflow-hidden">
             <Table>
-              <TableHeader>
-                <TableRow className="border-white/5 hover:bg-transparent">
-                  <TableHead className="text-zinc-400">Priority</TableHead>
-                  <TableHead className="text-zinc-400">Volume</TableHead>
-                  <TableHead className="text-zinc-400">Ticket#</TableHead>
-                  <TableHead className="text-zinc-400">Enterprise Trunk</TableHead>
-                  <TableHead className="text-zinc-400">Destination</TableHead>
-                  <TableHead className="text-zinc-400">ANI/Origination</TableHead>
-                  <TableHead className="text-zinc-400">Issue</TableHead>
-                  <TableHead className="text-zinc-400">Opened Via</TableHead>
-                  <TableHead className="text-zinc-400">Status</TableHead>
-                  <TableHead className="text-zinc-400">Assigned To</TableHead>
-                  <TableHead className="text-zinc-400">Date Created</TableHead>
-                  <TableHead className="text-zinc-400">Date Modified</TableHead>
-                  <TableHead className="text-zinc-400">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
               <TableBody>
                   {filteredTickets.length > 0 ? (() => {
                   const { entries: sortedEntries } = groupTicketsByDate();
@@ -1009,6 +1001,22 @@ export default function VoiceTicketsPage() {
                           <span className="text-xs text-zinc-500">{tickets.length} ticket{tickets.length !== 1 ? 's' : ''}</span>
                         </div>
                       </TableCell>
+                    </TableRow>
+                    {/* Table Header repeated for each date */}
+                    <TableRow className="border-white/5 hover:bg-transparent">
+                      <TableHead className="text-zinc-400">Priority</TableHead>
+                      <TableHead className="text-zinc-400">Volume</TableHead>
+                      <TableHead className="text-zinc-400">Ticket#</TableHead>
+                      <TableHead className="text-zinc-400">Customer Trunk</TableHead>
+                      <TableHead className="text-zinc-400">Destination</TableHead>
+                      <TableHead className="text-zinc-400">ANI/Origination</TableHead>
+                      <TableHead className="text-zinc-400">Issue</TableHead>
+                      <TableHead className="text-zinc-400">Opened Via</TableHead>
+                      <TableHead className="text-zinc-400">Status</TableHead>
+                      <TableHead className="text-zinc-400">Assigned To</TableHead>
+                      <TableHead className="text-zinc-400">Date Created</TableHead>
+                      <TableHead className="text-zinc-400">Date Modified</TableHead>
+                      <TableHead className="text-zinc-400">Actions</TableHead>
                     </TableRow>
                     {tickets.map((ticket) => {
                       const assignedUser = users.find((u) => u.id === ticket.assigned_to);
@@ -1148,9 +1156,9 @@ export default function VoiceTicketsPage() {
               <Input value={formData.volume || ""} onChange={(e) => setFormData({ ...formData, volume: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" placeholder="Enter volume" required disabled={isAM} />
             </div>
 
-            {/* Enterprise */}
+            {/* Customer */}
             <div className="space-y-2">
-              <Label>Enterprise *</Label>
+              <Label>Customer *</Label>
               <SearchableSelect 
                 options={enterprises.filter(e => e.enterprise_type === "voice").map(e => ({ value: e.id, label: e.name }))} 
                 value={formData.customer_id} 
@@ -1161,17 +1169,17 @@ export default function VoiceTicketsPage() {
                     customer_trunk: "" // Clear trunk when enterprise changes
                   });
                 }} 
-                placeholder="Search enterprise..." 
+                placeholder="Search customer..." 
                 isRequired={true} 
                 isDisabled={isAM} 
               />
             </div>
 
-            {/* Enterprise Trunk */}
+            {/* Customer Trunk */}
             <div className="space-y-2">
-              <Label>Enterprise Trunk *</Label>
+              <Label>Customer Trunk *</Label>
               <Select value={formData.customer_trunk || ""} onValueChange={(value) => setFormData({ ...formData, customer_trunk: value })} required disabled={isAM || !formData.customer_id}>
-                <SelectTrigger className="bg-zinc-800 border-zinc-700"><SelectValue placeholder={formData.customer_id ? "Select customer trunk" : "Select enterprise first"} /></SelectTrigger>
+                <SelectTrigger className="bg-zinc-800 border-zinc-700"><SelectValue placeholder={formData.customer_id ? "Select customer trunk" : "Select customer first"} /></SelectTrigger>
                 <SelectContent className="bg-zinc-800 border-zinc-700">
                   {(formData.customer_id 
                     ? enterprises.find(e => e.id === formData.customer_id)?.customer_trunks || []
@@ -1723,6 +1731,145 @@ export default function VoiceTicketsPage() {
                 Add Action
               </Button>
             </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Ticket Details Dialog for AM Users */}
+      <Dialog open={ticketDetailsDialogOpen} onOpenChange={setTicketDetailsDialogOpen}>
+        <DialogContent className="bg-zinc-900 border-white/10 text-white max-w-3xl max-h-[85vh] overflow-hidden p-4">
+          <DialogHeader className="pb-2">
+            <DialogTitle className="text-lg font-semibold">Voice Ticket - {editingTicket?.ticket_number}</DialogTitle>
+          </DialogHeader>
+          {/* Compact Header - Priority & Status */}
+          <div className="flex items-center justify-between bg-zinc-800/50 p-2 rounded-lg mb-3">
+            <div className="flex items-center gap-2">
+              <span className="text-zinc-400 text-xs">Priority:</span>
+              <PriorityIndicator priority={editingTicket?.priority} />
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-zinc-400 text-xs">Status:</span>
+              <StatusBadge status={editingTicket?.status} />
+            </div>
+          </div>
+
+          <ScrollArea className="max-h-[55vh] pr-2">
+            <div className="space-y-2">
+              {/* Main Info - 4 columns compact */}
+              <div className="grid grid-cols-4 gap-2">
+                <div className="bg-zinc-800/30 p-2 rounded">
+                  <span className="text-zinc-500 text-[10px] uppercase">Customer</span>
+                  <p className="text-white text-sm font-medium truncate">{editingTicket?.customer || editingTicket?.enterprise || '-'}</p>
+                </div>
+                <div className="bg-zinc-800/30 p-2 rounded">
+                  <span className="text-zinc-500 text-[10px] uppercase">Destination</span>
+                  <p className="text-white text-sm font-medium truncate">{editingTicket?.destination || '-'}</p>
+                </div>
+                <div className="bg-zinc-800/30 p-2 rounded">
+                  <span className="text-zinc-500 text-[10px] uppercase">ANI</span>
+                  <p className="text-white text-sm font-medium truncate">{editingTicket?.ani || '-'}</p>
+                </div>
+                <div className="bg-zinc-800/30 p-2 rounded">
+                  <span className="text-zinc-500 text-[10px] uppercase">Volume</span>
+                  <p className="text-white text-sm font-medium">{editingTicket?.volume || '0'}</p>
+                </div>
+              </div>
+
+              {/* Rate */}
+              <div className="grid grid-cols-3 gap-2">
+                <div className="bg-zinc-800/30 p-2 rounded">
+                  <span className="text-zinc-500 text-[10px] uppercase">Rate</span>
+                  <p className="text-white text-sm font-medium">{editingTicket?.rate || '-'}</p>
+                </div>
+                <div className="bg-zinc-800/30 p-2 rounded">
+                  <span className="text-zinc-500 text-[10px] uppercase">Assigned To</span>
+                  <p className="text-white text-sm font-medium truncate">{users.find(u => u.id === editingTicket?.assigned_to)?.username || 'Unassigned'}</p>
+                </div>
+                <div className="bg-zinc-800/30 p-2 rounded">
+                  <span className="text-zinc-500 text-[10px] uppercase">Opened Via</span>
+                  <p className="text-white text-sm font-medium truncate">{Array.isArray(editingTicket?.opened_via) ? editingTicket.opened_via.join(', ') : editingTicket?.opened_via || '-'}</p>
+                </div>
+              </div>
+
+              {/* Vendor Trunks with %, Position, Cost */}
+              {editingTicket?.vendor_trunks && editingTicket.vendor_trunks.length > 0 && (
+                <div className="bg-zinc-800/30 p-2 rounded">
+                  <span className="text-zinc-500 text-[10px] uppercase">Vendor Trunks ({editingTicket.vendor_trunks.length})</span>
+                  <div className="mt-1 space-y-1">
+                    {editingTicket.vendor_trunks.map((trunk, idx) => (
+                      <div key={idx} className="flex items-center justify-between bg-zinc-800/50 p-1.5 rounded text-xs">
+                        <span className="text-white font-medium truncate flex-1">{trunk.trunk}</span>
+                        <div className="flex items-center gap-2 ml-2">
+                          {trunk.percentage && <span className="text-zinc-400">{trunk.percentage}%</span>}
+                          {trunk.position && <span className="text-zinc-400">Pos: {trunk.position}</span>}
+                          {trunk.cost && <span className="text-emerald-400">{trunk.cost}</span>}
+                          {(trunk.min_cost || trunk.max_cost) && <span className="text-emerald-400">${trunk.min_cost || '0'}-{trunk.max_cost || '0'}</span>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Issue Types - compact */}
+              <div className="bg-zinc-800/30 p-2 rounded">
+                <span className="text-zinc-500 text-[10px] uppercase">Issues</span>
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {(editingTicket?.issue_types || []).length > 0 ? (
+                    editingTicket.issue_types.map((issue, idx) => (
+                      <span key={idx} className="px-1.5 py-0.5 bg-zinc-700 text-zinc-200 text-xs rounded">{issue}</span>
+                    ))
+                  ) : (
+                    <span className="text-white text-xs">-</span>
+                  )}
+                  {editingTicket?.issue_other && (
+                    <span className="px-1.5 py-0.5 bg-zinc-700 text-zinc-200 text-xs rounded">Other: {editingTicket.issue_other}</span>
+                  )}
+                </div>
+              </div>
+
+              {/* Action Taken & Internal Notes - compact */}
+              {(editingTicket?.action_taken || editingTicket?.internal_notes) && (
+                <div className="grid grid-cols-2 gap-2">
+                  {editingTicket?.action_taken && (
+                    <div className="bg-zinc-800/30 p-2 rounded">
+                      <span className="text-zinc-500 text-[10px] uppercase">Solution</span>
+                      <p className="text-white text-xs mt-1 line-clamp-2">{editingTicket.action_taken}</p>
+                    </div>
+                  )}
+                  {editingTicket?.internal_notes && (
+                    <div className="bg-zinc-800/30 p-2 rounded">
+                      <span className="text-zinc-500 text-[10px] uppercase">Internal Notes</span>
+                      <p className="text-white text-xs mt-1 line-clamp-2">{editingTicket.internal_notes}</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Timestamps - compact */}
+              <div className="flex items-center justify-between text-xs text-zinc-500 pt-1">
+                <span>Created: {editingTicket?.created_at ? new Date(editingTicket.created_at).toLocaleString() : '-'}</span>
+                <span>Updated: {editingTicket?.updated_at ? new Date(editingTicket.updated_at).toLocaleString() : '-'}</span>
+              </div>
+            </div>
+          </ScrollArea>
+          <DialogFooter className="pt-2 mt-2">
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => {
+                const ticketNum = editingTicket?.ticket_number;
+                setTicketDetailsDialogOpen(false);
+                setTimeout(() => navigate(`/requests?ticket_id=${encodeURIComponent(ticketNum)}&ticket_type=voice`), 300);
+              }}
+              className="bg-emerald-500 text-black hover:bg-emerald-400 text-xs"
+            >
+              <Plus className="h-3 w-3 mr-1" />
+              Create Request
+            </Button>
+            <Button type="button" variant="outline" size="sm" onClick={() => setTicketDetailsDialogOpen(false)} className="border-zinc-700 text-white hover:bg-zinc-800 text-xs">
+              Close
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -103,8 +103,8 @@ function App() {
             <Route index element={<DashboardPage />} />
             <Route path="sms-tickets" element={<SMSTicketsPage />} />
             <Route path="voice-tickets" element={<VoiceTicketsPage />} />
-            <Route path="enterprises" element={user?.role === "admin" || user?.role === "noc" || user?.department?.can_view_enterprises ? <EnterprisesPage /> : <Navigate to="/my-enterprises" />} />
-            <Route path="my-enterprises" element={user?.role === "am" || user?.department_type ? <MyEnterprisesPage /> : <Navigate to="/" />} />
+            <Route path="enterprises" element={user?.role === "admin" ? <EnterprisesPage /> : <Navigate to="/" />} />
+            <Route path="my-enterprises" element={user?.role === "am" && user?.can_view_my_enterprises !== false ? <MyEnterprisesPage /> : <Navigate to="/" />} />
             <Route path="users" element={user?.role === "admin" || user?.department?.can_edit_users ? <UsersPage /> : <Navigate to="/" />} />
             <Route path="departments" element={user?.role === "admin" ? <DepartmentsPage /> : <Navigate to="/" />} />
             <Route path="audit" element={user?.role === "admin" ? <AuditPage /> : <Navigate to="/" />} />

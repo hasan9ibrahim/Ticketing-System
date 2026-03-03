@@ -53,6 +53,7 @@ export default function DashboardLayout({ user, setUser }) {
   const [sidebarPendingRequests, setSidebarPendingRequests] = useState([]);  // Pending requests for sidebar badge
   const [requestNotifications, setRequestNotifications] = useState([]);  // Request update notifications for AMs
   const [showAlertNotifications, setShowAlertNotifications] = useState(false);  // Toggle notification popover
+  const [notificationFilter, setNotificationFilter] = useState(null);  // Filter: 'alert' | 'ticket' | 'request' | null (null = show all)
   // Chat state
   const [openChats, setOpenChats] = useState([]);  // Array of open chat conversations
   const [activeChat, setActiveChat] = useState(null);  // Currently active chat
@@ -87,26 +88,30 @@ export default function DashboardLayout({ user, setUser }) {
   });
 
   // Helper to get unread count (excluding dismissed notifications)
+  // Uses ref to ensure we have the most up-to-date dismissed notifications
   const getUnreadCount = () => {
+    const currentDismissed = dismissedNotificationsRef.current;
     const ticketUnread = ticketModificationNotifications
-      .filter(n => !dismissedNotifications[n.id] && !readNotificationIds.has(n.id)).length;
+      .filter(n => !currentDismissed[n.id] && !readNotificationIds.has(n.id)).length;
     const alertUnread = alertNotifications
-      .filter(n => !dismissedNotifications[n.id] && !readNotificationIds.has(n.id)).length;
+      .filter(n => !currentDismissed[n.id] && !readNotificationIds.has(n.id)).length;
     // Add request notifications (AM role gets request update notifications)
     const requestUnread = user.role === "am" ? requestNotifications
-      .filter(n => !dismissedNotifications[n.id] && !readNotificationIds.has(n.id)).length : 0;
+      .filter(n => !currentDismissed[n.id] && !readNotificationIds.has(n.id)).length : 0;
     return ticketUnread + alertUnread + requestUnread;
   };
 
   // Helper to get the highest priority notification type for badge color
   // Priority: Alert (red) > Ticket (blue) > Request (green)
+  // Uses ref to ensure we have the most up-to-date dismissed notifications
   const getHighestPriorityNotificationType = () => {
+    const currentDismissed = dismissedNotificationsRef.current;
     const alertUnread = alertNotifications
-      .filter(n => !dismissedNotifications[n.id] && !readNotificationIds.has(n.id)).length;
+      .filter(n => !currentDismissed[n.id] && !readNotificationIds.has(n.id)).length;
     const ticketUnread = ticketModificationNotifications
-      .filter(n => !dismissedNotifications[n.id] && !readNotificationIds.has(n.id)).length;
+      .filter(n => !currentDismissed[n.id] && !readNotificationIds.has(n.id)).length;
     const requestUnread = user.role === "am" ? requestNotifications
-      .filter(n => !dismissedNotifications[n.id] && !readNotificationIds.has(n.id)).length : 0;
+      .filter(n => !currentDismissed[n.id] && !readNotificationIds.has(n.id)).length : 0;
     
     if (alertUnread > 0) return 'alert';
     if (ticketUnread > 0) return 'ticket';
@@ -198,28 +203,43 @@ export default function DashboardLayout({ user, setUser }) {
   };
 
   // Combine all notifications from backend (both read and unread)
-  // Filter out dismissed notifications
+  // Filter out dismissed notifications using ref for latest value
   const getAllTicketNotifications = () => {
+    const currentDismissed = dismissedNotificationsRef.current;
     // Return all notifications minus dismissed ones
-    return ticketModificationNotifications.filter(n => !dismissedNotifications[n.id]);
+    return ticketModificationNotifications.filter(n => !currentDismissed[n.id]);
   };
 
   const getAllAlertNotifications = () => {
+    const currentDismissed = dismissedNotificationsRef.current;
     // Return all notifications minus dismissed ones
-    return alertNotifications.filter(n => !dismissedNotifications[n.id]);
+    return alertNotifications.filter(n => !currentDismissed[n.id]);
   };
 
   // Get all notifications combined and sorted by time (newest first)
+  // Applies filter if notificationFilter is set
   const getAllNotificationsSorted = () => {
+    const currentDismissed = dismissedNotificationsRef.current;
     const ticketNotifs = getAllTicketNotifications();
     const alertNotifs = getAllAlertNotifications();
     // Add request notifications for AM users
     const requestNotifs = user.role === "am" 
-      ? requestNotifications.filter(n => !dismissedNotifications[n.id])
+      ? requestNotifications.filter(n => !currentDismissed[n.id])
       : [];
     
     // Combine all notifications
-    const all = [...ticketNotifs, ...alertNotifs, ...requestNotifs];
+    let all = [...ticketNotifs, ...alertNotifs, ...requestNotifs];
+    
+    // Apply filter if set
+    if (notificationFilter) {
+      if (notificationFilter === 'alert') {
+        all = all.filter(n => !!n.alert_ticket_number);
+      } else if (notificationFilter === 'ticket') {
+        all = all.filter(n => !n.alert_ticket_number && !n.request_id);
+      } else if (notificationFilter === 'request') {
+        all = all.filter(n => !!n.request_id);
+      }
+    }
     
     // Sort by created_at descending (newest first)
     return all.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
@@ -237,19 +257,31 @@ export default function DashboardLayout({ user, setUser }) {
       await axios.post(`${API}/dashboard/ticket-modifications/${notificationId}/read`, {}, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      // Add to dismissed list so it doesn't come back - also update ref synchronously to prevent race condition
-      const updatedDismissed = { ...dismissedNotificationsRef.current, [notificationId]: Date.now() };
+      
+      // IMMEDIATELY add to dismissed list before any async operations to prevent reappearing
+      // Use a local tracking variable to ensure consistency
+      const timestamp = Date.now();
+      const updatedDismissed = { ...dismissedNotificationsRef.current, [notificationId]: timestamp };
+      
+      // Update ref FIRST to ensure interval callbacks see the updated value immediately
       dismissedNotificationsRef.current = updatedDismissed;
+      
+      // Update state to persist across sessions
       setDismissedNotifications(updatedDismissed);
-      // Remove from UI
+      
+      // Remove from UI immediately - use functional update to ensure we're working with latest state
       setTicketModificationNotifications(prev => prev.filter(n => n.id !== notificationId));
+      
+      // Also add to readNotificationIds so it doesn't show as unread if it somehow reappears
       setReadNotificationIds(prev => {
         const newSet = new Set(prev);
-        newSet.delete(notificationId);
+        newSet.add(notificationId);
         return newSet;
       });
     } catch (error) {
       console.error("Failed to remove notification:", error);
+      // Even on error, try to remove from UI to prevent reappearing
+      setTicketModificationNotifications(prev => prev.filter(n => n.id !== notificationId));
     }
   };
 
@@ -260,19 +292,30 @@ export default function DashboardLayout({ user, setUser }) {
       await axios.post(`${API}/users/me/alert-notifications/${notificationId}/read`, {}, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      // Add to dismissed list so it doesn't come back - also update ref synchronously to prevent race condition
-      const updatedDismissed = { ...dismissedNotificationsRef.current, [notificationId]: Date.now() };
+      
+      // IMMEDIATELY add to dismissed list before any async operations to prevent reappearing
+      const timestamp = Date.now();
+      const updatedDismissed = { ...dismissedNotificationsRef.current, [notificationId]: timestamp };
+      
+      // Update ref FIRST to ensure interval callbacks see the updated value immediately
       dismissedNotificationsRef.current = updatedDismissed;
+      
+      // Update state to persist across sessions
       setDismissedNotifications(updatedDismissed);
-      // Remove from UI
+      
+      // Remove from UI immediately
       setAlertNotifications(prev => prev.filter(n => n.id !== notificationId));
+      
+      // Also add to readNotificationIds so it doesn't show as unread if it somehow reappears
       setReadNotificationIds(prev => {
         const newSet = new Set(prev);
-        newSet.delete(notificationId);
+        newSet.add(notificationId);
         return newSet;
       });
     } catch (error) {
       console.error("Failed to remove notification:", error);
+      // Even on error, try to remove from UI to prevent reappearing
+      setAlertNotifications(prev => prev.filter(n => n.id !== notificationId));
     }
   };
 
@@ -283,20 +326,173 @@ export default function DashboardLayout({ user, setUser }) {
       await axios.post(`${API}/users/me/request-notifications/${notificationId}/read`, {}, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      // Add to dismissed list so it doesn't come back - also update ref synchronously to prevent race condition
-      const updatedDismissed = { ...dismissedNotificationsRef.current, [notificationId]: Date.now() };
+      
+      // IMMEDIATELY add to dismissed list before any async operations to prevent reappearing
+      const timestamp = Date.now();
+      const updatedDismissed = { ...dismissedNotificationsRef.current, [notificationId]: timestamp };
+      
+      // Update ref FIRST to ensure interval callbacks see the updated value immediately
       dismissedNotificationsRef.current = updatedDismissed;
+      
+      // Update state to persist across sessions
       setDismissedNotifications(updatedDismissed);
-      // Remove from UI
+      
+      // Remove from UI immediately
       setRequestNotifications(prev => prev.filter(n => n.id !== notificationId));
+      
+      // Also add to readNotificationIds so it doesn't show as unread if it somehow reappears
       setReadNotificationIds(prev => {
         const newSet = new Set(prev);
-        newSet.delete(notificationId);
+        newSet.add(notificationId);
         return newSet;
       });
     } catch (error) {
       console.error("Failed to remove notification:", error);
+      // Even on error, try to remove from UI to prevent reappearing
+      setRequestNotifications(prev => prev.filter(n => n.id !== notificationId));
     }
+  };
+
+  // Handle "Mark all as read" - marks all notifications as read without removing them
+  const handleMarkAllAsRead = async () => {
+    const allNotifications = getAllNotificationsSorted();
+    const unreadNotifications = allNotifications.filter(n => !readNotificationIds.has(n.id));
+    
+    if (unreadNotifications.length === 0) return;
+    
+    // Create arrays of notification IDs by type
+    const ticketIds = unreadNotifications.filter(n => !n.alert_ticket_number && !n.request_id).map(n => n.id);
+    const alertIds = unreadNotifications.filter(n => !!n.alert_ticket_number).map(n => n.id);
+    const requestIds = unreadNotifications.filter(n => !!n.request_id).map(n => n.id);
+    
+    try {
+      const token = localStorage.getItem("token");
+      
+      // Mark all ticket notifications as read
+      if (ticketIds.length > 0) {
+        await Promise.all(ticketIds.map(id => 
+          axios.post(`${API}/dashboard/ticket-modifications/${id}/read`, {}, {
+            headers: { Authorization: `Bearer ${token}` }
+          }).catch(err => console.log("Error marking ticket notification as read:", err))
+        ));
+      }
+      
+      // Mark all alert notifications as read
+      if (alertIds.length > 0) {
+        await Promise.all(alertIds.map(id => 
+          axios.post(`${API}/users/me/alert-notifications/${id}/read`, {}, {
+            headers: { Authorization: `Bearer ${token}` }
+          }).catch(err => console.log("Error marking alert notification as read:", err))
+        ));
+      }
+      
+      // Mark all request notifications as read
+      if (requestIds.length > 0) {
+        await Promise.all(requestIds.map(id => 
+          axios.post(`${API}/users/me/request-notifications/${id}/read`, {}, {
+            headers: { Authorization: `Bearer ${token}` }
+          }).catch(err => console.log("Error marking request notification as read:", err))
+        ));
+      }
+      
+      // Update local state - add all to readNotificationIds
+      setReadNotificationIds(prev => {
+        const newSet = new Set(prev);
+        unreadNotifications.forEach(n => newSet.add(n.id));
+        return newSet;
+      });
+    } catch (error) {
+      console.error("Failed to mark all as read:", error);
+      // Still update local state even if API fails
+      setReadNotificationIds(prev => {
+        const newSet = new Set(prev);
+        unreadNotifications.forEach(n => newSet.add(n.id));
+        return newSet;
+      });
+    }
+  };
+
+  // Handle "Clear all" - dismisses all notifications permanently
+  const handleClearAll = async () => {
+    // Get all notifications BEFORE dismissing them
+    const allNotifications = getAllNotificationsSorted();
+    
+    if (allNotifications.length === 0) return;
+    
+    const timestamp = Date.now();
+    const updatedDismissed = { ...dismissedNotificationsRef.current };
+    
+    // Add all notifications to dismissed list
+    allNotifications.forEach(n => {
+      updatedDismissed[n.id] = timestamp;
+    });
+    
+    // Update ref and state
+    dismissedNotificationsRef.current = updatedDismissed;
+    setDismissedNotifications(updatedDismissed);
+    
+    // Mark all as read in API and local state (using captured notifications)
+    const unreadNotifications = allNotifications.filter(n => !readNotificationIds.has(n.id));
+    
+    if (unreadNotifications.length > 0) {
+      const ticketIds = unreadNotifications.filter(n => !n.alert_ticket_number && !n.request_id).map(n => n.id);
+      const alertIds = unreadNotifications.filter(n => !!n.alert_ticket_number).map(n => n.id);
+      const requestIds = unreadNotifications.filter(n => !!n.request_id).map(n => n.id);
+      
+      try {
+        const token = localStorage.getItem("token");
+        
+        // Mark all ticket notifications as read
+        if (ticketIds.length > 0) {
+          await Promise.all(ticketIds.map(id => 
+            axios.post(`${API}/dashboard/ticket-modifications/${id}/read`, {}, {
+              headers: { Authorization: `Bearer ${token}` }
+            }).catch(err => console.log("Error marking ticket notification as read:", err))
+          ));
+        }
+        
+        // Mark all alert notifications as read
+        if (alertIds.length > 0) {
+          await Promise.all(alertIds.map(id => 
+            axios.post(`${API}/users/me/alert-notifications/${id}/read`, {}, {
+              headers: { Authorization: `Bearer ${token}` }
+            }).catch(err => console.log("Error marking alert notification as read:", err))
+          ));
+        }
+        
+        // Mark all request notifications as read
+        if (requestIds.length > 0) {
+          await Promise.all(requestIds.map(id => 
+            axios.post(`${API}/users/me/request-notifications/${id}/read`, {}, {
+              headers: { Authorization: `Bearer ${token}` }
+            }).catch(err => console.log("Error marking request notification as read:", err))
+          ));
+        }
+        
+        // Update local state - add all to readNotificationIds
+        setReadNotificationIds(prev => {
+          const newSet = new Set(prev);
+          unreadNotifications.forEach(n => newSet.add(n.id));
+          return newSet;
+        });
+      } catch (error) {
+        console.error("Failed to mark all as read:", error);
+        // Still update local state even if API fails
+        setReadNotificationIds(prev => {
+          const newSet = new Set(prev);
+          unreadNotifications.forEach(n => newSet.add(n.id));
+          return newSet;
+        });
+      }
+    }
+    
+    // Clear notifications from UI
+    setTicketModificationNotifications([]);
+    setAlertNotifications([]);
+    setRequestNotifications([]);
+    
+    // Clear the filter to show all (none) next time
+    setNotificationFilter(null);
   };
 
   const [currentTime, setCurrentTime] = useState(new Date());  // Current date/time for clock
@@ -655,7 +851,7 @@ export default function DashboardLayout({ user, setUser }) {
     { path: "/voice-tickets", label: "Voice Tickets", icon: Phone, roles: ["admin", "am", "noc"], ticketType: "voice" },
     { path: "/references", label: "References & Alerts", icon: Database, roles: ["admin", "am", "noc"], badgeCount: alertBadgeCount },
     { path: "/requests", label: "Requests", icon: FileText, roles: ["admin", "am", "noc"], badgeCount: pendingRequestsCount, priorityBadge: pendingRequestsByPriority },
-    { path: "/enterprises", label: "Enterprises", icon: Building2, roles: ["admin", "noc"] },
+    { path: "/enterprises", label: "Enterprises", icon: Building2, roles: ["admin"] },
     { path: "/my-enterprises", label: "My Enterprises", icon: Briefcase, roles: ["am"] },
     { path: "/users", label: "Users", icon: Users, roles: ["admin"] },
     { path: "/departments", label: "Departments", icon: Settings, roles: ["admin"] },
@@ -679,6 +875,11 @@ export default function DashboardLayout({ user, setUser }) {
     // Legacy: For AMs with amTypes restriction, check if they match (backward compatibility)
     if (user.role === "am" && user.am_type && item.amTypes) {
       return item.amTypes.includes(user.am_type);
+    }
+    
+    // Hide My Enterprises for AMs who don't have permission
+    if (item.path === "/my-enterprises" && user.role === "am" && user.can_view_my_enterprises === false) {
+      return false;
     }
     
     // For NOC and Admin, show all items in their roles
@@ -999,7 +1200,10 @@ export default function DashboardLayout({ user, setUser }) {
           {/* Right side - Bell Icon and Date/Time */}
           <div className="flex items-center gap-4">
             {/* Combined Notifications Bell Icon - Shows both Alert and Ticket notifications */}
-            <Popover open={showAlertNotifications} onOpenChange={setShowAlertNotifications}>
+            <Popover open={showAlertNotifications} onOpenChange={(open) => {
+              setShowAlertNotifications(open);
+              if (!open) setNotificationFilter(null);
+            }}>
               <PopoverTrigger asChild>
                 <Button variant="ghost" size="icon" className="relative text-zinc-400 hover:text-white">
                   <Bell className="h-5 w-5" />
@@ -1016,14 +1220,53 @@ export default function DashboardLayout({ user, setUser }) {
                     <h3 className="font-semibold flex items-center gap-2">
                       <Bell className="h-4 w-4" />
                       Notifications
+                      {notificationFilter && (
+                        <span className="text-xs text-zinc-500 ml-1">(filtered)</span>
+                      )}
                     </h3>
                     <span className="text-xs text-zinc-400">{getUnreadCount()} unread</span>
                   </div>
-                  {/* Notification type legend */}
+                  {/* Action buttons row */}
+                  {getAllNotificationsSorted().length > 0 && (
+                    <div className="flex gap-2 pb-2 border-b border-zinc-700">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleMarkAllAsRead}
+                        className="flex-1 text-xs bg-zinc-800 border-zinc-600 text-zinc-300 hover:bg-zinc-700 hover:text-white"
+                      >
+                        Mark all as read
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleClearAll}
+                        className="flex-1 text-xs bg-red-900/30 border-red-700/50 text-red-300 hover:bg-red-900/50 hover:text-white"
+                      >
+                        Clear all
+                      </Button>
+                    </div>
+                  )}
+                  {/* Notification type legend - clickable filters */}
                   <div className="flex gap-3 text-xs pb-2 border-b border-zinc-700">
-                    <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-red-500" /> Alerts</span>
-                    <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-blue-500" /> Tickets</span>
-                    <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-green-500" /> Requests</span>
+                    <button 
+                      onClick={() => setNotificationFilter(notificationFilter === 'alert' ? null : 'alert')}
+                      className={`flex items-center gap-1 cursor-pointer hover:text-white transition-colors ${notificationFilter === 'alert' ? 'text-red-400 font-semibold' : 'text-zinc-400'}`}
+                    >
+                      <span className="h-2 w-2 rounded-full bg-red-500" /> Alerts
+                    </button>
+                    <button 
+                      onClick={() => setNotificationFilter(notificationFilter === 'ticket' ? null : 'ticket')}
+                      className={`flex items-center gap-1 cursor-pointer hover:text-white transition-colors ${notificationFilter === 'ticket' ? 'text-blue-400 font-semibold' : 'text-zinc-400'}`}
+                    >
+                      <span className="h-2 w-2 rounded-full bg-blue-500" /> Tickets
+                    </button>
+                    <button 
+                      onClick={() => setNotificationFilter(notificationFilter === 'request' ? null : 'request')}
+                      className={`flex items-center gap-1 cursor-pointer hover:text-white transition-colors ${notificationFilter === 'request' ? 'text-green-400 font-semibold' : 'text-zinc-400'}`}
+                    >
+                      <span className="h-2 w-2 rounded-full bg-green-500" /> Requests
+                    </button>
                   </div>
                   <div className="max-h-80 overflow-y-auto overflow-x-hidden space-y-2">
                   {/* All Notifications Combined and Sorted by Time (Newest First) */}

@@ -105,6 +105,8 @@ class User(BaseModel):
     # Notification preferences for NOC users
     notify_on_am_action: bool = True  # Notify when AM adds action to assigned ticket
     notify_on_noc_ticket_modification: bool = True  # Notify when another NOC modifies assigned ticket
+    # AM specific permission - whether AM can access My Enterprises page
+    can_view_my_enterprises: bool = True  # Admin can toggle this for each AM
 
 # ==================== CHAT MODELS ====================
 
@@ -310,6 +312,7 @@ class UserResponse(BaseModel):
     last_active: Optional[datetime] = None
     two_factor_enabled: Optional[bool] = False
     two_factor_method: Optional[str] = None  # "totp" or "email"
+    can_view_my_enterprises: Optional[bool] = True  # AM specific permission
 
 class UserUpdate(BaseModel):
     """Model for updating user - only allows updating certain fields"""
@@ -323,6 +326,7 @@ class UserUpdate(BaseModel):
     password: Optional[str] = None  # Admin can change password
     two_factor_enabled: Optional[bool] = None  # Admin can enable/disable 2FA
     two_factor_method: Optional[str] = None  # Admin can set 2FA method (only 'totp' supported)
+    can_view_my_enterprises: Optional[bool] = None  # Admin can toggle AM's access to My Enterprises
 
 class TwoFactorSetup(BaseModel):
     """Model for setting up 2FA"""

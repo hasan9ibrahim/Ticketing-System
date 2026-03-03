@@ -264,6 +264,7 @@ export default function UsersPage() {
               <TableHead className="text-zinc-400">Department</TableHead>
               <TableHead className="text-zinc-400">2FA</TableHead>
               <TableHead className="text-zinc-400">Active</TableHead>
+              <TableHead className="text-zinc-400">My Enterprises</TableHead>
               <TableHead className="text-zinc-400">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -315,6 +316,27 @@ export default function UsersPage() {
                     />
                   </TableCell>
                   <TableCell>
+                    {user.role === "am" ? (
+                      <Switch
+                        checked={user.can_view_my_enterprises !== false}
+                        onCheckedChange={async (checked) => {
+                          try {
+                            const token = localStorage.getItem("token");
+                            await axios.put(`${API}/users/${user.id}`, { can_view_my_enterprises: checked }, {
+                              headers: { Authorization: `Bearer ${token}` },
+                            });
+                            toast.success(`My Enterprises access ${checked ? "enabled" : "disabled"} for ${user.username}`);
+                            fetchUsers();
+                          } catch (error) {
+                            toast.error("Failed to update My Enterprises access");
+                          }
+                        }}
+                      />
+                    ) : (
+                      <span className="text-zinc-500">-</span>
+                    )}
+                  </TableCell>
+                  <TableCell>
                     <div className="flex items-center gap-2">
                       <Button
                         size="sm"
@@ -343,7 +365,7 @@ export default function UsersPage() {
               ))
             ) : (
               <TableRow>
-                  <TableCell colSpan={7} className="text-center py-8 text-zinc-500">
+                  <TableCell colSpan={8} className="text-center py-8 text-zinc-500">
                   No users found
                 </TableCell>
               </TableRow>

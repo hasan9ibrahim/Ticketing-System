@@ -284,8 +284,8 @@ export default function NOCSchedulePage() {
           key={day} 
           className={`flex items-center border-b border-zinc-800 ${isToday ? 'bg-emerald-900/20' : ''} ${isWeekend ? 'bg-zinc-900/30' : ''}`}
         >
-          {/* Day column */}
-          <div className="w-16 flex-shrink-0 p-2 border-r border-zinc-800">
+          {/* Day column - sticky */}
+          <div className="w-16 flex-shrink-0 p-2 border-r border-zinc-800 sticky left-0 z-10 bg-zinc-950">
             <div className={`text-sm font-medium ${isToday ? 'text-emerald-400' : 'text-zinc-400'}`}>
               {day}
             </div>
@@ -374,11 +374,118 @@ export default function NOCSchedulePage() {
         )}
       </div>
 
+      {/* Today's Schedule Summary */}
+      {(() => {
+        const today = new Date();
+        const todayDay = today.getDate();
+        const todayMonth = today.getMonth() + 1;
+        const todayYear = today.getFullYear();
+        
+        // Get today's schedules
+        const todaySchedules = nocUsers.map(nocUser => {
+          const schedule = getScheduleForCell(nocUser.id, todayDay);
+          return {
+            user: nocUser,
+            schedule: schedule,
+            shift: schedule ? getShiftConfig(schedule.shift_type) : null
+          };
+        });
+        
+        // Categorize shifts
+        const dayShifts = todaySchedules.filter(s => s.shift && ['shift_a', 'shift_b', 'shift_c'].includes(s.shift.id));
+        const nightShifts = todaySchedules.filter(s => s.shift && s.shift.id === 'shift_d');
+        const offUsers = todaySchedules.filter(s => !s.shift || s.shift.id === 'off');
+        const holidays = todaySchedules.filter(s => s.shift && s.shift.id === 'holiday');
+        
+        return (
+          <div className="mb-6 p-4 bg-zinc-900 rounded-lg border border-zinc-800">
+            <h3 className="text-lg font-semibold text-white mb-4">Today's Schedule ({today.getDate()} {getMonthName(todayMonth)} {todayYear})</h3>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              {/* Day Shifts */}
+              <div className="p-3 bg-blue-900/20 rounded-lg border border-blue-800/50">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-3 h-3 rounded-full bg-blue-600"></div>
+                  <span className="text-sm font-medium text-blue-400">Day Shifts</span>
+                </div>
+                {dayShifts.length > 0 ? (
+                  <div className="space-y-1">
+                    {dayShifts.map(s => (
+                      <div key={s.user.id} className="text-sm text-zinc-300">
+                        {s.user.name || s.user.username} <span className="text-zinc-500">({s.shift.label})</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-sm text-zinc-500">No one assigned</div>
+                )}
+              </div>
+              
+              {/* Night Shifts */}
+              <div className="p-3 bg-purple-900/20 rounded-lg border border-purple-800/50">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-3 h-3 rounded-full bg-purple-600"></div>
+                  <span className="text-sm font-medium text-purple-400">Night Shifts</span>
+                </div>
+                {nightShifts.length > 0 ? (
+                  <div className="space-y-1">
+                    {nightShifts.map(s => (
+                      <div key={s.user.id} className="text-sm text-zinc-300">
+                        {s.user.name || s.user.username} <span className="text-zinc-500">({s.shift.label})</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-sm text-zinc-500">No one assigned</div>
+                )}
+              </div>
+              
+              {/* Off */}
+              <div className="p-3 bg-red-900/20 rounded-lg border border-red-800/50">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-3 h-3 rounded-full bg-red-600"></div>
+                  <span className="text-sm font-medium text-red-400">Off</span>
+                </div>
+                {offUsers.length > 0 ? (
+                  <div className="space-y-1">
+                    {offUsers.map(s => (
+                      <div key={s.user.id} className="text-sm text-zinc-300">
+                        {s.user.name || s.user.username}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-sm text-zinc-500">No one off</div>
+                )}
+              </div>
+              
+              {/* Holidays */}
+              <div className="p-3 bg-zinc-700/30 rounded-lg border border-zinc-600/50">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-3 h-3 rounded-full bg-zinc-500"></div>
+                  <span className="text-sm font-medium text-zinc-400">Holiday</span>
+                </div>
+                {holidays.length > 0 ? (
+                  <div className="space-y-1">
+                    {holidays.map(s => (
+                      <div key={s.user.id} className="text-sm text-zinc-300">
+                        {s.user.name || s.user.username}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-sm text-zinc-500">No holidays</div>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Calendar */}
       <div className="border border-zinc-800 rounded-lg overflow-hidden mb-6">
-        {/* Header row */}
-        <div className="flex bg-zinc-900 border-b border-zinc-800">
-          <div className="w-16 flex-shrink-0 p-2 border-r border-zinc-800">
+        {/* Header row - sticky */}
+        <div className="flex bg-zinc-900 border-b border-zinc-800 sticky top-0 z-20">
+          <div className="w-16 flex-shrink-0 p-2 border-r border-zinc-800 bg-zinc-900">
             <span className="text-sm font-medium text-zinc-400">Day</span>
           </div>
           {nocUsers.map(nocUser => (
@@ -397,7 +504,9 @@ export default function NOCSchedulePage() {
         {loading ? (
           <div className="p-8 text-center text-zinc-400">Loading...</div>
         ) : (
-          renderCalendarDays()
+          <div className="overflow-auto max-h-[600px]">
+            {renderCalendarDays()}
+          </div>
         )}
       </div>
 
