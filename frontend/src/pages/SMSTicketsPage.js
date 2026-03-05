@@ -699,10 +699,12 @@ export default function SMSTicketsPage() {
       return;
     }
 
-    // Validate vendor percentages sum to 100% when multiple vendors selected (only if no positions are used)
+    // Validate vendor percentages sum to 100% when multiple vendors selected (only if no positions are used and no pair numbers)
     if (formData.vendor_trunks && formData.vendor_trunks.length > 1) {
       const hasPositions = formData.vendor_trunks.some(v => v.position);
-      if (!hasPositions) {
+      const hasPairNumbers = formData.vendor_trunks.some(v => v.pair_number);
+      // If neither positions nor pair numbers are used, validate percentages
+      if (!hasPositions && !hasPairNumbers) {
         const totalPercentage = formData.vendor_trunks.reduce((sum, v) => sum + (parseFloat(v.percentage) || 0), 0);
         if (totalPercentage !== 100) {
           toast.error(`Vendor percentages must equal 100%. Current total: ${totalPercentage}%`);
@@ -1552,6 +1554,40 @@ export default function SMSTicketsPage() {
                 {/* Vendor Trunks - Multi-select checklist with popover */}
                 <div className="space-y-2">
                   <Label>Vendor Trunks</Label>
+                  {isAM ? (
+                    // Read-only display for AM users
+                    <div className="bg-zinc-800/50 border border-zinc-700 rounded-md p-2 space-y-2">
+                      {(formData.vendor_trunks || []).length > 0 ? (
+                        (formData.vendor_trunks || []).map((vendorTrunk, idx) => {
+                          const pairNum = vendorTrunk.pair_number ? parseInt(vendorTrunk.pair_number) : null;
+                          const pairDetails = pairNum && formData.sms_details ? formData.sms_details[pairNum - 1] : null;
+                          return (
+                            <div key={idx} className="flex items-center gap-2 bg-zinc-700/50 p-1.5 rounded text-xs">
+                              <span className="text-white font-medium truncate flex-1">{vendorTrunk.trunk}</span>
+                              <div className="flex items-center gap-1 flex-shrink-0">
+                                {vendorTrunk.percentage && <span className="text-zinc-400">{vendorTrunk.percentage}%</span>}
+                                {vendorTrunk.position && <span className="text-zinc-400">Pos: {vendorTrunk.position}</span>}
+                                {vendorTrunk.pair_number && (
+                                  <span className="text-zinc-400">
+                                    Pair #{vendorTrunk.pair_number}
+                                    {pairDetails && (
+                                      <span className="ml-1 text-blue-400">(
+                                        {pairDetails.sid ? `${pairDetails.sid.substring(0, 8)}...` : 'No SID'}
+                                        {pairDetails.content && ` - ${pairDetails.content.substring(0, 10)}...`}
+                                      )</span>
+                                    )}
+                                  </span>
+                                )}
+                                {vendorTrunk.cost && <span className="text-emerald-400">{vendorTrunk.cost}</span>}
+                              </div>
+                            </div>
+                          );
+                        })
+                      ) : (
+                        <p className="text-zinc-500 text-sm">No vendor trunks selected</p>
+                      )}
+                    </div>
+                  ) : (
                   <Popover open={vendorTrunksOpen} onOpenChange={setVendorTrunksOpen}>
                     <PopoverTrigger asChild>
                       <Button
@@ -1597,7 +1633,7 @@ export default function SMSTicketsPage() {
                                       // Add trunk
                                       setFormData({
                                         ...formData,
-                                        vendor_trunks: [...(formData.vendor_trunks || []), { trunk: trunk, percentage: "", position: "" }]
+                                        vendor_trunks: [...(formData.vendor_trunks || []), { trunk: trunk, percentage: "", position: "", pair_number: "" }]
                                       });
                                     }
                                   }}
@@ -1615,20 +1651,21 @@ export default function SMSTicketsPage() {
                       </div>
                     </PopoverContent>
                   </Popover>
+                  )}
 
                   {/* Selected vendor trunks with % and position (when 2+) */}
                   {(formData.vendor_trunks || []).length > 0 && (
-                    <div className="bg-zinc-800/50 border border-zinc-700 rounded-md p-2 space-y-2">
+                    <div className="bg-zinc-800/50 border border-zinc-700 rounded-md p-2 space-y-2 overflow-x-auto">
                       <div className="space-y-2">
                         {(formData.vendor_trunks || []).map((vendorTrunk, index) => (
-                          <div key={`selected-${index}`} className="flex items-center space-x-2 bg-zinc-700/50 p-2 rounded">
+                          <div key={`selected-${index}`} className="flex items-center gap-1 bg-zinc-700/50 p-1.5 rounded min-w-max">
                             <input
                               type="checkbox"
                               checked={true}
                               readOnly
-                              className="rounded border-zinc-500"
+                              className="rounded border-zinc-500 w-3 h-3 flex-shrink-0"
                             />
-                            <Label className="text-white text-sm flex-1 cursor-pointer">{vendorTrunk.trunk}</Label>
+                            <Label className="text-white text-xs cursor-pointer flex-shrink-0 whitespace-nowrap">{vendorTrunk.trunk}</Label>
                             {((formData.vendor_trunks || []).length >= 2) && (
                               <>
                                 <Input
@@ -1640,7 +1677,7 @@ export default function SMSTicketsPage() {
                                     );
                                     setFormData({ ...formData, vendor_trunks: updatedTrunks });
                                   }}
-                                  className="bg-zinc-600 border-zinc-500 text-white text-xs w-16 h-7"
+                                  className="bg-zinc-600 border-zinc-500 text-white text-[10px] w-10 h-6 flex-shrink-0"
                                   disabled={isAM}
                                 />
                                 <Select
@@ -1653,13 +1690,31 @@ export default function SMSTicketsPage() {
                                   }}
                                   disabled={isAM}
                                 >
-                                  <SelectTrigger className="bg-zinc-600 border-zinc-500 h-7 w-20"><SelectValue placeholder="Pos" /></SelectTrigger>
+                                  <SelectTrigger className="bg-zinc-600 border-zinc-500 h-6 w-12 text-xs flex-shrink-0"><SelectValue placeholder="Pos" /></SelectTrigger>
                                   <SelectContent className="bg-zinc-800 border-zinc-700">
                                     <SelectItem value="1">1st</SelectItem>
                                     <SelectItem value="2">2nd</SelectItem>
                                     <SelectItem value="3">3rd</SelectItem>
                                     <SelectItem value="4">4th</SelectItem>
                                     <SelectItem value="5">5th</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                                {/* SID/Content Pair Number Selector */}
+                                <Select
+                                  value={vendorTrunk.pair_number || ""}
+                                  onValueChange={(value) => {
+                                    const updatedTrunks = (formData.vendor_trunks || []).map((v, i) =>
+                                      i === index ? { ...v, pair_number: value } : v
+                                    );
+                                    setFormData({ ...formData, vendor_trunks: updatedTrunks });
+                                  }}
+                                  disabled={isAM}
+                                >
+                                  <SelectTrigger className="bg-zinc-600 border-zinc-500 h-6 w-14 text-xs flex-shrink-0"><SelectValue placeholder="Pair" /></SelectTrigger>
+                                  <SelectContent className="bg-zinc-800 border-zinc-700">
+                                    {(formData.sms_details || []).map((_, idx) => (
+                                      <SelectItem key={idx} value={String(idx + 1)}>Pair #{idx + 1}</SelectItem>
+                                    ))}
                                   </SelectContent>
                                 </Select>
                               </>
@@ -1675,7 +1730,7 @@ export default function SMSTicketsPage() {
                               }}
                               disabled={isAM}
                             >
-                              <SelectTrigger className="bg-zinc-600 border-zinc-500 h-7 w-20"><SelectValue placeholder="Cost" /></SelectTrigger>
+                              <SelectTrigger className="bg-zinc-600 border-zinc-500 h-6 w-14 text-xs flex-shrink-0"><SelectValue placeholder="Cost" /></SelectTrigger>
                               <SelectContent className="bg-zinc-800 border-zinc-700">
                                 <SelectItem value="fixed">Fixed</SelectItem>
                                 <SelectItem value="range">Range</SelectItem>
@@ -1693,7 +1748,7 @@ export default function SMSTicketsPage() {
                                     );
                                     setFormData({ ...formData, vendor_trunks: updatedTrunks });
                                   }}
-                                  className="bg-zinc-600 border-zinc-500 text-white text-xs w-16 h-7"
+                                  className="bg-zinc-600 border-zinc-500 text-white text-[10px] w-10 h-6 flex-shrink-0"
                                   disabled={isAM}
                                 />
                                 <Input
@@ -1705,7 +1760,7 @@ export default function SMSTicketsPage() {
                                     );
                                     setFormData({ ...formData, vendor_trunks: updatedTrunks });
                                   }}
-                                  className="bg-zinc-600 border-zinc-500 text-white text-xs w-16 h-7"
+                                  className="bg-zinc-600 border-zinc-500 text-white text-[10px] w-10 h-6 flex-shrink-0"
                                   disabled={isAM}
                                 />
                               </>
@@ -1719,7 +1774,7 @@ export default function SMSTicketsPage() {
                                   );
                                   setFormData({ ...formData, vendor_trunks: updatedTrunks });
                                 }}
-                                className="bg-zinc-600 border-zinc-500 text-white text-xs w-20 h-7"
+                                className="bg-zinc-600 border-zinc-500 text-white text-[10px] w-12 h-6 flex-shrink-0"
                                 disabled={isAM}
                               />
                             )}
@@ -1731,18 +1786,24 @@ export default function SMSTicketsPage() {
                                 const updatedTrunks = (formData.vendor_trunks || []).filter((_, i) => i !== index);
                                 setFormData({ ...formData, vendor_trunks: updatedTrunks });
                               }}
-                              className="text-red-400 hover:text-red-300 h-6 w-6 p-0"
+                              className="text-red-400 hover:text-red-300 h-6 w-6 p-0 flex-shrink-0"
                               disabled={isAM}
                             >
                               <X className="h-3 w-3" />
                             </Button>
                           </div>
                         ))}
-                        {/* Total percentage when 2+ selected - only validate if no positions are used */}
+                        {/* Total percentage when 2+ selected - only validate if no positions or pair numbers are used */}
                         {((formData.vendor_trunks || []).length >= 2) && (
                           <div className="text-xs text-zinc-400 pt-1">
                             {(() => {
                               const hasPositions = (formData.vendor_trunks || []).some(v => v.position);
+                              const hasPairNumbers = (formData.vendor_trunks || []).some(v => v.pair_number);
+                              if (hasPairNumbers) {
+                                // Show pair numbers instead of validating percentages
+                                const pairNumbers = (formData.vendor_trunks || []).map(v => v.pair_number ? `Pair #${v.pair_number}` : '').filter(p => p).join(', ');
+                                return <span>Pair Numbers: {pairNumbers}</span>;
+                              }
                               if (hasPositions) {
                                 // Show positions instead of validating percentages
                                 const positions = (formData.vendor_trunks || []).map(v => v.position).filter(p => p).join(', ');
@@ -2095,17 +2156,33 @@ export default function SMSTicketsPage() {
                 <div className="bg-zinc-800/30 p-2 rounded">
                   <span className="text-zinc-500 text-[10px] uppercase">Vendor Trunks</span>
                   <div className="mt-1 space-y-1">
-                    {editingTicket.vendor_trunks.map((trunk, idx) => (
-                      <div key={idx} className="flex items-center justify-between bg-zinc-800/50 p-1.5 rounded text-xs">
-                        <span className="text-white font-medium truncate flex-1">{trunk.trunk}</span>
-                        <div className="flex items-center gap-2 ml-2">
-                          {trunk.percentage && <span className="text-zinc-400">{trunk.percentage}%</span>}
-                          {trunk.position && <span className="text-zinc-400">Pos: {trunk.position}</span>}
-                          {trunk.cost && <span className="text-emerald-400">{trunk.cost}</span>}
-                          {(trunk.min_cost || trunk.max_cost) && <span className="text-emerald-400">${trunk.min_cost || '0'}-{trunk.max_cost || '0'}</span>}
+                    {editingTicket.vendor_trunks.map((trunk, idx) => {
+                      // Get the SMS details if pair_number is set
+                      const pairNum = trunk.pair_number ? parseInt(trunk.pair_number) : null;
+                      const pairDetails = pairNum && editingTicket.sms_details ? editingTicket.sms_details[pairNum - 1] : null;
+                      return (
+                        <div key={idx} className="flex items-center justify-between bg-zinc-800/50 p-1.5 rounded text-xs">
+                          <span className="text-white font-medium truncate flex-1">{trunk.trunk}</span>
+                          <div className="flex items-center gap-2 ml-2">
+                            {trunk.percentage && <span className="text-zinc-400">{trunk.percentage}%</span>}
+                            {trunk.position && <span className="text-zinc-400">Pos: {trunk.position}</span>}
+                            {trunk.pair_number && (
+                              <span className="text-zinc-400">
+                                Pair #{trunk.pair_number}
+                                {pairDetails && (
+                                  <span className="ml-1 text-blue-400">(
+                                    {pairDetails.sid ? `${pairDetails.sid.substring(0, 8)}...` : 'No SID'}
+                                    {pairDetails.content && ` - ${pairDetails.content.substring(0, 10)}...`}
+                                  )</span>
+                                )}
+                              </span>
+                            )}
+                            {trunk.cost && <span className="text-emerald-400">{trunk.cost}</span>}
+                            {(trunk.min_cost || trunk.max_cost) && <span className="text-emerald-400">${trunk.min_cost || '0'}-{trunk.max_cost || '0'}</span>}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}

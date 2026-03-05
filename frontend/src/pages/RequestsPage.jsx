@@ -48,6 +48,18 @@ const REQUEST_TYPES = {
     label: "Investigation Request",
     description: "Investigate an issue for a customer trunk",
     fields: ["issue_types", "customer_trunk", "investigation_destination", "issue_description"]
+  },
+  trunk_request_sms: {
+    label: "New Trunk Request",
+    description: "Request new trunk for SMS",
+    fields: ["priority", "customer_ids", "trunk_type", "direction", "with_lcr"],
+    forDepartment: "sms"
+  },
+  trunk_request_voice: {
+    label: "New Trunk Request",
+    description: "Request new trunk for Voice",
+    fields: ["priority", "customer_ids", "trunk_type", "direction", "with_lcr"],
+    forDepartment: "voice"
   }
 };
 
@@ -56,6 +68,26 @@ const PRIORITIES = [
   { value: "Medium", color: "bg-blue-500", text: "text-white", description: "To be done in 20 mins" },
   { value: "High", color: "bg-orange-500", text: "text-white", description: "To be done in 10 mins" },
   { value: "Urgent", color: "bg-red-600", text: "text-white", description: "To be done in 5 mins (Only in case of Live Traffic)" }
+];
+
+// Trunk Types for SMS and Voice
+const SMS_TRUNK_TYPES = [
+  { value: "Direct", label: "Direct" },
+  { value: "HQ", label: "HQ" },
+  { value: "SIM", label: "SIM" },
+  { value: "WHS", label: "WHS" },
+  { value: "Local", label: "Local" },
+  { value: "Promo", label: "Promo" },
+  { value: "CS", label: "CS" }
+];
+
+const VOICE_TRUNK_TYPES = [
+  { value: "PRM", label: "PRM" },
+  { value: "STD", label: "STD" },
+  { value: "CC", label: "CC" },
+  { value: "TDM", label: "TDM" },
+  { value: "ORTP", label: "ORTP" },
+  { value: "ATX", label: "ATX" }
 ];
 
 const STATUS_CONFIG = {
@@ -186,10 +218,27 @@ export default function RequestsPage() {
     issue_types: [],
     issue_other: "",
     investigation_destination: "",
-    issue_description: ""
+    issue_description: "",
+    with_lcr: true,
+    direction: null
   });
 
   const [formData, setFormData] = useState(getInitialFormData());
+  // Separate state for Direction and With LCR to ensure updates work correctly
+  const [trunkDirection, setTrunkDirection] = useState("");
+  const [trunkWithLcr, setTrunkWithLcr] = useState(true);
+  
+  // Initialize trunk states from formData when it changes (for editing)
+  useEffect(() => {
+    if (formData.request_type === "trunk_request_sms" || formData.request_type === "trunk_request_voice") {
+      if (formData.direction) {
+        setTrunkDirection(formData.direction);
+      }
+      if (formData.with_lcr !== undefined && formData.with_lcr !== null) {
+        setTrunkWithLcr(formData.with_lcr);
+      }
+    }
+  }, [formData.direction, formData.with_lcr, formData.request_type]);
   
   // Track URL for notification navigation using ref
   const prevUrlRef = React.useRef(window.location.href);
@@ -393,8 +442,15 @@ export default function RequestsPage() {
       customer_trunk: "",
       investigation_destination: "",
       issue_description: "",
-      via_vendor: ""
+      via_vendor: "",
+      with_lcr: true,
+      direction: null
     });
+    // Reset trunk states for new trunk requests
+    if (type === "trunk_request_sms" || type === "trunk_request_voice") {
+      setTrunkDirection("");
+      setTrunkWithLcr(true);
+    }
   };
 
   const handleVendorTrunkChange = (index, field, value) => {
@@ -714,7 +770,9 @@ export default function RequestsPage() {
         issue_types: formData.issue_types || [],
         issue_other: formData.issue_other || null,
         investigation_destination: formData.investigation_destination || null,
-        issue_description: formData.issue_description || null
+        issue_description: formData.issue_description || null,
+        with_lcr: trunkWithLcr,
+        direction: trunkDirection || null
       };
 
       if (isEditMode && editingRequest) {
@@ -808,8 +866,15 @@ export default function RequestsPage() {
       issue_types: request.issue_types || [],
       issue_other: request.issue_other || "",
       investigation_destination: request.investigation_destination || "",
-      issue_description: request.issue_description || ""
+      issue_description: request.issue_description || "",
+      with_lcr: request.with_lcr || false,
+      direction: request.direction || null
     });
+    // Set the trunk states for editing trunk requests
+    if (request.request_type === "trunk_request_sms" || request.request_type === "trunk_request_voice") {
+      setTrunkDirection(request.direction || "");
+      setTrunkWithLcr(request.with_lcr || false);
+    }
     setDialogOpen(true);
   };
 
@@ -879,8 +944,15 @@ export default function RequestsPage() {
       issue_types: request.issue_types || [],
       issue_other: request.issue_other || "",
       investigation_destination: request.investigation_destination || "",
-      issue_description: request.issue_description || ""
+      issue_description: request.issue_description || "",
+      with_lcr: request.with_lcr || false,
+      direction: request.direction || null
     });
+    // Set the trunk states for cloning trunk requests
+    if (request.request_type === "trunk_request_sms" || request.request_type === "trunk_request_voice") {
+      setTrunkDirection(request.direction || "");
+      setTrunkWithLcr(request.with_lcr || false);
+    }
     setDialogOpen(true);
   };
 
@@ -931,7 +1003,9 @@ export default function RequestsPage() {
       issue_types: [],
       issue_other: "",
       investigation_destination: "",
-      issue_description: ""
+      issue_description: "",
+      with_lcr: false,
+      direction: null
     });
     setDialogOpen(true);
   };
@@ -1249,6 +1323,10 @@ export default function RequestsPage() {
       const hasVendorTrunks = formData.vendor_trunks.some(t => t.trunk);
       return formData.destination && formData.lcr_type && formData.lcr_change && hasVendorTrunks;
     }
+    // New Trunk Request validation - requires customer_ids, trunk_type, direction and with_lcr
+    if (formData.request_type === "trunk_request_sms" || formData.request_type === "trunk_request_voice") {
+      return formData.customer_ids && formData.customer_ids.length > 0 && formData.trunk_type && trunkDirection;
+    }
     return formData.customer;
   };
 
@@ -1262,6 +1340,8 @@ export default function RequestsPage() {
         {userRole === "am" && (
           <Button onClick={() => {
             setFormData(getInitialFormData());
+            setTrunkDirection("");
+            setTrunkWithLcr(true);
             setIsEditMode(false);
             setEditingRequest(null);
             setDialogOpen(true);
@@ -1497,7 +1577,33 @@ export default function RequestsPage() {
                           )}
                         </div>
                       )}
-                      
+
+                      {/* New Trunk Request Display */}
+                      {(request.request_type === "trunk_request_sms" || request.request_type === "trunk_request_voice") && (
+                        <div className="mt-2 text-sm text-zinc-400">
+                          {request.customer && (
+                            <div className="mb-1">
+                              <span className="text-zinc-500">Customer(s): </span>
+                              {request.customer}
+                            </div>
+                          )}
+                          {request.trunk_type && (
+                            <div className="mb-1">
+                              <span className="text-zinc-500">Trunk Type: </span>
+                              {request.trunk_type}
+                            </div>
+                          )}
+                          <div className="mb-1">
+                            <span className="text-zinc-500">Direction: </span>
+                            {request.direction || "Not specified"}
+                          </div>
+                          <div>
+                            <span className="text-zinc-500">With LCR: </span>
+                            {request.with_lcr ? "Yes" : "No"}
+                          </div>
+                        </div>
+                      )}
+
                       {request.response && (
                         <div className="mt-3 p-2 bg-zinc-800 rounded text-sm text-zinc-300">
                           <strong>Response:</strong> {request.response}
@@ -1691,6 +1797,9 @@ export default function RequestsPage() {
           setEditingRequest(null);
           // Reset form when closing
           setFormData(getInitialFormData());
+          // Reset trunk-specific states
+          setTrunkDirection("");
+          setTrunkWithLcr(true);
         }
       }}>
         <DialogContent disableOutsideClick className="bg-zinc-900 border-white/10 text-white max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -1765,8 +1874,8 @@ export default function RequestsPage() {
               </div>
             )}
 
-            {/* Customer - Show only when request type is selected and not for Testing/Investigation/Translation/LCR */}
-            {formData.request_type && formData.request_type !== "testing" && formData.request_type !== "investigation" && formData.request_type !== "translation" && formData.request_type !== "lcr" && (
+            {/* Customer - Show only when request type is selected and not for Testing/Investigation/Translation/LCR/Trunk Request */}
+            {formData.request_type && formData.request_type !== "testing" && formData.request_type !== "investigation" && formData.request_type !== "translation" && formData.request_type !== "lcr" && formData.request_type !== "trunk_request_sms" && formData.request_type !== "trunk_request_voice" && (
               <div>
                 <Label className="text-zinc-400">
                   {formData.request_type === "translation" || formData.request_type === "rating_routing" ? "Customer(s)" : "Customer"}
@@ -2569,6 +2678,87 @@ export default function RequestsPage() {
                 </div>
               </>
             )}
+
+            {/* New Trunk Request Fields - SMS */}
+            {(formData.request_type === "trunk_request_sms" || formData.request_type === "trunk_request_voice") && (
+              <>
+                <div>
+                  <Label className="text-zinc-400">Customer(s)</Label>
+                  <MultiSelect
+                    options={enterprises
+                      .filter(e => e.enterprise_type === displayTab || e.enterprise_type === "all")
+                      .map(e => ({ id: e.id, label: e.name }))
+                    }
+                    value={formData.customer_ids || []}
+                    onValueChange={(newIds) => {
+                      setFormData({
+                        ...formData,
+                        customer_ids: newIds,
+                        customer: newIds.map(id => enterprises.find(e => e.id === id)?.name).filter(Boolean).join(", ")
+                      });
+                    }}
+                    placeholder="Select enterprises..."
+                    searchPlaceholder="Search enterprises..."
+                  />
+                </div>
+                <div>
+                  <Label className="text-zinc-400">Trunk Type</Label>
+                  <Select value={formData.trunk_type} onValueChange={(v) => setFormData({ ...formData, trunk_type: v })}>
+                    <SelectTrigger className="bg-zinc-800 border-zinc-700 text-white">
+                      <SelectValue placeholder="Select trunk type" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-zinc-800 border-zinc-700">
+                      {formData.request_type === "trunk_request_sms" ? (
+                        <>
+                          <SelectItem value="Direct" className="text-white">Direct</SelectItem>
+                          <SelectItem value="HQ" className="text-white">HQ</SelectItem>
+                          <SelectItem value="SIM" className="text-white">SIM</SelectItem>
+                          <SelectItem value="WHS" className="text-white">WHS</SelectItem>
+                          <SelectItem value="Local" className="text-white">Local</SelectItem>
+                          <SelectItem value="Promo" className="text-white">Promo</SelectItem>
+                          <SelectItem value="CS" className="text-white">CS</SelectItem>
+                        </>
+                      ) : (
+                        <>
+                          <SelectItem value="PRM" className="text-white">PRM</SelectItem>
+                          <SelectItem value="STD" className="text-white">STD</SelectItem>
+                          <SelectItem value="CC" className="text-white">CC</SelectItem>
+                          <SelectItem value="TDM" className="text-white">TDM</SelectItem>
+                          <SelectItem value="ORTP" className="text-white">ORTP</SelectItem>
+                          <SelectItem value="ATX" className="text-white">ATX</SelectItem>
+                        </>
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-zinc-400">Direction *</Label>
+                  <Select 
+                    value={trunkDirection} 
+                    onValueChange={(v) => setTrunkDirection(v)}
+                  >
+                    <SelectTrigger className="bg-zinc-800 border-zinc-700 text-white">
+                      <SelectValue placeholder="Select direction" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-zinc-800 border-zinc-700">
+                      <SelectItem value="Customer" className="text-white">Customer</SelectItem>
+                      <SelectItem value="Vendor" className="text-white">Vendor</SelectItem>
+                      <SelectItem value="Both" className="text-white">Both</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    id="with_lcr"
+                    type="checkbox"
+                    checked={trunkWithLcr}
+                    onChange={(e) => setTrunkWithLcr(e.target.checked)}
+                    className="w-4 h-4 accent-blue-500"
+                  />
+                  <label htmlFor="with_lcr" className="text-white text-sm cursor-pointer">With LCR *</label>
+                </div>
+              </>
+            )}
           </div>
 
           <DialogFooter>
@@ -2633,7 +2823,7 @@ export default function RequestsPage() {
                   <Label className="text-zinc-400">Status</Label>
                   <p className="text-white capitalize">{selectedRequest.status}</p>
                 </div>
-                {selectedRequest.request_type !== "testing" && selectedRequest.request_type !== "lcr" && (
+                {selectedRequest.request_type !== "testing" && selectedRequest.request_type !== "lcr" && selectedRequest.request_type !== "trunk_request_sms" && selectedRequest.request_type !== "trunk_request_voice" && (
                 <div>
                   <Label className="text-zinc-400">Customer</Label>
                   <p className="text-white">{selectedRequest.customer || selectedRequest.enterprise?.name || "N/A"}</p>
@@ -2845,6 +3035,18 @@ export default function RequestsPage() {
                         <p key={i} className="text-white ml-2">- {trunk.trunk}</p>
                       ))}
                     </div>
+                  </div>
+                </div>
+              )}
+
+              {(selectedRequest.request_type === "trunk_request_sms" || selectedRequest.request_type === "trunk_request_voice") && (
+                <div className="border-t border-zinc-700 pt-4">
+                  <Label className="text-zinc-400">New Trunk Request Details</Label>
+                  <div className="mt-2 space-y-2">
+                    {selectedRequest.customer && <p className="text-white">Customer(s): {selectedRequest.customer}</p>}
+                    {selectedRequest.trunk_type && <p className="text-white">Trunk Type: {selectedRequest.trunk_type}</p>}
+                    <p className="text-white">Direction: {selectedRequest.direction || "Not specified"}</p>
+                    <p className="text-white">With LCR: {selectedRequest.with_lcr ? "Yes" : "No"}</p>
                   </div>
                 </div>
               )}

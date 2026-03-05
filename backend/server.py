@@ -3253,6 +3253,10 @@ class AMRequest(BaseModel):
     issue_other: Optional[str] = None  # Custom "Other" issue text
     investigation_destination: Optional[str] = None  # Destination to investigate
     
+    # New Trunk Request fields
+    with_lcr: Optional[bool] = None  # With LCR option for trunk requests
+    direction: Optional[str] = None  # Direction for trunk requests: Customer, Vendor, Both
+    
     # Status
     status: str = "pending"  # "pending", "in_progress", "completed", "rejected"
     created_by: str
@@ -3312,6 +3316,10 @@ class AMRequestCreate(BaseModel):
     issue_other: Optional[str] = None
     investigation_destination: Optional[str] = None
     issue_description: Optional[str] = None
+    
+    # New Trunk Request fields
+    with_lcr: Optional[bool] = None  # With LCR option for trunk requests
+    direction: Optional[str] = None  # Direction for trunk requests: Customer, Vendor, Both
 
 
 @api_router.get("/requests", response_model=List[AMRequest])
@@ -3460,6 +3468,8 @@ async def create_request(request_data: AMRequestCreate, current_user: dict = Dep
         issue_other=request_data.issue_other,
         investigation_destination=request_data.investigation_destination,
         issue_description=request_data.issue_description,
+        with_lcr=request_data.with_lcr,
+        direction=request_data.direction,
         created_by=current_user.get("id"),
         created_by_username=current_user.get("username", "Unknown")
     )
@@ -3512,7 +3522,8 @@ async def update_request(request_id: str, request_data: dict, current_user: dict
             "old_value", "new_value", "old_sid", "new_sid", "word_to_remove", "translation_destination",
             "test_type", "test_description",
             "lcr_type", "lcr_change",
-            "issue_types", "issue_other", "investigation_destination", "issue_description"
+            "issue_types", "issue_other", "investigation_destination", "issue_description",
+            "with_lcr", "direction"
         ]
         
         update_data = {}
