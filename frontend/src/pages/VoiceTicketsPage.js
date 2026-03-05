@@ -526,6 +526,7 @@ export default function VoiceTicketsPage() {
   };
 
   const isAM = currentUser?.role === "am";
+  const isVoiceAM = isAM && (currentUser?.am_type === "voice" || currentUser?.department_type === "voice");
   const canModify = !isAM;
 
   const formatApiError = (error, fallback = "Request failed") => {

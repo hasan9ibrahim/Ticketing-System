@@ -456,8 +456,15 @@ async def notify_ams_about_ticket(ticket, event_type, ticket_type="sms", created
         return
     
     # Check if AM's type matches the ticket type (SMS AM gets SMS tickets, Voice AM gets Voice tickets)
+    # Check both am_type field and department_type from department
     am_type = am_user.get("am_type")
-    if am_type and am_type != ticket_type:
+    dept_type = None
+    if am_user.get("department_id"):
+        dept = await db.departments.find_one({"id": am_user["department_id"]}, {"_id": 0})
+        if dept:
+            dept_type = dept.get("department_type")
+    
+    if am_type and am_type != ticket_type and dept_type != ticket_type:
         # AM type doesn't match ticket type, skip notification
         return
     
@@ -4157,8 +4164,12 @@ async def get_voice_tickets(current_user: dict = Depends(get_current_user)):
     query = {}
     
     if current_user["role"] == "am":
-        # Check if AM is assigned to Voice
-        if current_user.get("am_type") != "voice":
+        # Check if AM is assigned to Voice - check both am_type and department_type
+        am_type = current_user.get("am_type")
+        dept = current_user.get("department", {})
+        dept_type = dept.get("department_type") if dept else None
+        
+        if am_type != "voice" and dept_type != "voice":
             raise HTTPException(status_code=403, detail="You are not assigned to Voice tickets")
         
         clients = await db.clients.find({"assigned_am_id": current_user["id"]}, {"_id": 0}).to_list(1000)
