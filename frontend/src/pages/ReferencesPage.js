@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import axios from "axios";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -81,6 +81,7 @@ const getTrafficTypes = (section) => section === "voice" ? VOICE_TRAFFIC_TYPES :
 
 export default function ReferencesPage() {
   const { toast } = useToast();
+  const navigate = useNavigate();
   const user = JSON.parse(localStorage.getItem("user") || "{}");
   const departmentType = user?.department_type || "all";
   const [mainTab, setMainTab] = useState("references"); // "references" or "alerts"
@@ -137,9 +138,29 @@ export default function ReferencesPage() {
     setSearchQuery("");
   }, [activeSection]);
 
+  // Ref to track the last processed URL params to prevent reopening on state changes
+  const lastProcessedParamsRef = useRef(null);
+
   // Handle alert query parameter - open specific alert when navigating from notification
   useEffect(() => {
     const alertParam = searchParams.get("alert");
+    const paramKey = `alert-${alertParam}`;
+    
+    // If no alert param, nothing to do
+    if (!alertParam) {
+      lastProcessedParamsRef.current = null;
+      return;
+    }
+    
+    // Skip if we've already processed this exact URL combination
+    // This prevents reopening when dialog state changes (close/open)
+    if (lastProcessedParamsRef.current === paramKey) {
+      return;
+    }
+    
+    // Mark as processed
+    lastProcessedParamsRef.current = paramKey;
+    
     // Also check localStorage for direct navigation
     const storedParam = localStorage.getItem('openTicketParam');
     const paramToUse = alertParam || (storedParam?.startsWith('alert=') ? storedParam.replace('alert=', '').split('&')[0] : null);
@@ -180,15 +201,7 @@ export default function ReferencesPage() {
       }
     }
   }, [searchParams, smsAlerts, voiceAlerts]);
-
-  // Clear URL parameter when alert is closed to prevent auto-refresh from reopening it
-  useEffect(() => {
-    if (!selectedAlert && searchParams.get("alert")) {
-      window.history.replaceState({}, document.title, window.location.pathname);
-    }
-  }, [selectedAlert, searchParams]);
-
-  const alertProcessedRef = useRef(false);
+  
 
   // Handle pending alert from ticket page
   const handlePendingAlert = async () => {

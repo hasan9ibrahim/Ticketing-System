@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import axios from "axios";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { startOfWeek, endOfWeek } from "date-fns";
@@ -111,9 +111,30 @@ export default function SMSTicketsPage() {
     filterAndSortTickets();
   }, [searchTerm, priorityFilter, statusFilter, enterpriseFilter, issueTypeFilter, destinationFilter, assignedToFilter, dateRange, sortBy, activeTab, tickets, multiFilters]);
 
+  // Ref to track the last processed URL params to prevent reopening on state changes
+  const lastProcessedParamsRef = useRef(null);
+
   // Handle ticket query parameter - open specific ticket when navigating from notification
   useEffect(() => {
     const ticketParam = searchParams.get("ticket");
+    const actionParam = searchParams.get("action");
+    const paramKey = `${ticketParam}-${actionParam}`;
+    
+    // If no ticket param, nothing to do
+    if (!ticketParam) {
+      lastProcessedParamsRef.current = null;
+      return;
+    }
+    
+    // Skip if we've already processed this exact URL combination
+    // This prevents reopening when dialog state changes (close/open)
+    if (lastProcessedParamsRef.current === paramKey) {
+      return;
+    }
+    
+    // Mark as processed
+    lastProcessedParamsRef.current = paramKey;
+    
     // Also check localStorage for direct navigation
     const storedParam = localStorage.getItem('openTicketParam');
     const paramToUse = ticketParam || (storedParam?.startsWith('ticket=') ? storedParam.replace('ticket=', '').split('&')[0] : null);
@@ -125,7 +146,12 @@ export default function SMSTicketsPage() {
         t.ticket_id === (paramToUse || ticketParam)
       );
       if (ticket) {
-        openEditSheet(ticket);
+        // If action parameter is true, open actions dialog; otherwise open edit sheet
+        if (actionParam === 'true') {
+          openActionsDialog(ticket);
+        } else {
+          openEditSheet(ticket);
+        }
       }
       // Clear localStorage after use
       if (storedParam) {
@@ -133,13 +159,7 @@ export default function SMSTicketsPage() {
       }
     }
   }, [searchParams, tickets]);
-
-  // Clear URL parameter when sheet is closed to prevent auto-refresh from reopening it
-  useEffect(() => {
-    if (!sheetOpen && searchParams.get("ticket")) {
-      window.history.replaceState({}, document.title, window.location.pathname);
-    }
-  }, [sheetOpen, searchParams]);
+  
 
   // Helper to get display text for issues
   const getIssueDisplayText = (ticket) => {
@@ -1655,17 +1675,17 @@ export default function SMSTicketsPage() {
 
                   {/* Selected vendor trunks with % and position (when 2+) */}
                   {(formData.vendor_trunks || []).length > 0 && (
-                    <div className="bg-zinc-800/50 border border-zinc-700 rounded-md p-2 space-y-2 overflow-x-auto">
+                    <div className="bg-zinc-800/50 border border-zinc-700 rounded-md p-3 space-y-2">
                       <div className="space-y-2">
                         {(formData.vendor_trunks || []).map((vendorTrunk, index) => (
-                          <div key={`selected-${index}`} className="flex items-center gap-1 bg-zinc-700/50 p-1.5 rounded min-w-max">
+                          <div key={`selected-${index}`} className="flex flex-wrap items-center gap-2 bg-zinc-700/50 p-3 rounded">
                             <input
                               type="checkbox"
                               checked={true}
                               readOnly
-                              className="rounded border-zinc-500 w-3 h-3 flex-shrink-0"
+                              className="rounded border-zinc-500"
                             />
-                            <Label className="text-white text-xs cursor-pointer flex-shrink-0 whitespace-nowrap">{vendorTrunk.trunk}</Label>
+                            <Label className="text-white text-sm cursor-pointer flex-1 min-w-[150px] font-medium">{vendorTrunk.trunk}</Label>
                             {((formData.vendor_trunks || []).length >= 2) && (
                               <>
                                 <Input
@@ -1677,7 +1697,7 @@ export default function SMSTicketsPage() {
                                     );
                                     setFormData({ ...formData, vendor_trunks: updatedTrunks });
                                   }}
-                                  className="bg-zinc-600 border-zinc-500 text-white text-[10px] w-10 h-6 flex-shrink-0"
+                                  className="bg-zinc-600 border-zinc-500 text-white text-sm w-24 h-9"
                                   disabled={isAM}
                                 />
                                 <Select
@@ -1690,7 +1710,7 @@ export default function SMSTicketsPage() {
                                   }}
                                   disabled={isAM}
                                 >
-                                  <SelectTrigger className="bg-zinc-600 border-zinc-500 h-6 w-12 text-xs flex-shrink-0"><SelectValue placeholder="Pos" /></SelectTrigger>
+                                  <SelectTrigger className="bg-zinc-600 border-zinc-500 h-9 w-28"><SelectValue placeholder="Position" /></SelectTrigger>
                                   <SelectContent className="bg-zinc-800 border-zinc-700">
                                     <SelectItem value="1">1st</SelectItem>
                                     <SelectItem value="2">2nd</SelectItem>
@@ -1710,7 +1730,7 @@ export default function SMSTicketsPage() {
                                   }}
                                   disabled={isAM}
                                 >
-                                  <SelectTrigger className="bg-zinc-600 border-zinc-500 h-6 w-14 text-xs flex-shrink-0"><SelectValue placeholder="Pair" /></SelectTrigger>
+                                  <SelectTrigger className="bg-zinc-600 border-zinc-500 h-9 w-28"><SelectValue placeholder="Pair #" /></SelectTrigger>
                                   <SelectContent className="bg-zinc-800 border-zinc-700">
                                     {(formData.sms_details || []).map((_, idx) => (
                                       <SelectItem key={idx} value={String(idx + 1)}>Pair #{idx + 1}</SelectItem>
@@ -1730,7 +1750,7 @@ export default function SMSTicketsPage() {
                               }}
                               disabled={isAM}
                             >
-                              <SelectTrigger className="bg-zinc-600 border-zinc-500 h-6 w-14 text-xs flex-shrink-0"><SelectValue placeholder="Cost" /></SelectTrigger>
+                              <SelectTrigger className="bg-zinc-600 border-zinc-500 h-9 w-28"><SelectValue placeholder="Cost Type" /></SelectTrigger>
                               <SelectContent className="bg-zinc-800 border-zinc-700">
                                 <SelectItem value="fixed">Fixed</SelectItem>
                                 <SelectItem value="range">Range</SelectItem>
@@ -1748,7 +1768,7 @@ export default function SMSTicketsPage() {
                                     );
                                     setFormData({ ...formData, vendor_trunks: updatedTrunks });
                                   }}
-                                  className="bg-zinc-600 border-zinc-500 text-white text-[10px] w-10 h-6 flex-shrink-0"
+                                  className="bg-zinc-600 border-zinc-500 text-white text-sm w-24 h-9"
                                   disabled={isAM}
                                 />
                                 <Input
@@ -1760,7 +1780,7 @@ export default function SMSTicketsPage() {
                                     );
                                     setFormData({ ...formData, vendor_trunks: updatedTrunks });
                                   }}
-                                  className="bg-zinc-600 border-zinc-500 text-white text-[10px] w-10 h-6 flex-shrink-0"
+                                  className="bg-zinc-600 border-zinc-500 text-white text-sm w-24 h-9"
                                   disabled={isAM}
                                 />
                               </>
@@ -1774,7 +1794,7 @@ export default function SMSTicketsPage() {
                                   );
                                   setFormData({ ...formData, vendor_trunks: updatedTrunks });
                                 }}
-                                className="bg-zinc-600 border-zinc-500 text-white text-[10px] w-12 h-6 flex-shrink-0"
+                                className="bg-zinc-600 border-zinc-500 text-white text-sm w-28 h-9"
                                 disabled={isAM}
                               />
                             )}
@@ -1786,10 +1806,10 @@ export default function SMSTicketsPage() {
                                 const updatedTrunks = (formData.vendor_trunks || []).filter((_, i) => i !== index);
                                 setFormData({ ...formData, vendor_trunks: updatedTrunks });
                               }}
-                              className="text-red-400 hover:text-red-300 h-6 w-6 p-0 flex-shrink-0"
+                              className="text-red-400 hover:text-red-300 h-9 w-9 p-0 flex-shrink-0"
                               disabled={isAM}
                             >
-                              <X className="h-3 w-3" />
+                              <X className="h-4 w-4" />
                             </Button>
                           </div>
                         ))}

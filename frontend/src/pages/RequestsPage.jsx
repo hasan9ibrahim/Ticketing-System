@@ -1,5 +1,5 @@
 ﻿import React, { useState, useEffect, useRef } from "react";
-import { useLocation, useSearchParams } from "react-router-dom";
+import { useLocation, useSearchParams, useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -60,6 +60,11 @@ const REQUEST_TYPES = {
     description: "Request new trunk for Voice",
     fields: ["priority", "customer_ids", "trunk_type", "direction", "with_lcr"],
     forDepartment: "voice"
+  },
+  open_tt: {
+    label: "Open TT",
+    description: "Open a TT (Trouble Ticket)",
+    fields: ["priority", "ticket_id", "destination", "vendor_trunks", "open_by", "notes"]
   }
 };
 
@@ -99,6 +104,7 @@ const STATUS_CONFIG = {
 
 export default function RequestsPage() {
   const { toast } = useToast();
+  const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState("sms");
@@ -220,7 +226,9 @@ export default function RequestsPage() {
     investigation_destination: "",
     issue_description: "",
     with_lcr: true,
-    direction: null
+    direction: null,
+    open_by: "",
+    open_tt_notes: ""
   });
 
   const [formData, setFormData] = useState(getInitialFormData());
@@ -297,10 +305,29 @@ export default function RequestsPage() {
     return () => clearInterval(interval);
   }, []);
   
+  // Ref to track the last processed URL params to prevent reopening on state changes
+  const lastProcessedParamsRef = useRef(null);
+
   // Handle request query parameter for notification navigation
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const requestId = params.get("request");
+    const paramKey = `request-${requestId}`;
+    
+    // If no request param, nothing to do
+    if (!requestId) {
+      lastProcessedParamsRef.current = null;
+      return;
+    }
+    
+    // Skip if we've already processed this exact URL combination
+    // This prevents reopening when dialog state changes (close/open)
+    if (lastProcessedParamsRef.current === paramKey) {
+      return;
+    }
+    
+    // Mark as processed
+    lastProcessedParamsRef.current = paramKey;
     
     if (requestId) {
       // First try to find the request in the already loaded list
@@ -309,8 +336,6 @@ export default function RequestsPage() {
       if (foundRequest) {
         setSelectedRequest(foundRequest);
         setViewRequestDialogOpen(true);
-        // Clear the query parameter from URL
-        window.history.replaceState({}, document.title, window.location.pathname);
       } else {
         // If not found in the list, fetch it directly from the API
         const fetchRequestById = async () => {
@@ -325,15 +350,13 @@ export default function RequestsPage() {
             }
           } catch (error) {
             console.error("Failed to fetch request:", error);
-          } finally {
-            // Clear the query parameter from URL
-            window.history.replaceState({}, document.title, window.location.pathname);
           }
         };
         fetchRequestById();
       }
     }
   }, [requests, urlKey]);
+  
 
   // Fetch enterprises and vendor trunks on initial load and when tab changes
   useEffect(() => {
@@ -444,7 +467,9 @@ export default function RequestsPage() {
       issue_description: "",
       via_vendor: "",
       with_lcr: true,
-      direction: null
+      direction: null,
+      open_by: "",
+      open_tt_notes: ""
     });
     // Reset trunk states for new trunk requests
     if (type === "trunk_request_sms" || type === "trunk_request_voice") {
@@ -772,7 +797,9 @@ export default function RequestsPage() {
         investigation_destination: formData.investigation_destination || null,
         issue_description: formData.issue_description || null,
         with_lcr: trunkWithLcr,
-        direction: trunkDirection || null
+        direction: trunkDirection || null,
+        open_by: formData.open_by || null,
+        open_tt_notes: formData.open_tt_notes || null
       };
 
       if (isEditMode && editingRequest) {
@@ -868,7 +895,9 @@ export default function RequestsPage() {
       investigation_destination: request.investigation_destination || "",
       issue_description: request.issue_description || "",
       with_lcr: request.with_lcr || false,
-      direction: request.direction || null
+      direction: request.direction || null,
+      open_by: request.open_by || "",
+      open_tt_notes: request.open_tt_notes || ""
     });
     // Set the trunk states for editing trunk requests
     if (request.request_type === "trunk_request_sms" || request.request_type === "trunk_request_voice") {
@@ -946,7 +975,12 @@ export default function RequestsPage() {
       investigation_destination: request.investigation_destination || "",
       issue_description: request.issue_description || "",
       with_lcr: request.with_lcr || false,
-      direction: request.direction || null
+      direction: request.direction || null,
+      // Missing fields - now properly cloned
+      department: request.department || "",
+      ticket_id: request.ticket_id || "",
+      open_by: request.open_by || "",
+      open_tt_notes: request.open_tt_notes || ""
     });
     // Set the trunk states for cloning trunk requests
     if (request.request_type === "trunk_request_sms" || request.request_type === "trunk_request_voice") {
@@ -1005,7 +1039,9 @@ export default function RequestsPage() {
       investigation_destination: "",
       issue_description: "",
       with_lcr: false,
-      direction: null
+      direction: null,
+      open_by: "",
+      open_tt_notes: ""
     });
     setDialogOpen(true);
   };
@@ -1327,6 +1363,11 @@ export default function RequestsPage() {
     if (formData.request_type === "trunk_request_sms" || formData.request_type === "trunk_request_voice") {
       return formData.customer_ids && formData.customer_ids.length > 0 && formData.trunk_type && trunkDirection;
     }
+    // Open TT validation - requires destination, vendor_trunks, and open_by
+    if (formData.request_type === "open_tt") {
+      const hasVendorTrunks = formData.vendor_trunks.some(t => t.trunk);
+      return formData.destination && hasVendorTrunks && formData.open_by;
+    }
     return formData.customer;
   };
 
@@ -1604,6 +1645,40 @@ export default function RequestsPage() {
                         </div>
                       )}
 
+                      {/* Open TT Display */}
+                      {request.request_type === "open_tt" && (
+                        <div className="mt-2 text-sm text-zinc-400">
+                          {request.destination && (
+                            <div className="mb-1">
+                              <span className="text-zinc-500">Destination: </span>
+                              {request.destination}
+                            </div>
+                          )}
+                          {request.vendor_trunks && request.vendor_trunks.length > 0 && (
+                            <div className="mb-1">
+                              <span className="text-zinc-500">Vendor Trunk(s): </span>
+                              {request.vendor_trunks.map((vt, idx) => (
+                                <span key={idx}>
+                                  {idx > 0 && ", "}{vt.trunk}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          {request.open_by && (
+                            <div className="mb-1">
+                              <span className="text-zinc-500">Open By: </span>
+                              {request.open_by}
+                            </div>
+                          )}
+                          {request.open_tt_notes && (
+                            <div>
+                              <span className="text-zinc-500">Notes: </span>
+                              {request.open_tt_notes}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
                       {request.response && (
                         <div className="mt-3 p-2 bg-zinc-800 rounded text-sm text-zinc-300">
                           <strong>Response:</strong> {request.response}
@@ -1874,8 +1949,8 @@ export default function RequestsPage() {
               </div>
             )}
 
-            {/* Customer - Show only when request type is selected and not for Testing/Investigation/Translation/LCR/Trunk Request */}
-            {formData.request_type && formData.request_type !== "testing" && formData.request_type !== "investigation" && formData.request_type !== "translation" && formData.request_type !== "lcr" && formData.request_type !== "trunk_request_sms" && formData.request_type !== "trunk_request_voice" && (
+            {/* Customer - Show only when request type is selected and not for Testing/Investigation/Translation/LCR/Trunk Request/Open TT */}
+            {formData.request_type && formData.request_type !== "testing" && formData.request_type !== "investigation" && formData.request_type !== "translation" && formData.request_type !== "lcr" && formData.request_type !== "trunk_request_sms" && formData.request_type !== "trunk_request_voice" && formData.request_type !== "open_tt" && (
               <div>
                 <Label className="text-zinc-400">
                   {formData.request_type === "translation" || formData.request_type === "rating_routing" ? "Customer(s)" : "Customer"}
@@ -2759,6 +2834,67 @@ export default function RequestsPage() {
                 </div>
               </>
             )}
+
+            {/* Open TT Fields */}
+            {formData.request_type === "open_tt" && (
+              <>
+                <div>
+                  <Label className="text-zinc-400">Destination *</Label>
+                  <Input
+                    value={formData.destination}
+                    onChange={(e) => setFormData({ ...formData, destination: e.target.value })}
+                    placeholder="e.g., Ghana - MTN, Nigeria - All Networks"
+                    className="bg-zinc-800 border-zinc-700 text-white"
+                  />
+                </div>
+                <div>
+                  <Label className="text-zinc-400">Vendor Trunk(s) *</Label>
+                  <p className="text-xs text-zinc-500 mb-2">Select vendor trunk(s)</p>
+                  {formData.vendor_trunks.map((trunk, index) => (
+                    <div key={index} className="mb-3 p-3 bg-zinc-800/50 rounded-lg border border-zinc-700">
+                      <div className="flex gap-2">
+                        <SearchableSelect
+                          options={vendorTrunkOptions.map(vt => ({ value: vt, label: vt }))}
+                          value={trunk.trunk}
+                          onChange={(value) => handleVendorTrunkChange(index, "trunk", value)}
+                          placeholder="Select vendor trunk"
+                          isRequired={true}
+                          className="flex-1"
+                        />
+                        {formData.vendor_trunks.length > 1 && (
+                          <Button variant="destructive" size="sm" onClick={() => removeVendorTrunk(index)}>X</Button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                  <Button variant="outline" size="sm" onClick={addVendorTrunk} className="bg-zinc-800 border-zinc-700 text-white hover:bg-zinc-700 mt-2">
+                    <Plus className="h-4 w-4 mr-1" /> Add Vendor Trunk
+                  </Button>
+                </div>
+                <div>
+                  <Label className="text-zinc-400">Open By *</Label>
+                  <Select value={formData.open_by} onValueChange={(v) => setFormData({ ...formData, open_by: v })}>
+                    <SelectTrigger className="bg-zinc-800 border-zinc-700 text-white">
+                      <SelectValue placeholder="Select how to open" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-zinc-800 border-zinc-700">
+                      <SelectItem value="Teams" className="text-white">Teams</SelectItem>
+                      <SelectItem value="Email" className="text-white">Email</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-zinc-400">Notes (Optional)</Label>
+                  <Textarea
+                    value={formData.open_tt_notes}
+                    onChange={(e) => setFormData({ ...formData, open_tt_notes: e.target.value })}
+                    placeholder="Additional notes..."
+                    className="bg-zinc-800 border-zinc-700 text-white"
+                    rows={3}
+                  />
+                </div>
+              </>
+            )}
           </div>
 
           <DialogFooter>
@@ -2810,6 +2946,10 @@ export default function RequestsPage() {
                 <div>
                   <Label className="text-zinc-400">Request Type</Label>
                   <p className="text-white">{selectedRequest.request_type_label}</p>
+                </div>
+                <div>
+                  <Label className="text-zinc-400">Ticket #</Label>
+                  <p className="text-white">{selectedRequest.ticket_id || "N/A"}</p>
                 </div>
                 <div>
                   <Label className="text-zinc-400">Department</Label>
@@ -3047,6 +3187,25 @@ export default function RequestsPage() {
                     {selectedRequest.trunk_type && <p className="text-white">Trunk Type: {selectedRequest.trunk_type}</p>}
                     <p className="text-white">Direction: {selectedRequest.direction || "Not specified"}</p>
                     <p className="text-white">With LCR: {selectedRequest.with_lcr ? "Yes" : "No"}</p>
+                  </div>
+                </div>
+              )}
+
+              {selectedRequest.request_type === "open_tt" && (
+                <div className="border-t border-zinc-700 pt-4">
+                  <Label className="text-zinc-400">Open TT Details</Label>
+                  <div className="mt-2 space-y-2">
+                    {selectedRequest.destination && <p className="text-white">Destination: {selectedRequest.destination}</p>}
+                    {selectedRequest.vendor_trunks && selectedRequest.vendor_trunks.length > 0 && (
+                      <div>
+                        <Label className="text-zinc-400">Vendor Trunk(s):</Label>
+                        {selectedRequest.vendor_trunks.map((trunk, i) => (
+                          <p key={i} className="text-white ml-2">- {trunk.trunk}</p>
+                        ))}
+                      </div>
+                    )}
+                    {selectedRequest.open_by && <p className="text-white">Open By: {selectedRequest.open_by}</p>}
+                    {selectedRequest.open_tt_notes && <p className="text-white">Notes: {selectedRequest.open_tt_notes}</p>}
                   </div>
                 </div>
               )}

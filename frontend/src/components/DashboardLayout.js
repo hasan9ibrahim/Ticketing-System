@@ -129,7 +129,7 @@ export default function DashboardLayout({ user, setUser }) {
     localStorage.setItem("dismissedNotifications", JSON.stringify(dismissedNotifications));
   }, [dismissedNotifications]);
 
-  // Handle clicking on ticket notification - mark as read and navigate to ticket
+  // Handle clicking on ticket notification - mark as read and navigate based on notification type
   const handleTicketNotificationClick = async (notification) => {
     if (!readNotificationIds.has(notification.id)) {
       try {
@@ -143,12 +143,22 @@ export default function DashboardLayout({ user, setUser }) {
         console.error("Failed to mark notification as read:", error);
       }
     }
-    // Navigate to the ticket based on ticket type
+    
+    // Navigate based on notification type
     const ticketType = notification.ticket_type || 'sms';
     const ticketId = notification.ticket_id || notification.ticket_number;
+    
     if (ticketId) {
       const targetPath = ticketType === 'voice' ? '/voice-tickets' : '/sms-tickets';
-      navigate(`${targetPath}?ticket=${ticketId}`);
+      
+      // For AM Comment, navigate to ticket with actions dialog open
+      if (notification.event_type === 'am_comment') {
+        // Navigate to ticket page with action parameter to open actions dialog
+        navigate(`${targetPath}?ticket=${ticketId}&action=true`);
+      } else {
+        // For Ticket Modified, navigate to ticket page (current behavior)
+        navigate(`${targetPath}?ticket=${ticketId}`);
+      }
     }
     // Close the popover
     setShowAlertNotifications(false);
@@ -1301,7 +1311,7 @@ export default function DashboardLayout({ user, setUser }) {
                                 {isAlert ? (
                                   notification.notification_type === 'created' ? 'New Alert' : 'Alert Update'
                                 ) : (
-                                  notification.event_type === 'created' ? 'New Ticket' : 'Ticket Update'
+                                  notification.notification_title || (notification.event_type === 'created' ? 'New Ticket' : 'Ticket Update')
                                 )}
                               </div>
                             )}
@@ -1347,6 +1357,23 @@ export default function DashboardLayout({ user, setUser }) {
                                 <div className="flex gap-1">
                                   <span className="text-zinc-500 shrink-0">Status:</span>
                                   <span>{notification.status}</span>
+                                </div>
+                              )}
+                              {/* Show changes for ticket_modification notifications */}
+                              {notification.event_type === 'ticket_modification' && notification.changes && (
+                                <div className="mt-1 p-1 bg-zinc-700/50 rounded text-xs">
+                                  <span className="text-zinc-400 font-medium">Changed:</span>
+                                  {Object.entries(notification.changes).slice(0, 3).map(([field, [oldVal, newVal]], idx) => (
+                                    <div key={idx} className="flex gap-1 text-zinc-300">
+                                      <span className="text-zinc-500 shrink-0">{field}:</span>
+                                      <span className="line-through opacity-60">{String(oldVal) || '-'}</span>
+                                      <span>→</span>
+                                      <span className="font-medium">{String(newVal) || '-'}</span>
+                                    </div>
+                                  ))}
+                                  {Object.keys(notification.changes).length > 3 && (
+                                    <div className="text-zinc-500 italic">+{Object.keys(notification.changes).length - 3} more</div>
+                                  )}
                                 </div>
                               )}
                               {notification.assigned_noc && !notification.alert_ticket_number && notification.status !== 'unassigned' && notification.status !== 'Pending' && notification.assigned_noc !== 'unassigned' && (

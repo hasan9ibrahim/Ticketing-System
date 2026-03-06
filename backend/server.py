@@ -427,6 +427,8 @@ async def create_ticket_modification_notification(
     doc = notification.model_dump()
     # Add event_type for filtering
     doc['event_type'] = 'ticket_modification'
+    # Add notification title for proper display
+    doc['notification_title'] = 'Ticket Modified'
     # Add additional fields from ticket if available
     # We'll need to fetch the ticket to get these fields
     doc['created_at'] = doc['created_at'].isoformat()
@@ -538,7 +540,7 @@ async def notify_ams_about_ticket(ticket, event_type, ticket_type="sms", created
 
 
 async def notify_noc_about_am_action(ticket, action_text, action_created_by, ticket_type="sms"):
-    """Notify ALL NOC users when an AM adds an action to any ticket"""
+    """Notify ALL NOC users when an AM adds an action to any ticket (AM Comment notification)"""
     # Get NOC department to find users with that department_id
     noc_dept = await db.departments.find_one({"name": "NOC"}, {"_id": 0, "id": 1})
     
@@ -583,7 +585,8 @@ async def notify_noc_about_am_action(ticket, action_text, action_created_by, tic
             "modified_by": action_created_by,
             "modified_by_username": am_name,
             "message": f"AM {am_name} added action to ticket {ticket_number} for {customer_name}: {action_text[:50]}..." if len(action_text) > 50 else f"AM {am_name} added action to ticket {ticket_number} for {customer_name}: {action_text}",
-            "event_type": "am_action",
+            "event_type": "am_comment",
+            "notification_title": "AM Comment",
             "action_text": action_text,
             "customer_trunk": ticket.get("customer_trunk", ""),
             "destination": ticket.get("destination", ""),
@@ -598,21 +601,28 @@ async def notify_noc_about_am_action(ticket, action_text, action_created_by, tic
 
 
 async def notify_noc_about_noc_modification(ticket, modified_by_user, modified_by_username, changes, ticket_type="sms"):
-    """Notify ALL NOC users when a NOC modifies any ticket"""
-    # Get NOC department to find users with that department_id
-    noc_dept = await db.departments.find_one({"name": "NOC"}, {"_id": 0, "id": 1})
+    """Notify only the NOC user assigned to the ticket when it's modified (Ticket Modified notification)"""
+    # Get the NOC assigned to this ticket (use assigned_to field)
+    assigned_noc_id = ticket.get("assigned_to")
     
-    if not noc_dept:
+    if not assigned_noc_id:
         return
     
-    noc_dept_id = noc_dept.get("id")
-    # Get all NOC users using department_id
-    noc_users = await db.users.find(
-        {"department_id": noc_dept_id},
+    # Get the assigned NOC user's notification preference
+    assigned_noc = await db.users.find_one(
+        {"id": assigned_noc_id},
         {"_id": 0, "id": 1, "username": 1, "name": 1, "notify_on_noc_ticket_modification": 1}
-    ).to_list(100)
+    )
     
-    if not noc_users:
+    if not assigned_noc:
+        return
+    
+    # Check if NOC wants to be notified for ticket modifications (default True)
+    if not assigned_noc.get("notify_on_noc_ticket_modification", True):
+        return
+    
+    # Don't notify if the modifier is the same as the assigned NOC
+    if modified_by_user == assigned_noc_id:
         return
     
     ticket_number = ticket.get("ticket_number", "")
@@ -627,43 +637,30 @@ async def notify_noc_about_noc_modification(ticket, modified_by_user, modified_b
     if len(change_details) > 3:
         change_str += f"... (+{len(change_details) - 3} more)"
     
-    # Create notification for each NOC user
-    for noc_user in noc_users:
-        # Check if NOC wants to be notified for NOC modifications (default True)
-        if not noc_user.get("notify_on_noc_ticket_modification", True):
-            continue
-        
-        noc_id = noc_user.get("id")
-        if not noc_id:
-            continue
-        
-        # Don't notify if the modifier is the same as the NOC
-        if modified_by_user == noc_id:
-            continue
-        
-        notification_id = str(uuid.uuid4())
-        
-        doc = {
-            "id": notification_id,
-            "ticket_id": ticket.get("id"),
-            "ticket_number": ticket_number,
-            "ticket_type": ticket_type,
-            "assigned_to": noc_id,
-            "modified_by": modified_by_user,
-            "modified_by_username": modified_by_username,
-            "message": f"Ticket {ticket_number} for {customer_name} was modified by {modified_by_username}: {change_str}",
-            "event_type": "noc_modification",
-            "changes": changes,
-            "customer_trunk": ticket.get("customer_trunk", ""),
-            "destination": ticket.get("destination", ""),
-            "issue_type": ticket.get("issue_type", ""),
-            "status": ticket.get("status", ""),
-            "priority": ticket.get("priority", ""),
-            "read": False,
-            "created_at": datetime.now(timezone.utc)
-        }
-        doc['created_at'] = doc['created_at'].isoformat()
-        await db.ticket_notifications.insert_one(doc)
+    notification_id = str(uuid.uuid4())
+    
+    doc = {
+        "id": notification_id,
+        "ticket_id": ticket.get("id"),
+        "ticket_number": ticket_number,
+        "ticket_type": ticket_type,
+        "assigned_to": assigned_noc_id,
+        "modified_by": modified_by_user,
+        "modified_by_username": modified_by_username,
+        "message": f"Ticket {ticket_number} for {customer_name} was modified by {modified_by_username}: {change_str}",
+        "event_type": "ticket_modification",
+        "notification_title": "Ticket Modified",
+        "changes": changes,
+        "customer_trunk": ticket.get("customer_trunk", ""),
+        "destination": ticket.get("destination", ""),
+        "issue_type": ticket.get("issue_type", ""),
+        "status": ticket.get("status", ""),
+        "priority": ticket.get("priority", ""),
+        "read": False,
+        "created_at": datetime.now(timezone.utc)
+    }
+    doc['created_at'] = doc['created_at'].isoformat()
+    await db.ticket_notifications.insert_one(doc)
 
 
 # ==================== ALERT NOTIFICATIONS ====================
@@ -3259,6 +3256,11 @@ class AMRequest(BaseModel):
     issue_types: List[str] = Field(default_factory=list)  # Predefined issue types checklist (same as tickets)
     issue_other: Optional[str] = None  # Custom "Other" issue text
     investigation_destination: Optional[str] = None  # Destination to investigate
+    issue_description: Optional[str] = None  # Description of the issue
+    
+    # Open TT fields
+    open_by: Optional[str] = None  # "Teams" or "Email"
+    open_tt_notes: Optional[str] = None  # Notes for Open TT request
     
     # New Trunk Request fields
     with_lcr: Optional[bool] = None  # With LCR option for trunk requests
@@ -3323,6 +3325,10 @@ class AMRequestCreate(BaseModel):
     issue_other: Optional[str] = None
     investigation_destination: Optional[str] = None
     issue_description: Optional[str] = None
+    
+    # Open TT fields
+    open_by: Optional[str] = None  # "Teams" or "Email"
+    open_tt_notes: Optional[str] = None  # Notes for Open TT request
     
     # New Trunk Request fields
     with_lcr: Optional[bool] = None  # With LCR option for trunk requests
@@ -3447,6 +3453,7 @@ async def create_request(request_data: AMRequestCreate, current_user: dict = Dep
         customer=request_data.customer,
         customer_id=request_data.customer_id,
         customer_ids=request_data.customer_ids,
+        ticket_id=request_data.ticket_id,
         rating=request_data.rating,
         customer_trunk=request_data.customer_trunk,
         customer_trunks=request_data.customer_trunks,
@@ -3469,12 +3476,16 @@ async def create_request(request_data: AMRequestCreate, current_user: dict = Dep
         new_sid=request_data.new_sid,
         word_to_remove=request_data.word_to_remove,
         translation_destination=request_data.translation_destination,
+        test_type=request_data.test_type,
+        test_description=request_data.test_description,
         lcr_type=request_data.lcr_type,
         lcr_change=request_data.lcr_change,
         issue_types=request_data.issue_types,
         issue_other=request_data.issue_other,
         investigation_destination=request_data.investigation_destination,
         issue_description=request_data.issue_description,
+        open_by=request_data.open_by,
+        open_tt_notes=request_data.open_tt_notes,
         with_lcr=request_data.with_lcr,
         direction=request_data.direction,
         created_by=current_user.get("id"),
@@ -3521,7 +3532,7 @@ async def update_request(request_id: str, request_data: dict, current_user: dict
         # AM editing their own request - update the request fields (not response)
         # Only allow editing certain fields
         allowed_fields = [
-            "priority", "customer", "customer_id", "customer_ids", "rating", "routing",
+            "priority", "customer", "customer_id", "customer_ids", "ticket_id", "rating", "routing",
             "customer_trunk", "customer_trunks", "destination", "by_loss",
             "enable_mnp_hlr", "mnp_hlr_type", "enable_threshold", "threshold_count", "via_vendor", "enable_whitelisting",
             "rating_vendor_trunks",
@@ -3530,6 +3541,7 @@ async def update_request(request_id: str, request_data: dict, current_user: dict
             "test_type", "test_description",
             "lcr_type", "lcr_change",
             "issue_types", "issue_other", "investigation_destination", "issue_description",
+            "open_by", "open_tt_notes",
             "with_lcr", "direction"
         ]
         
@@ -4028,24 +4040,26 @@ async def update_sms_ticket(ticket_id: str, ticket_data: SMSTicketUpdate, curren
         )
     
     # Create notification after successful update
+    # When NOC modifies, use the detailed notification with changes
     if should_notify:
-        await create_ticket_modification_notification(
-            ticket_id=ticket_id,
-            ticket_number=existing_ticket.get("ticket_number", ""),
-            ticket_type="sms",
-            assigned_to=existing_assigned_to,
-            modified_by=current_user_id,
-            modified_by_username=current_user.get("username", "Unknown")
-        )
-        
-        # Also notify NOC about NOC modification if applicable
         if is_noc_modifier and changes:
+            # Use detailed notification with changes for NOC modifications
             await notify_noc_about_noc_modification(
                 existing_ticket,
                 current_user_id,
                 current_user.get("username", "Unknown"),
                 changes,
                 "sms"
+            )
+        else:
+            # Use simple notification for other cases
+            await create_ticket_modification_notification(
+                ticket_id=ticket_id,
+                ticket_number=existing_ticket.get("ticket_number", ""),
+                ticket_type="sms",
+                assigned_to=existing_assigned_to,
+                modified_by=current_user_id,
+                modified_by_username=current_user.get("username", "Unknown")
             )
     
     # Notify AMs about status change
@@ -4282,24 +4296,26 @@ async def update_voice_ticket(ticket_id: str, ticket_data: VoiceTicketUpdate, cu
         )
     
     # Create notification after successful update
+    # When NOC modifies, use the detailed notification with changes
     if should_notify:
-        await create_ticket_modification_notification(
-            ticket_id=ticket_id,
-            ticket_number=existing_ticket.get("ticket_number", ""),
-            ticket_type="voice",
-            assigned_to=existing_assigned_to,
-            modified_by=current_user_id,
-            modified_by_username=current_user.get("username", "Unknown")
-        )
-        
-        # Also notify NOC about NOC modification if applicable
         if is_noc_modifier and changes:
+            # Use detailed notification with changes for NOC modifications
             await notify_noc_about_noc_modification(
                 existing_ticket,
                 current_user_id,
                 current_user.get("username", "Unknown"),
                 changes,
                 "voice"
+            )
+        else:
+            # Use simple notification for other cases
+            await create_ticket_modification_notification(
+                ticket_id=ticket_id,
+                ticket_number=existing_ticket.get("ticket_number", ""),
+                ticket_type="voice",
+                assigned_to=existing_assigned_to,
+                modified_by=current_user_id,
+                modified_by_username=current_user.get("username", "Unknown")
             )
     
     # Notify AMs about status change
@@ -4852,7 +4868,7 @@ async def get_ticket_modification_notifications(current_user: dict = Depends(get
                 query["ticket_type"] = user_ticket_type
         elif user_role in ["noc", "admin"]:
             # NOC and Admin should only see NOC-specific event types
-            query["event_type"] = {"$in": ["am_action", "noc_modification", "ticket_modification"]}
+            query["event_type"] = {"$in": ["am_comment", "ticket_modification"]}
         else:
             # Unknown role - return empty results for safety
             query["event_type"] = {"$in": []}
@@ -4932,19 +4948,23 @@ async def get_assigned_ticket_reminders(current_user: dict = Depends(get_current
         # Use assigned_at if available, otherwise use date as fallback
         assigned_at = ticket.get("assigned_at")
         if isinstance(assigned_at, str):
-            assigned_at = datetime.fromisoformat(assigned_at)
+            assigned_at = datetime.fromisoformat(assigned_at.replace('Z', '+00:00'))
         
         # If no assigned_at, fall back to ticket date only if it's recent (within last hour)
         if not assigned_at:
             ticket_date = ticket.get("date")
             if isinstance(ticket_date, str):
-                ticket_date = datetime.fromisoformat(ticket_date)
+                ticket_date = datetime.fromisoformat(ticket_date.replace('Z', '+00:00'))
             # Only use date as fallback if it's within the last hour
             if ticket_date and ticket_date >= (now - timedelta(hours=1)):
                 assigned_at = ticket_date
             else:
                 # Skip this ticket - no valid assigned_at and date is too old
                 continue
+        
+        # Make sure assigned_at is timezone-aware for comparison
+        if assigned_at and assigned_at.tzinfo is None:
+            assigned_at = assigned_at.replace(tzinfo=timezone.utc)
         
         # Only show reminder if ticket has been assigned longer than the threshold
         if assigned_at and assigned_at <= threshold_time:
@@ -4973,19 +4993,23 @@ async def get_assigned_ticket_reminders(current_user: dict = Depends(get_current
         # Use assigned_at if available, otherwise use date as fallback
         assigned_at = ticket.get("assigned_at")
         if isinstance(assigned_at, str):
-            assigned_at = datetime.fromisoformat(assigned_at)
+            assigned_at = datetime.fromisoformat(assigned_at.replace('Z', '+00:00'))
         
         # If no assigned_at, fall back to ticket date only if it's recent (within last hour)
         if not assigned_at:
             ticket_date = ticket.get("date")
             if isinstance(ticket_date, str):
-                ticket_date = datetime.fromisoformat(ticket_date)
+                ticket_date = datetime.fromisoformat(ticket_date.replace('Z', '+00:00'))
             # Only use date as fallback if it's within the last hour
             if ticket_date and ticket_date >= (now - timedelta(hours=1)):
                 assigned_at = ticket_date
             else:
                 # Skip this ticket - no valid assigned_at and date is too old
                 continue
+        
+        # Make sure assigned_at is timezone-aware for comparison
+        if assigned_at and assigned_at.tzinfo is None:
+            assigned_at = assigned_at.replace(tzinfo=timezone.utc)
         
         # Only show reminder if ticket has been assigned longer than the threshold
         if assigned_at and assigned_at <= threshold_time:

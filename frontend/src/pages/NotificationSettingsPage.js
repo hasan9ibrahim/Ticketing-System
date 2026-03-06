@@ -389,8 +389,8 @@ export default function NotificationSettingsPage() {
               </div>
               <NotificationToggle
                 id="notify_on_am_action"
-                title="AM Adds Action"
-                description="Notify when an AM adds an action to a ticket assigned to you"
+                title="AM Comment"
+                description="Notify all NOC members when an AM adds a comment/action to any ticket"
                 checked={preferences.notify_on_am_action}
                 onChange={() => handleToggle("notify_on_am_action")}
               />
@@ -511,15 +511,15 @@ export default function NotificationSettingsPage() {
           </div>
           <NotificationToggle
             id="notify_on_am_action"
-            title="AM Action on Ticket"
-            description="Get notified when an AM adds an action to a ticket assigned to you"
+            title="AM Comment"
+            description="Get notified when an AM adds a comment/action to any ticket (all NOC members)"
             checked={preferences.notify_on_am_action}
             onChange={() => handleToggle("notify_on_am_action")}
           />
           <NotificationToggle
             id="notify_on_noc_ticket_modification"
-            title="NOC Ticket Modification"
-            description="Get notified when another NOC modifies a ticket assigned to you"
+            title="Ticket Modified"
+            description="Get notified when a ticket assigned to you is modified"
             checked={preferences.notify_on_noc_ticket_modification}
             onChange={() => handleToggle("notify_on_noc_ticket_modification")}
           />

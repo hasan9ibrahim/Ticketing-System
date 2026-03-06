@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import axios from "axios";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -90,9 +90,30 @@ export default function VoiceTicketsPage() {
     filterAndSortTickets();
   }, [searchTerm, priorityFilter, statusFilter, enterpriseFilter, issueTypeFilter, destinationFilter, assignedToFilter, dateRange, activeTab, tickets, multiFilters]);
 
+  // Ref to track the last processed URL params to prevent reopening on state changes
+  const lastProcessedParamsRef = useRef(null);
+
   // Handle ticket query parameter - open specific ticket when navigating from notification
   useEffect(() => {
     const ticketParam = searchParams.get("ticket");
+    const actionParam = searchParams.get("action");
+    const paramKey = `${ticketParam}-${actionParam}`;
+    
+    // If no ticket param, nothing to do
+    if (!ticketParam) {
+      lastProcessedParamsRef.current = null;
+      return;
+    }
+    
+    // Skip if we've already processed this exact URL combination
+    // This prevents reopening when dialog state changes (close/open)
+    if (lastProcessedParamsRef.current === paramKey) {
+      return;
+    }
+    
+    // Mark as processed
+    lastProcessedParamsRef.current = paramKey;
+    
     // Also check localStorage for direct navigation
     const storedParam = localStorage.getItem('openTicketParam');
     const paramToUse = ticketParam || (storedParam?.startsWith('ticket=') ? storedParam.replace('ticket=', '').split('&')[0] : null);
@@ -104,7 +125,12 @@ export default function VoiceTicketsPage() {
         t.ticket_id === (paramToUse || ticketParam)
       );
       if (ticket) {
-        openEditSheet(ticket);
+        // If action parameter is true, open actions dialog; otherwise open edit sheet
+        if (actionParam === 'true') {
+          openActionsDialog(ticket);
+        } else {
+          openEditSheet(ticket);
+        }
       }
       // Clear localStorage after use
       if (storedParam) {
@@ -112,13 +138,7 @@ export default function VoiceTicketsPage() {
       }
     }
   }, [searchParams, tickets]);
-
-  // Clear URL parameter when sheet is closed to prevent auto-refresh from reopening it
-  useEffect(() => {
-    if (!sheetOpen && searchParams.get("ticket")) {
-      window.history.replaceState({}, document.title, window.location.pathname);
-    }
-  }, [sheetOpen, searchParams]);
+  
 
   // Fetch trunks for Voice enterprises
   const fetchTrunks = async () => {
@@ -1322,17 +1342,17 @@ export default function VoiceTicketsPage() {
 
                 {/* Selected vendor trunks with % and position (when 2+) */}
                 {(formData.vendor_trunks || []).length > 0 && (
-                  <div className="bg-zinc-800/50 border border-zinc-700 rounded-md p-2 space-y-2">
+                  <div className="bg-zinc-800/50 border border-zinc-700 rounded-md p-3 space-y-2">
                     <div className="space-y-2">
                       {(formData.vendor_trunks || []).map((vendorTrunk, index) => (
-                        <div key={`selected-${index}`} className="flex items-center space-x-2 bg-zinc-700/50 p-2 rounded">
+                        <div key={`selected-${index}`} className="flex flex-wrap items-center gap-2 bg-zinc-700/50 p-3 rounded">
                           <input
                             type="checkbox"
                             checked={true}
                             readOnly
                             className="rounded border-zinc-500"
                           />
-                          <Label className="text-white text-sm flex-1 cursor-pointer">{vendorTrunk.trunk}</Label>
+                          <Label className="text-white text-sm font-medium flex-1 min-w-[150px] cursor-pointer">{vendorTrunk.trunk}</Label>
                           {((formData.vendor_trunks || []).length >= 2) && (
                             <>
                               <Input
@@ -1344,7 +1364,7 @@ export default function VoiceTicketsPage() {
                                   );
                                   setFormData({ ...formData, vendor_trunks: updatedTrunks });
                                 }}
-                                className="bg-zinc-600 border-zinc-500 text-white text-xs w-16 h-7"
+                                className="bg-zinc-600 border-zinc-500 text-white text-sm w-24 h-9"
                                 disabled={isAM}
                               />
                               <Select
@@ -1357,7 +1377,7 @@ export default function VoiceTicketsPage() {
                                 }}
                                 disabled={isAM}
                               >
-                                <SelectTrigger className="bg-zinc-600 border-zinc-500 h-7 w-20"><SelectValue placeholder="Pos" /></SelectTrigger>
+                                <SelectTrigger className="bg-zinc-600 border-zinc-500 h-9 w-28"><SelectValue placeholder="Position" /></SelectTrigger>
                                 <SelectContent className="bg-zinc-800 border-zinc-700">
                                   <SelectItem value="1">1st</SelectItem>
                                   <SelectItem value="2">2nd</SelectItem>
@@ -1379,7 +1399,7 @@ export default function VoiceTicketsPage() {
                             }}
                             disabled={isAM}
                           >
-                            <SelectTrigger className="bg-zinc-600 border-zinc-500 h-7 w-20"><SelectValue placeholder="Cost" /></SelectTrigger>
+                            <SelectTrigger className="bg-zinc-600 border-zinc-500 h-9 w-28"><SelectValue placeholder="Cost Type" /></SelectTrigger>
                             <SelectContent className="bg-zinc-800 border-zinc-700">
                               <SelectItem value="fixed">Fixed</SelectItem>
                               <SelectItem value="range">Range</SelectItem>
@@ -1397,7 +1417,7 @@ export default function VoiceTicketsPage() {
                                   );
                                   setFormData({ ...formData, vendor_trunks: updatedTrunks });
                                 }}
-                                className="bg-zinc-600 border-zinc-500 text-white text-xs w-16 h-7"
+                                className="bg-zinc-600 border-zinc-500 text-white text-sm w-24 h-9"
                                 disabled={isAM}
                               />
                               <Input
@@ -1409,7 +1429,7 @@ export default function VoiceTicketsPage() {
                                   );
                                   setFormData({ ...formData, vendor_trunks: updatedTrunks });
                                 }}
-                                className="bg-zinc-600 border-zinc-500 text-white text-xs w-16 h-7"
+                                className="bg-zinc-600 border-zinc-500 text-white text-sm w-24 h-9"
                                 disabled={isAM}
                               />
                             </>
@@ -1423,7 +1443,7 @@ export default function VoiceTicketsPage() {
                                 );
                                 setFormData({ ...formData, vendor_trunks: updatedTrunks });
                               }}
-                              className="bg-zinc-600 border-zinc-500 text-white text-xs w-20 h-7"
+                              className="bg-zinc-600 border-zinc-500 text-white text-sm w-28 h-9"
                               disabled={isAM}
                             />
                           )}
@@ -1435,10 +1455,10 @@ export default function VoiceTicketsPage() {
                               const updatedTrunks = (formData.vendor_trunks || []).filter((_, i) => i !== index);
                               setFormData({ ...formData, vendor_trunks: updatedTrunks });
                             }}
-                            className="text-red-400 hover:text-red-300 h-6 w-6 p-0"
+                            className="text-red-400 hover:text-red-300 h-9 w-9 p-0 flex-shrink-0"
                             disabled={isAM}
                           >
-                            <X className="h-3 w-3" />
+                            <X className="h-4 w-4" />
                           </Button>
                         </div>
                       ))}
