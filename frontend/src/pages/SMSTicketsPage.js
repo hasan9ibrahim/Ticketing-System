@@ -4,6 +4,7 @@ import { useSearchParams, useNavigate } from "react-router-dom";
 import { startOfWeek, endOfWeek } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { Plus, Search, ArrowUpDown, Calendar, Trash2, MessageSquare, ListChecks, X, Pencil, Bell, User, Copy } from "lucide-react";
 import { toast } from "sonner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -54,6 +55,10 @@ export default function SMSTicketsPage() {
     };
   });
   const [multiFilters, setMultiFilters] = useState([]);
+  
+  // AM view mode state
+  const [amViewMode, setAmViewMode] = useState("all"); // "all" or "assigned"
+  const [amTrunkFilter, setAmTrunkFilter] = useState(""); // "" or "customer_trunk" or "vendor_trunk"
   
   // Hardcoded filter options from ticket creation form
   const STATUS_OPTIONS = ["Unassigned", "Assigned", "Awaiting Vendor", "Awaiting Client", "Awaiting AM", "Resolved", "Unresolved"];
@@ -110,6 +115,13 @@ export default function SMSTicketsPage() {
   useEffect(() => {
     filterAndSortTickets();
   }, [searchTerm, priorityFilter, statusFilter, enterpriseFilter, issueTypeFilter, destinationFilter, assignedToFilter, dateRange, sortBy, activeTab, tickets, multiFilters]);
+
+  // Re-fetch tickets when AM view mode or trunk filter changes
+  useEffect(() => {
+    if (currentUser?.role === "am") {
+      fetchData();
+    }
+  }, [amViewMode, amTrunkFilter]);
 
   // Ref to track the last processed URL params to prevent reopening on state changes
   const lastProcessedParamsRef = useRef(null);
@@ -182,8 +194,17 @@ export default function SMSTicketsPage() {
       const token = localStorage.getItem("token");
       const headers = { Authorization: `Bearer ${token}` };
 
+      // Build query params for AMs
+      const ticketParams = {};
+      if (currentUser?.role === "am") {
+        ticketParams.view_mode = amViewMode;
+        if (amTrunkFilter) {
+          ticketParams.trunk_filter = amTrunkFilter;
+        }
+      }
+
       const [ticketsRes, enterprisesRes, usersRes] = await Promise.all([
-        axios.get(`${API}/tickets/sms`, { headers }),
+        axios.get(`${API}/tickets/sms`, { headers, params: ticketParams }),
         axios.get(`${API}/clients`, { headers }),
         axios.get(`${API}/users`, { headers }),
       ]);
@@ -207,7 +228,7 @@ export default function SMSTicketsPage() {
       }
     }, 10000);
     return () => clearInterval(interval);
-  }, []);
+  }, [currentUser, amViewMode, amTrunkFilter]);
 
   const getOpenedViaPriority = (openedVia) => {
     if (!openedVia) return 999;
@@ -1060,6 +1081,41 @@ export default function SMSTicketsPage() {
           />
         </div>
       </div>
+
+      {/* AM View Mode Toggle */}
+      {isAM && (
+        <div className="flex items-center gap-4 p-3 bg-zinc-900/50 rounded-lg border border-zinc-700">
+          <div className="flex items-center gap-2">
+            <Switch
+              id="am-view-mode"
+              checked={amViewMode === "assigned"}
+              onCheckedChange={(checked) => setAmViewMode(checked ? "assigned" : "all")}
+            />
+            <label htmlFor="am-view-mode" className="text-sm text-zinc-300 cursor-pointer">
+              Show only my assigned enterprises
+            </label>
+          </div>
+          {amViewMode === "assigned" && (
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-zinc-400">Filter by trunk:</span>
+              <select
+                value={amTrunkFilter}
+                onChange={(e) => setAmTrunkFilter(e.target.value)}
+                className="bg-zinc-800 border border-zinc-700 text-white text-sm rounded px-3 py-1.5"
+              >
+                <option value="">All Trunks</option>
+                <option value="customer_trunk">Customer Trunks</option>
+                <option value="vendor_trunk">Vendor Trunks</option>
+              </select>
+            </div>
+          )}
+          {amViewMode === "all" && (
+            <span className="text-xs text-zinc-500">
+              Viewing all SMS tickets
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Legacy filters hidden - using MultiFilter instead */}
       {/* 

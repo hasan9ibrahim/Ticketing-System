@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, UploadFile, File, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, UploadFile, File, WebSocket, WebSocketDisconnect, Query
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -3907,7 +3907,11 @@ async def create_sms_ticket(ticket_data: SMSTicketCreate, current_user: dict = D
     return ticket_obj
 
 @api_router.get("/tickets/sms", response_model=List[SMSTicket])
-async def get_sms_tickets(current_user: dict = Depends(get_current_user)):
+async def get_sms_tickets(
+    current_user: dict = Depends(get_current_user),
+    view_mode: str = Query("all", description="View mode for AMs: 'all' for all SMS tickets, 'assigned' for assigned enterprises only"),
+    trunk_filter: str = Query(None, description="Trunk filter for AMs: 'customer_trunk' or 'vendor_trunk'")
+):
     """Get SMS tickets - filtered by department type and permissions"""
     # Check department type access
     dept = await get_user_department(current_user)
@@ -3920,9 +3924,70 @@ async def get_sms_tickets(current_user: dict = Depends(get_current_user)):
     role = get_user_role_from_department(dept)
     
     if role == "am":
-        clients = await db.clients.find({"assigned_am_id": current_user["id"]}, {"_id": 0}).to_list(1000)
-        client_ids = [c["id"] for c in clients]
-        query["customer_id"] = {"$in": client_ids}
+        if view_mode == "all":
+            # Toggle OFF - show ALL tickets in the department (no filtering - same as NOC)
+            query = {}  # No filtering at all
+        else:
+            # view_mode == "assigned" - show tickets from AM's assigned enterprises
+            # view_mode == "assigned" - show tickets from AM's assigned enterprises
+            assigned_clients = await db.clients.find(
+                {"assigned_am_id": current_user["id"], "enterprise_type": "sms"}, 
+                {"_id": 0, "id": 1, "customer_trunks": 1, "vendor_trunks": 1}
+            ).to_list(1000)
+            client_ids = [c["id"] for c in assigned_clients]
+            
+            # Apply trunk filter only when explicitly set to customer_trunk or vendor_trunk
+            if trunk_filter == "customer_trunk" and assigned_clients:
+                # Filter by customer_trunk from AM's assigned enterprises (NOT filtering by customer_id)
+                # Show tickets where customer_trunk belongs to any assigned enterprise
+                allowed_trunks = []
+                for client in assigned_clients:
+                    if client.get("customer_trunks"):
+                        allowed_trunks.extend(client["customer_trunks"])
+                if allowed_trunks:
+                    query["customer_trunk"] = {"$in": allowed_trunks}
+            elif trunk_filter == "vendor_trunk" and assigned_clients:
+                # Filter by vendor_trunk from ANY of the AM's assigned enterprises
+                # NOT filtering by customer_id - show tickets where vendor_trunk belongs to any assigned enterprise
+                allowed_trunks = []
+                for client in assigned_clients:
+                    if client.get("vendor_trunks"):
+                        allowed_trunks.extend(client["vendor_trunks"])
+                if allowed_trunks:
+                    # vendor_trunk is a legacy single field, also check vendor_trunks array
+                    query["$or"] = [
+                        {"vendor_trunk": {"$in": allowed_trunks}},
+                        {"vendor_trunks.trunk": {"$in": allowed_trunks}}
+                    ]
+            else:
+                # No trunk filter - show tickets from assigned enterprises OR with their customer_trunks OR vendor_trunks
+                am_customer_trunks = []
+                am_vendor_trunks = []
+                for client in assigned_clients:
+                    if client.get("customer_trunks"):
+                        am_customer_trunks.extend(client["customer_trunks"])
+                    if client.get("vendor_trunks"):
+                        am_vendor_trunks.extend(client["vendor_trunks"])
+                
+                or_conditions = [{"customer_id": {"$in": client_ids}}]
+                if am_customer_trunks:
+                    or_conditions.append({"customer_trunk": {"$in": am_customer_trunks}})
+                if am_vendor_trunks:
+                    or_conditions.append({"vendor_trunk": {"$in": am_vendor_trunks}})
+                    or_conditions.append({"vendor_trunks.trunk": {"$in": am_vendor_trunks}})
+                
+                if len(or_conditions) > 1:
+                    query["$or"] = or_conditions
+                else:
+                    query["customer_id"] = {"$in": client_ids}
+                if am_vendor_trunks:
+                    or_conditions.append({"vendor_trunk": {"$in": am_vendor_trunks}})
+                    or_conditions.append({"vendor_trunks.trunk": {"$in": am_vendor_trunks}})
+                
+                if len(or_conditions) > 1:
+                    query["$or"] = or_conditions
+                else:
+                    query["customer_id"] = {"$in": client_ids}
     
     # Limit to 500 most recent tickets for performance
     tickets = await db.sms_tickets.find(query, {"_id": 0}).sort("date", -1).limit(500).to_list(500)
@@ -4174,7 +4239,11 @@ async def create_voice_ticket(ticket_data: VoiceTicketCreate, current_user: dict
     return ticket_obj
 
 @api_router.get("/tickets/voice", response_model=List[VoiceTicket])
-async def get_voice_tickets(current_user: dict = Depends(get_current_user)):
+async def get_voice_tickets(
+    current_user: dict = Depends(get_current_user),
+    view_mode: str = Query("all", description="View mode for AMs: 'all' for all Voice tickets, 'assigned' for assigned enterprises only"),
+    trunk_filter: str = Query(None, description="Trunk filter for AMs: 'customer_trunk' or 'vendor_trunk'")
+):
     query = {}
     
     if current_user["role"] == "am":
@@ -4186,9 +4255,59 @@ async def get_voice_tickets(current_user: dict = Depends(get_current_user)):
         if am_type != "voice" and dept_type != "voice":
             raise HTTPException(status_code=403, detail="You are not assigned to Voice tickets")
         
-        clients = await db.clients.find({"assigned_am_id": current_user["id"]}, {"_id": 0}).to_list(1000)
-        client_ids = [c["id"] for c in clients]
-        query["customer_id"] = {"$in": client_ids}
+        if view_mode == "all":
+            # Toggle OFF - show ALL tickets in the department (no filtering - same as NOC)
+            query = {}  # No filtering at all
+        else:
+            # view_mode == "assigned" - show tickets from AM's assigned enterprises
+            assigned_clients = await db.clients.find(
+                {"assigned_am_id": current_user["id"], "enterprise_type": "voice"}, 
+                {"_id": 0, "id": 1, "customer_trunks": 1, "vendor_trunks": 1}
+            ).to_list(1000)
+            client_ids = [c["id"] for c in assigned_clients]
+            
+            # Apply trunk filter only when explicitly set to customer_trunk or vendor_trunk
+            if trunk_filter == "customer_trunk" and assigned_clients:
+                # Filter by customer_trunk from AM's assigned enterprises (NOT filtering by customer_id)
+                # Show tickets where customer_trunk belongs to any assigned enterprise
+                allowed_trunks = []
+                for client in assigned_clients:
+                    if client.get("customer_trunks"):
+                        allowed_trunks.extend(client["customer_trunks"])
+                if allowed_trunks:
+                    query["customer_trunk"] = {"$in": allowed_trunks}
+            elif trunk_filter == "vendor_trunk" and assigned_clients:
+                # Filter by vendor_trunk from ANY of the AM's assigned enterprises
+                allowed_trunks = []
+                for client in assigned_clients:
+                    if client.get("vendor_trunks"):
+                        allowed_trunks.extend(client["vendor_trunks"])
+                if allowed_trunks:
+                    query["$or"] = [
+                        {"vendor_trunk": {"$in": allowed_trunks}},
+                        {"vendor_trunks.trunk": {"$in": allowed_trunks}}
+                    ]
+            else:
+                # No trunk filter - show tickets from assigned enterprises OR with their customer_trunks OR vendor_trunks
+                am_customer_trunks = []
+                am_vendor_trunks = []
+                for client in assigned_clients:
+                    if client.get("customer_trunks"):
+                        am_customer_trunks.extend(client["customer_trunks"])
+                    if client.get("vendor_trunks"):
+                        am_vendor_trunks.extend(client["vendor_trunks"])
+                
+                or_conditions = [{"customer_id": {"$in": client_ids}}]
+                if am_customer_trunks:
+                    or_conditions.append({"customer_trunk": {"$in": am_customer_trunks}})
+                if am_vendor_trunks:
+                    or_conditions.append({"vendor_trunk": {"$in": am_vendor_trunks}})
+                    or_conditions.append({"vendor_trunks.trunk": {"$in": am_vendor_trunks}})
+                
+                if len(or_conditions) > 1:
+                    query["$or"] = or_conditions
+                else:
+                    query["customer_id"] = {"$in": client_ids}
     
     # Limit to 500 most recent tickets for performance
     tickets = await db.voice_tickets.find(query, {"_id": 0}).sort("date", -1).limit(500).to_list(500)
