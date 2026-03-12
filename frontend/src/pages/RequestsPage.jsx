@@ -265,8 +265,16 @@ export default function RequestsPage() {
   const prevUrlRef = React.useRef(window.location.href);
   const [urlKey, setUrlKey] = useState(0);
   
+  // Track if initial load is complete
+  const initialLoadComplete = useRef(false);
+  
   useEffect(() => {
-    fetchRequests();
+    // Only show loading on first load, not on tab/filter changes
+    const showLoading = !initialLoadComplete.current;
+    if (!initialLoadComplete.current) {
+      initialLoadComplete.current = true;
+    }
+    fetchRequests(null, showLoading);
   }, [activeTab, statusFilter, requestSubTab]);
 
   // Handle URL parameters for pre-filling form (e.g., from ticket pages)
