@@ -155,6 +155,7 @@ export default function RequestsPage() {
   const activeTabRef = useRef(activeTab);
   const requestSubTabRef = useRef(requestSubTab);
   const userRoleRef = useRef(userRole);
+  const userDepartmentRef = useRef(userDepartment);
   const statusFilterRef = useRef(statusFilter);
   const showMyRequestsOnlyRef = useRef(showMyRequestsOnly);
 
@@ -170,6 +171,10 @@ export default function RequestsPage() {
   useEffect(() => {
     userRoleRef.current = userRole;
   }, [userRole]);
+
+  useEffect(() => {
+    userDepartmentRef.current = userDepartment;
+  }, [userDepartment]);
 
   useEffect(() => {
     statusFilterRef.current = statusFilter;
@@ -405,8 +410,12 @@ export default function RequestsPage() {
     }
   };
 
-  const fetchRequests = async (showMineOnly = null) => {
-    setIsLoading(true);
+  // Fetch requests function - stable via refs pattern
+  const fetchRequests = async (showMineOnly = null, showLoading = true) => {
+    // Don't show loading indicator during auto-refresh (background updates)
+    if (showLoading) {
+      setIsLoading(true);
+    }
     try {
       const token = localStorage.getItem("token");
       const params = new URLSearchParams();
@@ -415,10 +424,11 @@ export default function RequestsPage() {
       const currentUserRole = userRoleRef.current;
       const currentActiveTab = activeTabRef.current;
       const currentStatusFilter = statusFilterRef.current;
-      const isSmsDept = userDepartment?.startsWith("sms") || userDepartment === "sms";
-      const isVoiceDept = userDepartment?.startsWith("voice") || userDepartment === "voice";
+      const currentUserDepartment = userDepartmentRef?.current || "";
+      const isSmsDept = currentUserDepartment?.startsWith("sms") || currentUserDepartment === "sms";
+      const isVoiceDept = currentUserDepartment?.startsWith("voice") || currentUserDepartment === "voice";
       const currentDisplayTab = currentUserRole === "am" 
-        ? (isSmsDept ? "sms" : isVoiceDept ? "voice" : userDepartment) 
+        ? (isSmsDept ? "sms" : isVoiceDept ? "voice" : currentUserDepartment) 
         : currentActiveTab;
       
       // For NOC/Admin: fetch all requests for the department (API returns all statuses)
@@ -443,12 +453,17 @@ export default function RequestsPage() {
       
       if (response.ok) {
         const data = await response.json();
-        setRequests(data || []);
+        // Only update requests if we got valid data (not empty due to error)
+        if (data && Array.isArray(data)) {
+          setRequests(data);
+        }
       }
     } catch (error) {
       console.error("Failed to fetch requests:", error);
     } finally {
-      setIsLoading(false);
+      if (showLoading) {
+        setIsLoading(false);
+      }
     }
   };
 
@@ -463,7 +478,8 @@ export default function RequestsPage() {
   useEffect(() => {
     const interval = setInterval(() => {
       if (!document.hidden && !isLoadingRef.current) {
-        fetchRequests();
+        // Auto-refresh: don't show loading indicator to avoid flickering
+        fetchRequests(null, false);
       }
     }, 10000);
     return () => clearInterval(interval);
@@ -3385,7 +3401,7 @@ export default function RequestsPage() {
                             }}
                             className="absolute top-0 right-0 bg-red-600 text-white rounded-full p-1 w-6 h-6 flex items-center justify-center"
                           >
-                            �
+                            ✕
                           </button>
                         </div>
                       ))}
