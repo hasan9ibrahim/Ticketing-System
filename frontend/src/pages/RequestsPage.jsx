@@ -391,18 +391,19 @@ export default function RequestsPage() {
       const isVoiceDept = userDepartment?.startsWith("voice") || userDepartment === "voice";
       const deptType = isSmsDept ? "sms" : isVoiceDept ? "voice" : activeTab;
       
-      // Fetch all enterprises (not just assigned ones)
-      const entResponse = await axios.get(`${API}/clients`, { headers });
-      const entData = entResponse.data || [];
+      // Fetch all data in parallel for faster loading
+      const [entResponse, vendorTrunkResponse, customerTrunkResponse] = await Promise.all([
+        axios.get(`${API}/clients`, { headers }),
+        axios.get(`${API}/references/trunks/${deptType}`, { headers }),
+        axios.get(`${API}/trunks/${deptType}`, { headers })
+      ]);
       
+      const entData = entResponse.data || [];
       const filteredEnterprises = entData.filter(e => 
         e.enterprise_type === deptType || e.enterprise_type === "all"
       );
       setEnterprises(filteredEnterprises);
       
-      // Fetch vendor and customer trunks
-      const vendorTrunkResponse = await axios.get(`${API}/references/trunks/${deptType}`, { headers });
-      const customerTrunkResponse = await axios.get(`${API}/trunks/${deptType}`, { headers });
       setVendorTrunkOptions(vendorTrunkResponse.data.vendor_trunks || []);
       setCustomerTrunkOptions(customerTrunkResponse.data.customer_trunks || []);
     } catch (error) {
