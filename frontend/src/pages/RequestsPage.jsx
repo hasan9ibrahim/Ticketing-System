@@ -135,6 +135,7 @@ export default function RequestsPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [showMyRequestsOnly, setShowMyRequestsOnly] = useState(false); // Toggle for AM to show only their own requests
+  const [isLoading, setIsLoading] = useState(false);
   const [multiFilters, setMultiFilters] = useState([]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -405,6 +406,7 @@ export default function RequestsPage() {
   };
 
   const fetchRequests = async (showMineOnly = null) => {
+    setIsLoading(true);
     try {
       const token = localStorage.getItem("token");
       const params = new URLSearchParams();
@@ -412,6 +414,7 @@ export default function RequestsPage() {
       // Compute displayTab using refs to avoid stale closures
       const currentUserRole = userRoleRef.current;
       const currentActiveTab = activeTabRef.current;
+      const currentStatusFilter = statusFilterRef.current;
       const isSmsDept = userDepartment?.startsWith("sms") || userDepartment === "sms";
       const isVoiceDept = userDepartment?.startsWith("voice") || userDepartment === "voice";
       const currentDisplayTab = currentUserRole === "am" 
@@ -421,6 +424,11 @@ export default function RequestsPage() {
       // For NOC/Admin: fetch all requests for the department (API returns all statuses)
       // For AM: fetch requests for their department
       params.append("department", currentUserRole === "am" ? currentDisplayTab : currentActiveTab);
+      
+      // Add status filter if not "all"
+      if (currentStatusFilter && currentStatusFilter !== "all") {
+        params.append("status", currentStatusFilter);
+      }
       
       // Add show_mine_only parameter for AMs
       if (currentUserRole === "am") {
@@ -439,18 +447,20 @@ export default function RequestsPage() {
       }
     } catch (error) {
       console.error("Failed to fetch requests:", error);
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  // Auto-refresh data every 10 seconds
+  // Auto-refresh data every 10 seconds, but not while already loading
   useEffect(() => {
     const interval = setInterval(() => {
-      if (!document.hidden) {
+      if (!document.hidden && !isLoading) {
         fetchRequests();
       }
     }, 10000);
     return () => clearInterval(interval);
-  }, []);
+  }, [isLoading]);
 
   const handleRequestTypeChange = (type) => {
     setFormData({
@@ -1507,7 +1517,14 @@ export default function RequestsPage() {
 
       {/* Requests List */}
       <div className="grid gap-4">
-        {sortedRequests.length === 0 ? (
+        {isLoading ? (
+          <Card className="bg-zinc-900 border-zinc-800">
+            <CardContent className="flex flex-col items-center justify-center py-12">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-amber-500 mb-4"></div>
+              <p className="text-zinc-400">Loading requests...</p>
+            </CardContent>
+          </Card>
+        ) : sortedRequests.length === 0 ? (
           <Card className="bg-zinc-900 border-zinc-800">
             <CardContent className="flex flex-col items-center justify-center py-12">
               <Filter className="h-12 w-12 text-zinc-600 mb-4" />
