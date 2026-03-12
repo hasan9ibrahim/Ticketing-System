@@ -147,17 +147,18 @@ export default function DashboardLayout({ user, setUser }) {
     // Navigate based on notification type
     const ticketType = notification.ticket_type || 'sms';
     const ticketId = notification.ticket_id || notification.ticket_number;
+    const timestamp = Date.now();
     
     if (ticketId) {
       const targetPath = ticketType === 'voice' ? '/voice-tickets' : '/sms-tickets';
       
       // For AM Comment, navigate to ticket with actions dialog open
+      // Add timestamp to ensure unique navigation each time
       if (notification.event_type === 'am_comment') {
-        // Navigate to ticket page with action parameter to open actions dialog
-        navigate(`${targetPath}?ticket=${ticketId}&action=true`);
+        navigate(`${targetPath}?ticket=${ticketId}&action=true&t=${timestamp}`);
       } else {
-        // For Ticket Modified, navigate to ticket page (current behavior)
-        navigate(`${targetPath}?ticket=${ticketId}`);
+        // For other ticket notifications, navigate to ticket page with timestamp
+        navigate(`${targetPath}?ticket=${ticketId}&t=${timestamp}`);
       }
     }
     // Close the popover
@@ -178,9 +179,10 @@ export default function DashboardLayout({ user, setUser }) {
         console.error("Failed to mark notification as read:", error);
       }
     }
-    // Navigate to the alert
+    // Navigate to the alert with timestamp for unique navigation
     if (notification.alert_ticket_number) {
-      navigate(`/references?alert=${notification.alert_ticket_number}`);
+      const timestamp = Date.now();
+      navigate(`/references?alert=${notification.alert_ticket_number}&t=${timestamp}`);
     }
     // Close the popover
     setShowAlertNotifications(false);
@@ -202,11 +204,9 @@ export default function DashboardLayout({ user, setUser }) {
     }
     // Navigate to the request
     if (notification.request_id) {
-      const uniqueKey = Date.now();
-      // Store the request ID in localStorage with a unique key for re-navigation
-      localStorage.setItem('openRequestParam', `request=${notification.request_id}&key=${uniqueKey}`);
-      // Navigate to requests page
-      navigate(`/requests?request=${notification.request_id}&key=${uniqueKey}`);
+      const timestamp = Date.now();
+      // Navigate to requests page with request parameter to view existing request
+      navigate(`/requests?request=${notification.request_id}&t=${timestamp}`);
     }
     // Close the popover
     setShowAlertNotifications(false);

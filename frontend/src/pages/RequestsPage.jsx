@@ -14,6 +14,7 @@ import { useToast } from "@/hooks/use-toast";
 import SearchableSelect from "@/components/custom/SearchableSelect";
 import IssueTypeSelect, { SMS_ISSUE_TYPES, VOICE_ISSUE_TYPES } from "@/components/custom/IssueTypeSelect";
 import { Plus, Search, Filter, Clock, CheckCircle, XCircle, AlertCircle, Edit, Trash2, Copy } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import MultiSelect from "@/components/custom/MultiSelect";
 import MultiFilter from "@/components/custom/MultiFilter";
 import axios from "axios";
@@ -133,6 +134,7 @@ export default function RequestsPage() {
   const voicePending = getPendingByPriority("voice");
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [showMyRequestsOnly, setShowMyRequestsOnly] = useState(false); // Toggle for AM to show only their own requests
   const [multiFilters, setMultiFilters] = useState([]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -142,8 +144,8 @@ export default function RequestsPage() {
   const [responseDialogOpen, setResponseDialogOpen] = useState(false);
   const [responseType, setResponseType] = useState(null); // "complete" or "reject"
   const [responseComment, setResponseComment] = useState("");
-  const [responseImage, setResponseImage] = useState(null); // For testing completion images
-  const [responseImagePreview, setResponseImagePreview] = useState(null); // Preview URL
+  const [responseImages, setResponseImages] = useState([]); // Array of images for testing completion
+  const [responseImagePreviews, setResponseImagePreviews] = useState([]); // Array of preview URLs
   const [claimDialogOpen, setClaimDialogOpen] = useState(false);
   const [requestToClaim, setRequestToClaim] = useState(null);
   const [isEditMode, setIsEditMode] = useState(false);
@@ -153,6 +155,7 @@ export default function RequestsPage() {
   const requestSubTabRef = useRef(requestSubTab);
   const userRoleRef = useRef(userRole);
   const statusFilterRef = useRef(statusFilter);
+  const showMyRequestsOnlyRef = useRef(showMyRequestsOnly);
 
   // Update refs when values change
   useEffect(() => {
@@ -170,6 +173,10 @@ export default function RequestsPage() {
   useEffect(() => {
     statusFilterRef.current = statusFilter;
   }, [statusFilter]);
+
+  useEffect(() => {
+    showMyRequestsOnlyRef.current = showMyRequestsOnly;
+  }, [showMyRequestsOnly]);
   const [editingRequest, setEditingRequest] = useState(null);
   
   // For customer and vendor trunk selection
@@ -264,13 +271,16 @@ export default function RequestsPage() {
     // Get ticket_id and ticket_type from search params
     const ticketId = searchParams.get('ticket_id');
     const ticketType = searchParams.get('ticket_type');
+    const timestampParam = searchParams.get('t');
+    // Include timestamp in key to allow reopening same request after closing dialog
+    const paramKey = `${ticketId}-${timestampParam}`;
     
     console.log('RequestsPage: Checking URL params:', { ticketId, ticketType, search: location.search });
     
-    // Only process if we haven't processed this ticket_id yet
-    if (ticketId && processedTicketRef.current !== ticketId) {
+    // Only process if we haven't processed this exact param combination yet
+    if (ticketId && processedTicketRef.current !== paramKey) {
       console.log('RequestsPage: Processing ticket_id:', ticketId);
-      processedTicketRef.current = ticketId;
+      processedTicketRef.current = paramKey;
       
       // If ticket_type is provided and valid, set the active tab
       if (ticketType && (ticketType === 'sms' || ticketType === 'voice')) {
@@ -312,7 +322,9 @@ export default function RequestsPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const requestId = params.get("request");
-    const paramKey = `request-${requestId}`;
+    const timestampParam = params.get("t");
+    // Include timestamp in key to allow reopening same request after closing dialog
+    const paramKey = `request-${requestId}-${timestampParam}`;
     
     // If no request param, nothing to do
     if (!requestId) {
@@ -392,7 +404,7 @@ export default function RequestsPage() {
     }
   };
 
-  const fetchRequests = async () => {
+  const fetchRequests = async (showMineOnly = null) => {
     try {
       const token = localStorage.getItem("token");
       const params = new URLSearchParams();
@@ -409,6 +421,13 @@ export default function RequestsPage() {
       // For NOC/Admin: fetch all requests for the department (API returns all statuses)
       // For AM: fetch requests for their department
       params.append("department", currentUserRole === "am" ? currentDisplayTab : currentActiveTab);
+      
+      // Add show_mine_only parameter for AMs
+      if (currentUserRole === "am") {
+        // Use passed value or fall back to ref
+        const showMineOnlyValue = showMineOnly !== null ? showMineOnly : showMyRequestsOnlyRef.current;
+        params.append("show_mine_only", showMineOnlyValue);
+      }
       
       const response = await fetch(`${API}/requests?${params}`, {
         headers: { Authorization: `Bearer ${token}` }
@@ -1080,15 +1099,15 @@ export default function RequestsPage() {
     setSelectedRequest(request);
     setResponseType(type);
     setResponseComment("");
-    setResponseImage(null);
-    setResponseImagePreview(null);
+    setResponseImages([]);
+    setResponseImagePreviews([]);
     setResponseDialogOpen(true);
   };
 
   const handleImagePaste = (file) => {
     if (file && file.type.startsWith('image/')) {
-      setResponseImage(file);
-      setResponseImagePreview(URL.createObjectURL(file));
+      setResponseImages(prev => [...prev, file]);
+      setResponseImagePreviews(prev => [...prev, URL.createObjectURL(file)]);
     }
   };
 
@@ -1126,20 +1145,23 @@ export default function RequestsPage() {
       const token = localStorage.getItem("token");
       const newStatus = responseType === "complete" ? "completed" : "rejected";
       
-      // Convert image to base64 if present
-      let testResultImageBase64 = null;
-      if (responseImage) {
-        testResultImageBase64 = await new Promise((resolve) => {
-          const reader = new FileReader();
-          reader.onloadend = () => resolve(reader.result);
-          reader.readAsDataURL(responseImage);
-        });
+      // Convert images to base64 if present
+      let testResultImagesBase64 = [];
+      if (responseImages.length > 0) {
+        for (const image of responseImages) {
+          const base64 = await new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result);
+            reader.readAsDataURL(image);
+          });
+          testResultImagesBase64.push(base64);
+        }
       }
       
       await axios.put(`${API}/requests/${selectedRequest.id}`, {
         status: newStatus,
         response: responseComment || null,
-        test_result_image: testResultImageBase64
+        test_result_images: testResultImagesBase64
       }, {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -1155,8 +1177,8 @@ export default function RequestsPage() {
       setSelectedRequest(null);
       setResponseType(null);
       setResponseComment("");
-      setResponseImage(null);
-      setResponseImagePreview(null);
+      setResponseImages([]);
+      setResponseImagePreviews([]);
     }
   };
 
@@ -1428,6 +1450,23 @@ export default function RequestsPage() {
           customerTrunkOptions={customerTrunkOptions}
           vendorTrunkOptions={vendorTrunkOptions}
         />
+        
+        {/* Toggle for AM to show only their own requests */}
+        {userRole === "am" && (
+          <div className="flex items-center gap-2">
+            <Switch
+              id="show-my-requests"
+              checked={showMyRequestsOnly}
+              onCheckedChange={(checked) => {
+                setShowMyRequestsOnly(checked);
+                fetchRequests(checked);
+              }}
+            />
+            <Label htmlFor="show-my-requests" className="text-zinc-300 text-sm cursor-pointer">
+              Show My Requests Only
+            </Label>
+          </div>
+        )}
       </div>
 
       {/* Tabs - For NOC/Admin show both SMS/Voice, for AM show only their department */}
@@ -3217,7 +3256,7 @@ export default function RequestsPage() {
                 </div>
               )}
 
-              {/* Test Result Image */}
+              {/* Test Result Image - Legacy single image */}
               {selectedRequest.test_result_image && (
                 <div className="border-t border-zinc-700 pt-4 mt-4">
                   <Label className="text-zinc-400">Test Result Image</Label>
@@ -3227,6 +3266,23 @@ export default function RequestsPage() {
                       alt="Test Result" 
                       className="max-w-full h-auto rounded border border-zinc-600"
                     />
+                  </div>
+                </div>
+              )}
+
+              {/* Test Result Images - Multiple images */}
+              {selectedRequest.test_result_images && selectedRequest.test_result_images.length > 0 && (
+                <div className="border-t border-zinc-700 pt-4 mt-4">
+                  <Label className="text-zinc-400">Test Result Images ({selectedRequest.test_result_images.length})</Label>
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    {selectedRequest.test_result_images.map((image, index) => (
+                      <img 
+                        key={index}
+                        src={image} 
+                        alt={`Test Result ${index + 1}`} 
+                        className="max-w-full h-auto rounded border border-zinc-600"
+                      />
+                    ))}
                   </div>
                 </div>
               )}
@@ -3268,7 +3324,7 @@ export default function RequestsPage() {
             {/* Image upload for Testing requests when completing */}
             {selectedRequest?.request_type === "testing" && responseType === "complete" && (
               <div>
-                <Label className="text-zinc-400">Attach Test Result Image (Optional)</Label>
+                <Label className="text-zinc-400">Attach Test Result Images (Optional)</Label>
                 <div 
                   className="mt-2 border-2 border-dashed border-zinc-600 rounded-lg p-4 text-center cursor-pointer hover:border-zinc-400 transition-colors"
                   onClick={() => document.getElementById('responseImageInput').click()}
@@ -3279,31 +3335,34 @@ export default function RequestsPage() {
                         if (items[i].type.indexOf('image') !== -1) {
                           const blob = items[i].getAsFile();
                           handleImagePaste(blob);
-                          break;
                         }
                       }
                     }
                   }}
                 >
-                  {responseImagePreview ? (
-                    <div className="relative">
-                      <img src={responseImagePreview} alt="Test result" className="max-h-48 mx-auto rounded" />
-                      <button 
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setResponseImage(null);
-                          setResponseImagePreview(null);
-                        }}
-                        className="absolute top-0 right-0 bg-red-600 text-white rounded-full p-1 w-6 h-6 flex items-center justify-center"
-                      >
-                        ×
-                      </button>
+                  {responseImagePreviews.length > 0 ? (
+                    <div className="grid grid-cols-2 gap-2">
+                      {responseImagePreviews.map((preview, index) => (
+                        <div key={index} className="relative">
+                          <img src={preview} alt={`Test result ${index + 1}`} className="max-h-32 mx-auto rounded" />
+                          <button 
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setResponseImages(prev => prev.filter((_, i) => i !== index));
+                              setResponseImagePreviews(prev => prev.filter((_, i) => i !== index));
+                            }}
+                            className="absolute top-0 right-0 bg-red-600 text-white rounded-full p-1 w-6 h-6 flex items-center justify-center"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
                     </div>
                   ) : (
                     <div className="text-zinc-400">
                       <p>Click to upload or paste from clipboard</p>
-                      <p className="text-xs text-zinc-500 mt-1">Supports: JPG, PNG, GIF</p>
+                      <p className="text-xs text-zinc-500 mt-1">Supports: JPG, PNG, GIF (Multiple images allowed)</p>
                     </div>
                   )}
                 </div>
@@ -3311,13 +3370,17 @@ export default function RequestsPage() {
                   id="responseImageInput"
                   type="file"
                   accept="image/*"
+                  multiple
                   className="hidden"
                   onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) {
-                      setResponseImage(file);
-                      setResponseImagePreview(URL.createObjectURL(file));
-                    }
+                    const files = Array.from(e.target.files || []);
+                    files.forEach(file => {
+                      if (file.type.startsWith('image/')) {
+                        setResponseImages(prev => [...prev, file]);
+                        setResponseImagePreviews(prev => [...prev, URL.createObjectURL(file)]);
+                      }
+                    });
+                    e.target.value = '';
                   }}
                 />
               </div>

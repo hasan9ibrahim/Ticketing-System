@@ -109,7 +109,9 @@ export default function VoiceTicketsPage() {
   useEffect(() => {
     const ticketParam = searchParams.get("ticket");
     const actionParam = searchParams.get("action");
-    const paramKey = `${ticketParam}-${actionParam}`;
+    const timestampParam = searchParams.get("t");
+    // Include timestamp in key to allow reopening same ticket after closing dialog
+    const paramKey = `${ticketParam}-${actionParam}-${timestampParam}`;
     
     // If no ticket param, nothing to do
     if (!ticketParam) {
@@ -123,14 +125,14 @@ export default function VoiceTicketsPage() {
       return;
     }
     
-    // Mark as processed
-    lastProcessedParamsRef.current = paramKey;
-    
     // Also check localStorage for direct navigation
     const storedParam = localStorage.getItem('openTicketParam');
     const paramToUse = ticketParam || (storedParam?.startsWith('ticket=') ? storedParam.replace('ticket=', '').split('&')[0] : null);
     
     if ((paramToUse || ticketParam) && tickets.length > 0) {
+      // Mark as processed only when we actually process
+      lastProcessedParamsRef.current = paramKey;
+      
       const ticket = tickets.find(t => 
         t.ticket_number === (paramToUse || ticketParam) || 
         t.id === (paramToUse || ticketParam) || 
@@ -647,15 +649,30 @@ export default function VoiceTicketsPage() {
       return;
     }
 
-    // Validate vendor percentages sum to 100% when multiple vendors selected (only if no positions are used)
+    // Validate vendor percentages sum to 100% when multiple vendors selected
+    // OR validate that all vendors have network if no positions or percentages are used
     if (formData.vendor_trunks && formData.vendor_trunks.length > 1) {
       const hasPositions = formData.vendor_trunks.some(v => v.position);
-      if (!hasPositions) {
+      const hasPercentages = formData.vendor_trunks.some(v => v.percentage);
+      const allHaveNetworks = formData.vendor_trunks.every(v => v.network);
+      
+      // If using positions, no further validation needed
+      if (hasPositions) {
+        // OK - using positions
+      }
+      // If using percentages, validate they sum to 100%
+      else if (hasPercentages) {
         const totalPercentage = formData.vendor_trunks.reduce((sum, v) => sum + (parseFloat(v.percentage) || 0), 0);
         if (totalPercentage !== 100) {
           toast.error(`Vendor percentages must equal 100%. Current total: ${totalPercentage}%`);
           return;
         }
+      }
+      // If neither positions nor percentages are used, all vendors must have network
+      else if (!allHaveNetworks) {
+        const missingNetworks = formData.vendor_trunks.filter(v => !v.network).map(v => v.trunk).join(', ');
+        toast.error(`All vendors must have Network value. Missing: ${missingNetworks}`);
+        return;
       }
     }
 
@@ -1114,7 +1131,7 @@ export default function VoiceTicketsPage() {
                           <TableCell className="text-zinc-300">{ticket.customer_trunk || "-"}</TableCell>
                           <TableCell className="text-zinc-300">{ticket.destination || "-"}</TableCell>
                           <TableCell className="text-zinc-300">{ticket.ani ? ticket.ani : "Any"}</TableCell>
-                          <TableCell className="text-zinc-300 max-w-xs truncate">{getIssueDisplayText(ticket)}</TableCell>
+                          <TableCell className="text-zinc-300">{getIssueDisplayText(ticket)}</TableCell>
                           <TableCell className="text-zinc-300">{getOpenedViaDisplayText(ticket) || "-"}</TableCell>
                           <TableCell>
                             {ticket.status === "Resolved" ? (
@@ -1376,7 +1393,7 @@ export default function VoiceTicketsPage() {
                                   } else {
                                     setFormData({
                                       ...formData,
-                                      vendor_trunks: [...(formData.vendor_trunks || []), { trunk: trunk, percentage: "", position: "" }]
+                                      vendor_trunks: [...(formData.vendor_trunks || []), { trunk: trunk, percentage: "", position: "", network: "" }]
                                     });
                                   }
                                 }}
@@ -1442,6 +1459,19 @@ export default function VoiceTicketsPage() {
                                   <SelectItem value="5">5th</SelectItem>
                                 </SelectContent>
                               </Select>
+                              {/* Network Field */}
+                              <Input
+                                placeholder="Network"
+                                value={vendorTrunk.network || ""}
+                                onChange={(e) => {
+                                  const updatedTrunks = (formData.vendor_trunks || []).map((v, i) =>
+                                    i === index ? { ...v, network: e.target.value } : v
+                                  );
+                                  setFormData({ ...formData, vendor_trunks: updatedTrunks });
+                                }}
+                                className="bg-zinc-600 border-zinc-500 text-white text-sm w-32 h-9"
+                                disabled={isAM}
+                              />
                             </>
                           )}
                           {/* Cost Type Selector */}
@@ -1518,15 +1548,21 @@ export default function VoiceTicketsPage() {
                           </Button>
                         </div>
                       ))}
-                      {/* Total percentage when 2+ selected - only validate if no positions are used */}
+                      {/* Total percentage when 2+ selected - only validate if no positions or networks are used */}
                       {((formData.vendor_trunks || []).length >= 2) && (
                         <div className="text-xs text-zinc-400 pt-1">
                           {(() => {
                             const hasPositions = (formData.vendor_trunks || []).some(v => v.position);
+                            const allHaveNetworks = (formData.vendor_trunks || []).every(v => v.network);
                             if (hasPositions) {
                               // Show positions instead of validating percentages
                               const positions = (formData.vendor_trunks || []).map(v => v.position).filter(p => p).join(', ');
                               return <span>Positions: {positions}</span>;
+                            }
+                            if (allHaveNetworks) {
+                              // Show networks instead of validating percentages
+                              const networks = (formData.vendor_trunks || []).map(v => v.network).filter(n => n).join(', ');
+                              return <span>Networks: {networks}</span>;
                             }
                             const totalPercentage = (formData.vendor_trunks || []).reduce((sum, v) => sum + (parseFloat(v.percentage) || 0), 0);
                             return (
@@ -1877,6 +1913,7 @@ export default function VoiceTicketsPage() {
                       <div key={idx} className="flex items-center justify-between bg-zinc-800/50 p-1.5 rounded text-xs">
                         <span className="text-white font-medium truncate flex-1">{trunk.trunk}</span>
                         <div className="flex items-center gap-2 ml-2">
+                          {trunk.network && <span className="text-blue-400">Network: {trunk.network}</span>}
                           {trunk.percentage && <span className="text-zinc-400">{trunk.percentage}%</span>}
                           {trunk.position && <span className="text-zinc-400">Pos: {trunk.position}</span>}
                           {trunk.cost && <span className="text-emerald-400">{trunk.cost}</span>}
@@ -1905,19 +1942,25 @@ export default function VoiceTicketsPage() {
                 </div>
               </div>
 
-              {/* Action Taken & Internal Notes - compact */}
-              {(editingTicket?.action_taken || editingTicket?.internal_notes) && (
-                <div className="grid grid-cols-2 gap-2">
+              {/* Action Taken, Root Cause & Internal Notes - show full content */}
+              {(editingTicket?.action_taken || editingTicket?.internal_notes || editingTicket?.root_cause) && (
+                <div className="space-y-2">
+                  {editingTicket?.root_cause && (
+                    <div className="bg-zinc-800/30 p-2 rounded">
+                      <span className="text-zinc-500 text-[10px] uppercase">Root Cause</span>
+                      <p className="text-white text-xs mt-1 whitespace-pre-wrap">{editingTicket.root_cause}</p>
+                    </div>
+                  )}
                   {editingTicket?.action_taken && (
                     <div className="bg-zinc-800/30 p-2 rounded">
                       <span className="text-zinc-500 text-[10px] uppercase">Solution</span>
-                      <p className="text-white text-xs mt-1 line-clamp-2">{editingTicket.action_taken}</p>
+                      <p className="text-white text-xs mt-1 whitespace-pre-wrap">{editingTicket.action_taken}</p>
                     </div>
                   )}
                   {editingTicket?.internal_notes && (
                     <div className="bg-zinc-800/30 p-2 rounded">
                       <span className="text-zinc-500 text-[10px] uppercase">Internal Notes</span>
-                      <p className="text-white text-xs mt-1 line-clamp-2">{editingTicket.internal_notes}</p>
+                      <p className="text-white text-xs mt-1 whitespace-pre-wrap">{editingTicket.internal_notes}</p>
                     </div>
                   )}
                 </div>

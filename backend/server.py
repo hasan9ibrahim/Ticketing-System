@@ -2949,7 +2949,7 @@ class Alert(BaseModel):
     issue_types: List[str] = Field(default_factory=list)
     issue_other: Optional[str] = None
     vendor_trunk: Optional[str] = None
-    vendor_trunks: List[dict] = Field(default_factory=list)  # List of {trunk, percentage, position, cost}
+    vendor_trunks: List[dict] = Field(default_factory=list)  # List of {trunk, percentage, position, cost, pair_number, network}
     sms_details: List[dict] = Field(default_factory=list)  # List of {sid, content} for SMS
     rate: Optional[str] = None
     cost: Optional[str] = None
@@ -2971,7 +2971,7 @@ class AlertCreate(BaseModel):
     issue_types: List[str] = Field(default_factory=list)
     issue_other: Optional[str] = None
     vendor_trunk: Optional[str] = None
-    vendor_trunks: List[dict] = Field(default_factory=list)
+    vendor_trunks: List[dict] = Field(default_factory=list)  # List of {trunk, percentage, position, cost, pair_number, network}
     sms_details: List[dict] = Field(default_factory=list)
     rate: Optional[str] = None
     cost: Optional[str] = None
@@ -3277,7 +3277,8 @@ class AMRequest(BaseModel):
     responded_at: Optional[datetime] = None
     claimed_by: Optional[str] = None
     claimed_by_username: Optional[str] = None
-    test_result_image: Optional[str] = None  # URL to uploaded test result image
+    test_result_image: Optional[str] = None  # URL to uploaded test result image (legacy - single image)
+    test_result_images: List[str] = Field(default_factory=list)  # Multiple test result images
 
 
 class AMRequestCreate(BaseModel):
@@ -3340,6 +3341,7 @@ async def get_requests(
     department: Optional[str] = None,
     request_type: Optional[str] = None,
     status: Optional[str] = None,
+    show_mine_only: Optional[bool] = False,
     current_user: dict = Depends(get_current_user)
 ):
     """Get all requests - filtered by user's department and role"""
@@ -3360,14 +3362,16 @@ async def get_requests(
     
     # Filter by department based on user role
     if user_role == "am":
-        # AMs only see their own requests
+        # AMs see all requests in their department by default
         # Use flexible matching to handle different department name formats
         if user_dept_name.startswith("sms") or user_dept_name == "sms":
             query["department"] = "sms"
         elif user_dept_name.startswith("voice") or user_dept_name == "voice":
             query["department"] = "voice"
-        # Filter by the AM's user ID to show only their own requests
-        query["created_by"] = user_id
+        
+        # Only filter by the AM's user ID if show_mine_only is true
+        if show_mine_only:
+            query["created_by"] = user_id
     elif department:
         # NOC/Admin can filter by department
         query["department"] = department
@@ -3566,6 +3570,10 @@ async def update_request(request_id: str, request_data: dict, current_user: dict
         # Handle test result image for testing requests
         if request_data.get("test_result_image"):
             update_data["test_result_image"] = request_data["test_result_image"]
+        
+        # Handle test result images for testing requests (multiple images)
+        if request_data.get("test_result_images"):
+            update_data["test_result_images"] = request_data["test_result_images"]
         
         # Handle claim - set claimed_by when status changes to in_progress
         if request_data.get("claimed_by"):

@@ -141,10 +141,15 @@ export default function ReferencesPage() {
   // Ref to track the last processed URL params to prevent reopening on state changes
   const lastProcessedParamsRef = useRef(null);
 
+  // Ref to track if pending alert has been processed
+  const alertProcessedRef = useRef(false);
+
   // Handle alert query parameter - open specific alert when navigating from notification
   useEffect(() => {
     const alertParam = searchParams.get("alert");
-    const paramKey = `alert-${alertParam}`;
+    const timestampParam = searchParams.get("t");
+    // Include timestamp in key to allow reopening same alert after closing dialog
+    const paramKey = `alert-${alertParam}-${timestampParam}`;
     
     // If no alert param, nothing to do
     if (!alertParam) {
@@ -157,9 +162,6 @@ export default function ReferencesPage() {
     if (lastProcessedParamsRef.current === paramKey) {
       return;
     }
-    
-    // Mark as processed
-    lastProcessedParamsRef.current = paramKey;
     
     // Also check localStorage for direct navigation
     const storedParam = localStorage.getItem('openTicketParam');
@@ -179,6 +181,8 @@ export default function ReferencesPage() {
       const tryFindAndOpenAlert = () => {
         const foundAlert = findAlert(smsAlerts) || findAlert(voiceAlerts);
         if (foundAlert) {
+          // Mark as processed only when alert is found
+          lastProcessedParamsRef.current = paramKey;
           setSelectedAlert(foundAlert);
           // Set the active section based on alert type
           setActiveSection(foundAlert.ticket_type || "sms");
@@ -190,9 +194,45 @@ export default function ReferencesPage() {
       // Try immediately first
       if (!tryFindAndOpenAlert()) {
         // Alerts might not be loaded yet, try again after a short delay
+        // Also try to fetch the alert directly if not found
+        const fetchAndOpenAlert = async () => {
+          try {
+            const token = localStorage.getItem("token");
+            // Try to fetch from SMS alerts first, then voice
+            try {
+              const smsRes = await axios.get(`${API}/alerts/sms/${paramToUse || alertParam}`, {
+                headers: { Authorization: `Bearer ${token}` }
+              });
+              if (smsRes.data) {
+                lastProcessedParamsRef.current = paramKey;
+                setSelectedAlert(smsRes.data);
+                setActiveSection("sms");
+                return;
+              }
+            } catch (e) {}
+            try {
+              const voiceRes = await axios.get(`${API}/alerts/voice/${paramToUse || alertParam}`, {
+                headers: { Authorization: `Bearer ${token}` }
+              });
+              if (voiceRes.data) {
+                lastProcessedParamsRef.current = paramKey;
+                setSelectedAlert(voiceRes.data);
+                setActiveSection("voice");
+                return;
+              }
+            } catch (e) {}
+          } catch (error) {
+            console.error("Failed to fetch alert:", error);
+          }
+        };
+        
+        // First try with delay to see if alerts are loading
         const timer = setTimeout(() => {
-          tryFindAndOpenAlert();
-        }, 1000);
+          if (!tryFindAndOpenAlert()) {
+            // If still not found, try fetching directly
+            fetchAndOpenAlert();
+          }
+        }, 500);
         return () => clearTimeout(timer);
       }
       // Clear localStorage after use
@@ -793,7 +833,7 @@ export default function ReferencesPage() {
         
         {/* Alert Details Sidebar */}
         {selectedAlert && (
-          <div className="fixed inset-y-0 right-0 w-96 bg-zinc-900 border-l border-zinc-800 p-4 overflow-y-auto shadow-lg z-50">
+          <div className="fixed inset-y-0 right-0 w-[600px] max-w-[90vw] bg-zinc-900 border-l border-zinc-800 p-4 overflow-y-auto shadow-lg z-50">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-semibold text-white">Alert Details</h3>
               <Button variant="ghost" size="icon" onClick={() => setSelectedAlert(null)}>
@@ -831,46 +871,64 @@ export default function ReferencesPage() {
                 <div className="space-y-2 text-sm">
                   {/* Get vendor info from vendor_trunks array */}
                   {(selectedAlert.vendor_trunks && selectedAlert.vendor_trunks.length > 0) ? (
-                    selectedAlert.vendor_trunks.map((vendor, idx) => (
-                      <div key={idx} className="border-b border-zinc-700 pb-2 last:border-0">
-                        <div className="flex justify-between">
-                          <span className="text-zinc-500">Vendor Trunk:</span>
-                          <span className="text-white">{vendor.trunk || "-"}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-zinc-500">Cost:</span>
-                          <span className="text-white">{vendor.cost || "-"}</span>
-                        </div>
-                        {/* Show position instead of percentage when position is available */}
-                        {vendor.position ? (
-                          <div className="flex justify-between">
-                            <span className="text-zinc-500">Position:</span>
-                            <span className="text-white">{vendor.position}</span>
+                    <div className="space-y-3">
+                      {selectedAlert.vendor_trunks.map((vendor, idx) => (
+                        <div key={idx} className="border border-zinc-600 rounded-md p-2 bg-zinc-700/30">
+                          <div className="flex flex-col gap-1">
+                            <div className="flex flex-col">
+                              <span className="text-zinc-500 text-xs mb-1">Vendor Trunk:</span>
+                              <span className="text-white font-medium break-all" title={vendor.trunk}>{vendor.trunk || "-"}</span>
+                            </div>
+                            <div className="flex flex-col mt-2">
+                              <span className="text-zinc-500 text-xs mb-1">Cost:</span>
+                              <span className="text-white">{vendor.cost || "-"}</span>
+                            </div>
+                            {/* Show position instead of percentage when position is available */}
+                            {vendor.position ? (
+                              <div className="flex flex-col mt-2">
+                                <span className="text-zinc-500 text-xs mb-1">Position:</span>
+                                <span className="text-white">{vendor.position}</span>
+                              </div>
+                            ) : vendor.percentage ? (
+                              <div className="flex flex-col mt-2">
+                                <span className="text-zinc-500 text-xs mb-1">Percentage:</span>
+                                <span className="text-white">{vendor.percentage}%</span>
+                              </div>
+                            ) : null}
+                            {/* Show pair_number for SMS alerts */}
+                            {vendor.pair_number ? (
+                              <div className="flex flex-col mt-2">
+                                <span className="text-zinc-500 text-xs mb-1">Pair #:</span>
+                                <span className="text-white">{vendor.pair_number}</span>
+                              </div>
+                            ) : null}
+                            {/* Show network for all alerts */}
+                            {vendor.network ? (
+                              <div className="flex flex-col mt-2">
+                                <span className="text-zinc-500 text-xs mb-1">Network:</span>
+                                <span className="text-blue-400 font-medium">{vendor.network}</span>
+                              </div>
+                            ) : null}
                           </div>
-                        ) : vendor.percentage ? (
-                          <div className="flex justify-between">
-                            <span className="text-zinc-500">Percentage:</span>
-                            <span className="text-white">{vendor.percentage}%</span>
-                          </div>
-                        ) : null}
-                      </div>
-                    ))
+                        </div>
+                      ))}
+                    </div>
                   ) : (
                     /* Fallback to single vendor_trunk and cost fields */
                     <>
-                      <div className="flex justify-between">
-                        <span className="text-zinc-500">Vendor Trunk:</span>
-                        <span className="text-white">{selectedAlert.vendor_trunk || "-"}</span>
+                      <div className="flex flex-col">
+                        <span className="text-zinc-500 text-xs mb-1">Vendor Trunk:</span>
+                        <span className="text-white break-all" title={selectedAlert.vendor_trunk}>{selectedAlert.vendor_trunk || "-"}</span>
                       </div>
-                      <div className="flex justify-between">
-                        <span className="text-zinc-500">Cost:</span>
+                      <div className="flex flex-col mt-2">
+                        <span className="text-zinc-500 text-xs mb-1">Cost:</span>
                         <span className="text-white">{selectedAlert.cost || "-"}</span>
                       </div>
                     </>
                   )}
                   {/* Always show Rate */}
-                  <div className="flex justify-between pt-2">
-                    <span className="text-zinc-500">Rate:</span>
+                  <div className="flex flex-col mt-2 pt-2 border-t border-zinc-700">
+                    <span className="text-zinc-500 text-xs mb-1">Rate:</span>
                     <span className="text-white">{selectedAlert.rate || "-"}</span>
                   </div>
                 </div>
@@ -879,12 +937,20 @@ export default function ReferencesPage() {
               {/* SMS Details for SMS alerts */}
               {selectedAlert.ticket_type === "sms" && selectedAlert.sms_details?.length > 0 && (
                 <div className="bg-zinc-800 rounded-lg p-3">
-                  <h4 className="text-sm font-medium text-zinc-400 mb-2">SMS Details</h4>
-                  <div className="space-y-2 text-sm">
+                  <h4 className="text-sm font-medium text-zinc-400 mb-2">SMS Details (SID/Content Pairs)</h4>
+                  <div className="space-y-3 max-h-60 overflow-y-auto">
                     {selectedAlert.sms_details.map((sms, idx) => (
-                      <div key={idx} className="border-b border-zinc-700 pb-2 last:border-0">
-                        <div className="text-zinc-500">SID: <span className="text-white">{sms.sid || "-"}</span></div>
-                        <div className="text-zinc-500">Content: <span className="text-white">{sms.content || "-"}</span></div>
+                      <div key={idx} className="border border-zinc-600 rounded-md p-2 bg-zinc-700/30">
+                        <div className="flex flex-col gap-1">
+                          <div className="flex flex-col">
+                            <span className="text-zinc-500 text-xs mb-1">SID:</span>
+                            <span className="text-white font-mono text-xs break-all" title={sms.sid}>{sms.sid || "-"}</span>
+                          </div>
+                          <div className="flex flex-col mt-2">
+                            <span className="text-zinc-500 text-xs mb-1">Content:</span>
+                            <span className="text-white text-sm break-words" title={sms.content}>{sms.content || "-"}</span>
+                          </div>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -894,26 +960,28 @@ export default function ReferencesPage() {
               {/* Comments */}
               <div className="bg-zinc-800 rounded-lg p-3">
                 <h4 className="text-sm font-medium text-zinc-400 mb-2">Comments ({selectedAlert.comments?.length || 0})</h4>
-                <div className="space-y-2 max-h-40 overflow-y-auto">
+                <div className="space-y-2 max-h-48 overflow-y-auto">
                   {selectedAlert.comments?.length === 0 ? (
                     <p className="text-zinc-500 text-sm">No comments yet</p>
                   ) : (
                     selectedAlert.comments?.map((comment, idx) => (
-                      <div key={idx} className="border-b border-zinc-700 pb-2 last:border-0">
-                        <div className="flex justify-between items-start">
-                          <span className="text-emerald-500 text-sm">{comment.created_by}</span>
-                          <span className="text-zinc-500 text-xs">
-                            {new Date(comment.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                          </span>
-                        </div>
-                        {/* Show either comment text OR alternative vendor, not both */}
-                        {comment.text && comment.text.trim() ? (
-                          <p className="text-white text-sm mt-1">{comment.text}</p>
-                        ) : comment.alternative_vendor ? (
-                          <div className="mt-1 text-emerald-500 text-sm">
-                            Alternative Vendor: {comment.alternative_vendor}
+                      <div key={idx} className="border border-zinc-600 rounded-md p-2 bg-zinc-700/30">
+                        <div className="flex flex-col gap-1">
+                          <div className="flex items-center justify-between">
+                            <span className="text-emerald-500 text-sm font-medium">{comment.created_by}</span>
+                            <span className="text-zinc-500 text-xs">
+                              {new Date(comment.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                            </span>
                           </div>
-                        ) : null}
+                          {/* Show either comment text OR alternative vendor, not both */}
+                          {comment.text && comment.text.trim() ? (
+                            <p className="text-white text-sm mt-2 break-words">{comment.text}</p>
+                          ) : comment.alternative_vendor ? (
+                            <div className="text-emerald-500 text-sm mt-2">
+                              Alternative Vendor: <span className="font-medium">{comment.alternative_vendor}</span>
+                            </div>
+                          ) : null}
+                        </div>
                       </div>
                     ))
                   )}
@@ -1292,7 +1360,7 @@ export default function ReferencesPage() {
 
       {/* View Panel Sidebar */}
       {selectedListForView && (
-        <div className="fixed inset-y-0 right-0 w-[500px] bg-zinc-900 border-l border-zinc-800 p-4 overflow-y-auto shadow-lg z-50">
+        <div className="fixed inset-y-0 right-0 w-[600px] max-w-[90vw] bg-zinc-900 border-l border-zinc-800 p-4 overflow-y-auto shadow-lg z-50">
           <div className="flex justify-between items-center mb-6">
             <h3 className="text-lg font-semibold text-white">Reference List Details</h3>
             <Button variant="ghost" size="icon" onClick={() => setSelectedListForView(null)}>
@@ -1328,32 +1396,28 @@ export default function ReferencesPage() {
                 Vendor Entries ({selectedListForView.vendor_entries?.length || 0})
               </h4>
               {(selectedListForView.vendor_entries && selectedListForView.vendor_entries.length > 0) ? (
-                <Table>
-                  <TableHeader>
-                    <TableRow className="hover:bg-zinc-700 border-zinc-600">
-                      <TableHead className="w-12 text-zinc-300">#</TableHead>
-                      <TableHead className="text-zinc-300">Vendor Trunk</TableHead>
-                      <TableHead className="text-zinc-300">Cost</TableHead>
-                      <TableHead className="text-zinc-300">Notes</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {selectedListForView.vendor_entries.map((vendor, idx) => (
-                      <TableRow key={idx} className="border-zinc-600">
-                        <TableCell className="w-12">
-                          <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-zinc-600 text-xs font-medium text-white">
-                            {idx + 1}
-                          </span>
-                        </TableCell>
-                        <TableCell className="font-medium text-white">{vendor.trunk}</TableCell>
-                        <TableCell className="text-zinc-300">{vendor.cost || '-'}</TableCell>
-                        <TableCell className="text-zinc-300 max-w-[200px] truncate" title={vendor.notes || ''}>
-                          {vendor.notes || '-'}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                <div className="space-y-3 max-h-[400px] overflow-y-auto">
+                  {selectedListForView.vendor_entries.map((vendor, idx) => (
+                    <div key={idx} className="border border-zinc-600 rounded-md p-3 bg-zinc-700/30">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-zinc-600 text-xs font-medium text-white">
+                          {idx + 1}
+                        </span>
+                        <span className="text-sm font-medium text-white truncate" title={vendor.trunk}>{vendor.trunk}</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-sm">
+                        <div>
+                          <span className="text-zinc-500">Cost:</span>
+                          <span className="text-white ml-1">{vendor.cost || '-'}</span>
+                        </div>
+                        <div className="col-span-2">
+                          <span className="text-zinc-500">Notes:</span>
+                          <span className="text-white ml-1 break-words" title={vendor.notes}>{vendor.notes || '-'}</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               ) : (
                 <p className="text-zinc-500 text-sm">No vendors added yet</p>
               )}
@@ -1578,7 +1642,7 @@ export default function ReferencesPage() {
       
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <AlertDialogContent className="bg-zinc-950 border-zinc-800 text-white">
+        <AlertDialogContent className="bg-zinc-950 border-zinc-800 text-white max-w-md">
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Reference List</AlertDialogTitle>
             <AlertDialogDescription className="text-zinc-400">
@@ -1596,7 +1660,7 @@ export default function ReferencesPage() {
       
       {/* Resolve Alert Confirmation Dialog */}
       <AlertDialog open={!!alertToResolve} onOpenChange={() => setAlertToResolve(null)}>
-        <AlertDialogContent className="bg-zinc-950 border-zinc-800 text-white">
+        <AlertDialogContent className="bg-zinc-950 border-zinc-800 text-white max-w-md">
           <AlertDialogHeader>
             <AlertDialogTitle>Resolve Alert</AlertDialogTitle>
             <AlertDialogDescription className="text-zinc-400">
@@ -1614,7 +1678,7 @@ export default function ReferencesPage() {
       
       {/* Delete Alert Confirmation Dialog */}
       <AlertDialog open={!!alertToDelete} onOpenChange={() => setAlertToDelete(null)}>
-        <AlertDialogContent className="bg-zinc-950 border-zinc-800 text-white">
+        <AlertDialogContent className="bg-zinc-950 border-zinc-800 text-white max-w-md">
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Alert</AlertDialogTitle>
             <AlertDialogDescription className="text-zinc-400">
