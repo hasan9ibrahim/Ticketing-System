@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useLocation, useSearchParams, useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -118,7 +118,7 @@ export default function RequestsPage() {
   const userDepartment = user?.department?.name?.toLowerCase() || "";
   
   // Compute pending request counts by priority for badge display (only for NOC/Admin)
-  const getPendingByPriority = (ticketType) => {
+  const getPendingByPriority = useCallback((ticketType) => {
     if (userRole !== "noc" && userRole !== "admin") return {};
     const pending = requests.filter(r => r.ticket_type === ticketType && r.status === "pending" && !r.claimed_by);
     return {
@@ -128,10 +128,10 @@ export default function RequestsPage() {
       Low: pending.filter(r => r.priority === "Low").length,
       total: pending.length
     };
-  };
-  
-  const smsPending = getPendingByPriority("sms");
-  const voicePending = getPendingByPriority("voice");
+  }, [userRole, requests]);
+
+  const smsPending = useMemo(() => getPendingByPriority("sms"), [getPendingByPriority]);
+  const voicePending = useMemo(() => getPendingByPriority("voice"), [getPendingByPriority]);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [showMyRequestsOnly, setShowMyRequestsOnly] = useState(false); // Toggle for AM to show only their own requests
@@ -453,14 +453,21 @@ export default function RequestsPage() {
   };
 
   // Auto-refresh data every 10 seconds, but not while already loading
+  // Use a ref to track loading state to avoid recreating the interval on every isLoading change
+  const isLoadingRef = useRef(false);
+  
+  useEffect(() => {
+    isLoadingRef.current = isLoading;
+  }, [isLoading]);
+  
   useEffect(() => {
     const interval = setInterval(() => {
-      if (!document.hidden && !isLoading) {
+      if (!document.hidden && !isLoadingRef.current) {
         fetchRequests();
       }
     }, 10000);
     return () => clearInterval(interval);
-  }, [isLoading]);
+  }, []);
 
   const handleRequestTypeChange = (type) => {
     setFormData({
@@ -1201,71 +1208,78 @@ export default function RequestsPage() {
     return STATUS_CONFIG[status] || STATUS_CONFIG.pending;
   };
 
-  const filteredRequests = requests.filter(req => {
-    // Filter by subtab (active vs archive)
-    // For NOC/Admin: API returns requests filtered by department (sms/voice)
-    // For AM: API returns requests for their department, client-side doesn't need extra filtering
-    if (requestSubTab === "active") {
-      // Active: show pending and claimed requests
-      if (req.status !== "pending" && req.status !== "in_progress") return false;
-    } else {
-      // Archive: show completed and rejected requests
-      if (req.status !== "completed" && req.status !== "rejected") return false;
-    }
-    
-    if (!searchTerm) return true;
-    const search = searchTerm.toLowerCase();
-    return (
-      req.customer?.toLowerCase().includes(search) ||
-      req.request_type_label?.toLowerCase().includes(search) ||
-      req.id?.toLowerCase().includes(search)
-    );
-  }).filter(req => {
-    // Multi-filters (OR logic within same field, AND logic between fields)
-    if (multiFilters.length === 0) return true;
-    
-    return multiFilters.every(filter => {
-      const { field, values } = filter;
-      
-      if (field === "status") {
-        return values.includes(req.status);
-      } else if (field === "ticket_type") {
-        return values.includes(req.ticket_type);
-      } else if (field === "request_type") {
-        return values.includes(req.request_type);
-      } else if (field === "enterprise") {
-        return values.includes(req.customer_id);
-      } else if (field === "enterprise_trunk") {
-        return values.includes(req.customer_trunk);
-      } else if (field === "vendor_trunk") {
-        const trunks = req.vendor_trunks || [];
-        return values.some(v => trunks.some(t => t.trunk === v));
+  // Memoize filtered and sorted requests to avoid recalculating on every render
+  const filteredRequests = useMemo(() => {
+    return requests.filter(req => {
+      // Filter by subtab (active vs archive)
+      // For NOC/Admin: API returns requests filtered by department (sms/voice)
+      // For AM: API returns requests for their department, client-side doesn't need extra filtering
+      if (requestSubTab === "active") {
+        // Active: show pending and claimed requests
+        if (req.status !== "pending" && req.status !== "in_progress") return false;
+      } else {
+        // Archive: show completed and rejected requests
+        if (req.status !== "completed" && req.status !== "rejected") return false;
       }
-      return true;
+      
+      if (!searchTerm) return true;
+      const search = searchTerm.toLowerCase();
+      return (
+        req.customer?.toLowerCase().includes(search) ||
+        req.request_type_label?.toLowerCase().includes(search) ||
+        req.id?.toLowerCase().includes(search)
+      );
+    }).filter(req => {
+      // Multi-filters (OR logic within same field, AND logic between fields)
+      if (multiFilters.length === 0) return true;
+      
+      return multiFilters.every(filter => {
+        const { field, values } = filter;
+        
+        if (field === "status") {
+          return values.includes(req.status);
+        } else if (field === "ticket_type") {
+          return values.includes(req.ticket_type);
+        } else if (field === "request_type") {
+          return values.includes(req.request_type);
+        } else if (field === "enterprise") {
+          return values.includes(req.customer_id);
+        } else if (field === "enterprise_trunk") {
+          return values.includes(req.customer_trunk);
+        } else if (field === "vendor_trunk") {
+          const trunks = req.vendor_trunks || [];
+          return values.some(v => trunks.some(t => t.trunk === v));
+        }
+        return true;
+      });
     });
-  });
+  }, [requests, requestSubTab, searchTerm, multiFilters]);
 
-  // Sort requests: Active tab = by priority, Archive tab = by time (newest first)
-  const priorityOrder = { "Urgent": 1, "High": 2, "Medium": 3, "Low": 4 };
-  
-  // Create a copy for sorting to avoid mutating the original array
-  const sortedRequests = [...filteredRequests];
-  
-  if (requestSubTab === "active") {
-    // Active tab: sort by priority (Urgent -> High -> Medium -> Low)
-    sortedRequests.sort((a, b) => {
-      const priorityA = priorityOrder[a.priority] || 5;
-      const priorityB = priorityOrder[b.priority] || 5;
-      return priorityA - priorityB;
-    });
-  } else {
-    // Archive tab: sort by time (newest first)
-    sortedRequests.sort((a, b) => {
-      const dateA = new Date(a.created_at || 0);
-      const dateB = new Date(b.created_at || 0);
-      return dateB - dateA; // Newest first
-    });
-  }
+  // Memoize sorted requests
+  const sortedRequests = useMemo(() => {
+    // Sort requests: Active tab = by priority, Archive tab = by time (newest first)
+    const priorityOrder = { "Urgent": 1, "High": 2, "Medium": 3, "Low": 4 };
+    
+    // Create a copy for sorting to avoid mutating the original array
+    const sorted = [...filteredRequests];
+    
+    if (requestSubTab === "active") {
+      // Active tab: sort by priority (Urgent -> High -> Medium -> Low)
+      sorted.sort((a, b) => {
+        const priorityA = priorityOrder[a.priority] || 5;
+        const priorityB = priorityOrder[b.priority] || 5;
+        return priorityA - priorityB;
+      });
+    } else {
+      // Archive tab: sort by time (newest first)
+      sorted.sort((a, b) => {
+        const dateA = new Date(a.created_at || 0);
+        const dateB = new Date(b.created_at || 0);
+        return dateB - dateA; // Newest first
+      });
+    }
+    return sorted;
+  }, [filteredRequests, requestSubTab]);
 
   // For AMs, only show their department
   // Use flexible matching to handle different department name formats
@@ -3371,7 +3385,7 @@ export default function RequestsPage() {
                             }}
                             className="absolute top-0 right-0 bg-red-600 text-white rounded-full p-1 w-6 h-6 flex items-center justify-center"
                           >
-                            ×
+                            �
                           </button>
                         </div>
                       ))}
