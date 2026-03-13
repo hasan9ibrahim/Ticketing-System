@@ -269,6 +269,9 @@ export default function RequestsPage() {
   const initialLoadComplete = useRef(false);
   
   useEffect(() => {
+    // Clear requests state when tab changes to avoid showing stale data from previous tab
+    setRequests([]);
+    
     // Only show loading on first load, not on tab/filter changes
     const showLoading = !initialLoadComplete.current;
     if (!initialLoadComplete.current) {
@@ -1860,7 +1863,7 @@ export default function RequestsPage() {
                   )}
                   
                   {/* Create LCR Request button for AMs - only for completed Testing requests in Voice */}
-                  {userRole === "am" && request.created_by === user.id && request.status === "completed" && (request.request_type === "testing" || request.request_type_label?.includes("Testing")) && (
+                  {userRole === "am" && request.created_by === user.id && request.status === "completed" && request.department === "voice" && (request.request_type === "testing" || request.request_type_label?.includes("Testing")) && (
                     <div className="flex gap-2 mt-3 pt-3 border-t border-zinc-800">
                       <Button 
                         variant="outline" 
