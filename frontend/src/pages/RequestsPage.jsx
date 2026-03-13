@@ -269,8 +269,8 @@ export default function RequestsPage() {
   const initialLoadComplete = useRef(false);
   
   useEffect(() => {
-    // Clear requests state when tab changes to avoid showing stale data from previous tab
-    setRequests([]);
+    // Don't clear requests here - let the new data replace old data directly
+    // This prevents showing empty state briefly while fetching
     
     // Only show loading on first load, not on tab/filter changes
     const showLoading = !initialLoadComplete.current;
@@ -422,8 +422,8 @@ export default function RequestsPage() {
     }
   };
 
-  // Fetch requests function - stable via refs pattern
-  const fetchRequests = async (showMineOnly = null, showLoading = true) => {
+  // Fetch requests function - uses refs for auto-refresh, state for immediate tab switches
+  const fetchRequests = async (showMineOnly = null, showLoading = true, useRefs = false) => {
     // Don't show loading indicator during auto-refresh (background updates)
     if (showLoading) {
       setIsLoading(true);
@@ -432,11 +432,25 @@ export default function RequestsPage() {
       const token = localStorage.getItem("token");
       const params = new URLSearchParams();
       
-      // Compute displayTab using refs to avoid stale closures
-      const currentUserRole = userRoleRef.current;
-      const currentActiveTab = activeTabRef.current;
-      const currentStatusFilter = statusFilterRef.current;
-      const currentUserDepartment = userDepartmentRef?.current || "";
+      // Use refs for auto-refresh (to avoid stale closures), state for tab switches
+      let currentUserRole, currentActiveTab, currentStatusFilter, currentRequestSubTab, currentUserDepartment;
+      
+      if (useRefs) {
+        // Auto-refresh: use refs for latest values
+        currentUserRole = userRoleRef.current;
+        currentActiveTab = activeTabRef.current;
+        currentStatusFilter = statusFilterRef.current;
+        currentRequestSubTab = requestSubTabRef.current;
+        currentUserDepartment = userDepartmentRef?.current || "";
+      } else {
+        // Tab switch: use direct state for immediate responsiveness
+        currentUserRole = userRole;
+        currentActiveTab = activeTab;
+        currentStatusFilter = statusFilter;
+        currentRequestSubTab = requestSubTab;
+        currentUserDepartment = userDepartment;
+      }
+      
       const isSmsDept = currentUserDepartment?.startsWith("sms") || currentUserDepartment === "sms";
       const isVoiceDept = currentUserDepartment?.startsWith("voice") || currentUserDepartment === "voice";
       const currentDisplayTab = currentUserRole === "am" 
@@ -452,10 +466,14 @@ export default function RequestsPage() {
         params.append("status", currentStatusFilter);
       }
       
+      // Add request sub-tab filter (active or archive)
+      if (currentRequestSubTab && currentRequestSubTab !== "all") {
+        params.append("sub_tab", currentRequestSubTab);
+      }
+      
       // Add show_mine_only parameter for AMs
       if (currentUserRole === "am") {
-        // Use passed value or fall back to ref
-        const showMineOnlyValue = showMineOnly !== null ? showMineOnly : showMyRequestsOnlyRef.current;
+        const showMineOnlyValue = showMineOnly !== null ? showMineOnly : (useRefs ? showMyRequestsOnlyRef.current : showMyRequestsOnly);
         params.append("show_mine_only", showMineOnlyValue);
       }
       
@@ -490,8 +508,8 @@ export default function RequestsPage() {
   useEffect(() => {
     const interval = setInterval(() => {
       if (!document.hidden && !isLoadingRef.current) {
-        // Auto-refresh: don't show loading indicator to avoid flickering
-        fetchRequests(null, false);
+        // Auto-refresh: use refs for latest values to avoid stale closures
+        fetchRequests(null, false, true);
       }
     }, 10000);
     return () => clearInterval(interval);

@@ -3342,6 +3342,7 @@ async def get_requests(
     request_type: Optional[str] = None,
     status: Optional[str] = None,
     show_mine_only: Optional[bool] = False,
+    sub_tab: Optional[str] = None,  # Filter by active or archive
     current_user: dict = Depends(get_current_user)
 ):
     """Get all requests - filtered by user's department and role"""
@@ -3383,6 +3384,21 @@ async def get_requests(
     # Filter by status
     if status:
         query["status"] = status
+    
+    # Filter by sub_tab (active or archive)
+    # Active: status is pending/in_progress and not fully claimed
+    # Archive: status is completed/rejected OR all requests are claimed by someone
+    if sub_tab == "active":
+        query["$or"] = [
+            {"status": {"$in": ["pending", "in_progress"]}},
+            {"claimed_by": {"$exists": False}},
+            {"claimed_by": None}
+        ]
+    elif sub_tab == "archive":
+        query["$or"] = [
+            {"status": {"$in": ["completed", "rejected"]}},
+            {"claimed_by": {"$ne": None}}
+        ]
     
     requests = await db.am_requests.find(query).sort("created_at", -1).to_list(100)
     
