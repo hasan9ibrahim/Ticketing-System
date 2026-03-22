@@ -100,6 +100,6 @@ frontend/node_modules/.cache/default-development/3.pack
 *.env
 *.env.*
 -e 
-# Environment files
-*.env
-*.env.*
+# VPS production files
+docker-compose.prod.yml
+backup_mongo.sh
