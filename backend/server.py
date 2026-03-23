@@ -4013,8 +4013,8 @@ async def get_sms_tickets(
                 else:
                     query["customer_id"] = {"$in": client_ids}
     
-    # Limit to 500 most recent tickets for performance
-    tickets = await db.sms_tickets.find(query, {"_id": 0}).sort("date", -1).limit(500).to_list(500)
+    # Get all tickets (no limit for accurate counts)
+    tickets = await db.sms_tickets.find(query, {"_id": 0}).sort("date", -1).to_list(100000)
     for ticket in tickets:
         if isinstance(ticket.get('date'), str):
             ticket['date'] = datetime.fromisoformat(ticket['date'])
@@ -4333,8 +4333,8 @@ async def get_voice_tickets(
                 else:
                     query["customer_id"] = {"$in": client_ids}
     
-    # Limit to 500 most recent tickets for performance
-    tickets = await db.voice_tickets.find(query, {"_id": 0}).sort("date", -1).limit(500).to_list(500)
+    # Get all tickets (no limit for accurate counts)
+    tickets = await db.voice_tickets.find(query, {"_id": 0}).sort("date", -1).to_list(100000)
     for ticket in tickets:
         if isinstance(ticket.get('date'), str):
             ticket['date'] = datetime.fromisoformat(ticket['date'])
