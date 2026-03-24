@@ -938,6 +938,7 @@ class SMSTicket(BaseModel):
     vendor_trunks: Optional[List[dict]] = Field(default_factory=list)  # List of {trunk, percentage, position, cost, cost_type, min_cost, max_cost} objects
     cost: Optional[str] = None
     is_lcr: Optional[str] = None
+    by_loss: bool = False  # By Loss option for rating/routing
     root_cause: Optional[str] = None
     action_taken: Optional[str] = None
     internal_notes: Optional[str] = None
@@ -1004,6 +1005,7 @@ class SMSTicketUpdate(BaseModel):
     vendor_trunks: Optional[List[dict]] = None  # List of {trunk, percentage, position, cost, cost_type, min_cost, max_cost} objects
     cost: Optional[str] = None
     is_lcr: Optional[str] = None
+    by_loss: bool = False  # By Loss option for rating/routing
     root_cause: Optional[str] = None
     action_taken: Optional[str] = None
     internal_notes: Optional[str] = None
@@ -1034,6 +1036,7 @@ class VoiceTicket(BaseModel):
     vendor_trunks: Optional[List[dict]] = Field(default_factory=list)  # List of {trunk, percentage, position, cost, cost_type, min_cost, max_cost} objects
     cost: Optional[str] = None
     is_lcr: Optional[str] = None
+    by_loss: bool = False  # By Loss option for rating/routing
     root_cause: Optional[str] = None
     action_taken: Optional[str] = None
     internal_notes: Optional[str] = None
@@ -1061,6 +1064,7 @@ class VoiceTicketCreate(BaseModel):
     vendor_trunks: Optional[List[dict]] = Field(default_factory=list)  # List of {trunk, percentage, position, cost, cost_type, min_cost, max_cost} objects
     cost: Optional[str] = None
     is_lcr: Optional[str] = None
+    by_loss: bool = False  # By Loss option for rating/routing
     root_cause: Optional[str] = None
     action_taken: Optional[str] = None
     internal_notes: Optional[str] = None
@@ -1083,6 +1087,7 @@ class VoiceTicketUpdate(BaseModel):
     vendor_trunks: Optional[List[dict]] = None  # List of {trunk, percentage, position, cost, cost_type, min_cost, max_cost} objects
     cost: Optional[str] = None
     is_lcr: Optional[str] = None
+    by_loss: bool = False  # By Loss option for rating/routing
     root_cause: Optional[str] = None
     action_taken: Optional[str] = None
     internal_notes: Optional[str] = None

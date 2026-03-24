@@ -495,6 +495,7 @@ export default function SMSTicketsPage() {
       status: "Unassigned",
       opened_via: ["Monitoring"],
       is_lcr: "no",
+      by_loss: false,
       volume: "0",
       customer_trunk: "",
       issue_types: [],
@@ -829,12 +830,14 @@ export default function SMSTicketsPage() {
     try {
       const token = localStorage.getItem("token");
       const headers = { Authorization: `Bearer ${token}` };
+      // When status is Unassigned, always submit assigned_to as empty
+      const submitData = formData.status === "Unassigned" ? { ...formData, assigned_to: "" } : formData;
 
       if (editingTicket) {
-        await axios.put(`${API}/tickets/sms/${editingTicket.id}`, formData, { headers });
+        await axios.put(`${API}/tickets/sms/${editingTicket.id}`, submitData, { headers });
         toast.success("Ticket updated successfully");
       } else {
-        await axios.post(`${API}/tickets/sms`, formData, { headers });
+        await axios.post(`${API}/tickets/sms`, submitData, { headers });
         toast.success("Ticket created successfully");
       }
 
@@ -1541,7 +1544,7 @@ export default function SMSTicketsPage() {
             {/* Status */}
             <div className="space-y-2">
               <Label className="text-white">Status *</Label>
-              <Select value={formData.status} onValueChange={(value) => setFormData({ ...formData, status: value })} required>
+              <Select value={formData.status} onValueChange={(value) => setFormData({ ...formData, status: value, assigned_to: value === "Unassigned" ? "" : formData.assigned_to })} required>
                 <SelectTrigger className="bg-zinc-800 border-zinc-700 text-white"><SelectValue /></SelectTrigger>
                 <SelectContent className="bg-zinc-800 border-zinc-700">
                   <SelectItem value="Unassigned" className="text-white">Unassigned</SelectItem>
@@ -1947,6 +1950,17 @@ export default function SMSTicketsPage() {
                       </SelectContent>
                     </Select>
                   </div>
+                  {/* By Loss - available for both SMS and Voice */}
+                  <div className="flex items-center gap-2">
+                    <input
+                      id="by_loss"
+                      type="checkbox"
+                      checked={formData.by_loss || false}
+                      onChange={(e) => setFormData({ ...formData, by_loss: e.target.checked })}
+                      className="w-4 h-4 accent-blue-500"
+                    />
+                    <label htmlFor="by_loss" className="text-white text-sm cursor-pointer">By Loss</label>
+                  </div>
                 </div>
               </div>
             </div>
@@ -2247,7 +2261,7 @@ export default function SMSTicketsPage() {
                 </div>
               </div>
 
-              {/* Rate */}
+              {/* Rate & Advanced Settings */}
               <div className="grid grid-cols-3 gap-2">
                 <div className="bg-zinc-800/30 p-2 rounded">
                   <span className="text-zinc-500 text-[10px] uppercase">Rate</span>
@@ -2262,6 +2276,13 @@ export default function SMSTicketsPage() {
                   <p className="text-white text-sm font-medium truncate">{Array.isArray(editingTicket?.opened_via) ? editingTicket.opened_via.join(', ') : editingTicket?.opened_via || '-'}</p>
                 </div>
               </div>
+
+              {/* By Loss - Display in view form */}
+              {editingTicket?.by_loss && (
+                <div className="bg-blue-500/20 border border-blue-500/30 p-2 rounded">
+                  <span className="text-blue-400 text-xs font-medium">By Loss</span>
+                </div>
+              )}
 
               {/* Vendor Trunks with % and Cost */}
               {editingTicket?.vendor_trunks && editingTicket.vendor_trunks.length > 0 && (

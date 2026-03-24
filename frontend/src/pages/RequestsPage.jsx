@@ -17,6 +17,7 @@ import { Plus, Search, Filter, Clock, CheckCircle, XCircle, AlertCircle, Edit, T
 import { Switch } from "@/components/ui/switch";
 import MultiSelect from "@/components/custom/MultiSelect";
 import MultiFilter from "@/components/custom/MultiFilter";
+import CompactImageViewer from "@/components/custom/CompactImageViewer";
 import axios from "axios";
 
 const API = `${process.env.REACT_APP_API_URL || "http://localhost:8000"}/api`;
@@ -3334,34 +3335,19 @@ export default function RequestsPage() {
               )}
 
               {/* Test Result Image - Legacy single image */}
-              {selectedRequest.test_result_image && (
-                <div className="border-t border-zinc-700 pt-4 mt-4">
-                  <Label className="text-zinc-400">Test Result Image</Label>
-                  <div className="mt-2">
-                    <img 
-                      src={selectedRequest.test_result_image} 
-                      alt="Test Result" 
-                      className="max-w-full h-auto rounded border border-zinc-600"
-                    />
-                  </div>
-                </div>
+              {selectedRequest.test_result_image && !selectedRequest.test_result_images && (
+                <CompactImageViewer 
+                  images={[selectedRequest.test_result_image]} 
+                  title="Test Result Image"
+                />
               )}
 
               {/* Test Result Images - Multiple images */}
               {selectedRequest.test_result_images && selectedRequest.test_result_images.length > 0 && (
-                <div className="border-t border-zinc-700 pt-4 mt-4">
-                  <Label className="text-zinc-400">Test Result Images ({selectedRequest.test_result_images.length})</Label>
-                  <div className="mt-2 grid grid-cols-2 gap-2">
-                    {selectedRequest.test_result_images.map((image, index) => (
-                      <img 
-                        key={index}
-                        src={image} 
-                        alt={`Test Result ${index + 1}`} 
-                        className="max-w-full h-auto rounded border border-zinc-600"
-                      />
-                    ))}
-                  </div>
-                </div>
+                <CompactImageViewer 
+                  images={selectedRequest.test_result_images} 
+                  title="Test Result Images"
+                />
               )}
             </div>
           )}
@@ -3418,10 +3404,13 @@ export default function RequestsPage() {
                   }}
                 >
                   {responseImagePreviews.length > 0 ? (
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-2">
                       {responseImagePreviews.map((preview, index) => (
-                        <div key={index} className="relative">
-                          <img src={preview} alt={`Test result ${index + 1}`} className="max-h-32 mx-auto rounded" />
+                        <div key={index} className="flex items-center justify-between bg-zinc-800/50 rounded-lg p-2 border border-zinc-700">
+                          <div className="flex items-center gap-2">
+                            <img src={preview} alt={`Test result ${index + 1}`} className="w-10 h-10 rounded object-cover" />
+                            <span className="text-sm text-white">image_{index + 1}</span>
+                          </div>
                           <button 
                             type="button"
                             onClick={(e) => {
@@ -3429,7 +3418,7 @@ export default function RequestsPage() {
                               setResponseImages(prev => prev.filter((_, i) => i !== index));
                               setResponseImagePreviews(prev => prev.filter((_, i) => i !== index));
                             }}
-                            className="absolute top-0 right-0 bg-red-600 text-white rounded-full p-1 w-6 h-6 flex items-center justify-center"
+                            className="bg-red-600 text-white rounded-full p-1 w-6 h-6 flex items-center justify-center hover:bg-red-700"
                           >
                             ✕
                           </button>
