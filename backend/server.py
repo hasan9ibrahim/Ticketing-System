@@ -3225,6 +3225,7 @@ class AMRequest(BaseModel):
     rating: Optional[str] = None
     customer_trunk: Optional[str] = None
     customer_trunks: List[dict] = Field(default_factory=list)  # List of {trunk, destination, rate}
+    customer_trunk_configs: List[dict] = Field(default_factory=list)  # New compact structure with rating_pairs and routing
     destination: Optional[str] = None
     by_loss: bool = False  # By Loss option for rating/routing
     enable_mnp_hlr: bool = False  # Enable MNP/HLR for SMS
@@ -3234,6 +3235,8 @@ class AMRequest(BaseModel):
     via_vendor: Optional[str] = None  # Via vendor for threshold routing
     enable_whitelisting: bool = False  # Enable numbers whitelisting for SMS
     rating_vendor_trunks: List[dict] = Field(default_factory=list)  # List of {trunk, percentage, position, cost_type, cost_min, cost_max}
+    common_route_rules: List[dict] = Field(default_factory=list)  # Common routing rules for all customer trunks
+    use_common_routing: bool = False  # Use common routing for all customer trunks
     
     # Testing fields
     vendor_trunks: List[dict] = Field(default_factory=list)  # List of {trunk, sid, content}
@@ -3299,6 +3302,7 @@ class AMRequestCreate(BaseModel):
     rating: Optional[str] = None
     customer_trunk: Optional[str] = None
     customer_trunks: List[dict] = Field(default_factory=list)  # List of {trunk, destination, rate}
+    customer_trunk_configs: List[dict] = Field(default_factory=list)  # New compact structure with rating_pairs and routing
     destination: Optional[str] = None
     by_loss: bool = False  # By Loss option for rating/routing
     enable_mnp_hlr: bool = False  # Enable MNP/HLR for SMS
@@ -3308,6 +3312,8 @@ class AMRequestCreate(BaseModel):
     via_vendor: Optional[str] = None  # Via vendor for threshold routing
     enable_whitelisting: bool = False  # Enable numbers whitelisting for SMS
     rating_vendor_trunks: List[dict] = Field(default_factory=list)
+    common_route_rules: List[dict] = Field(default_factory=list)  # Common routing rules for all customer trunks
+    use_common_routing: bool = False  # Use common routing for all customer trunks
     vendor_trunks: List[dict] = Field(default_factory=list)
     translation_type: Optional[str] = None
     trunk_type: Optional[str] = None
@@ -3482,6 +3488,7 @@ async def create_request(request_data: AMRequestCreate, current_user: dict = Dep
         rating=request_data.rating,
         customer_trunk=request_data.customer_trunk,
         customer_trunks=request_data.customer_trunks,
+        customer_trunk_configs=request_data.customer_trunk_configs,
         destination=request_data.destination,
         by_loss=request_data.by_loss,
         enable_mnp_hlr=request_data.enable_mnp_hlr,
@@ -3491,6 +3498,8 @@ async def create_request(request_data: AMRequestCreate, current_user: dict = Dep
         via_vendor=request_data.via_vendor,
         enable_whitelisting=request_data.enable_whitelisting,
         rating_vendor_trunks=request_data.rating_vendor_trunks,
+        common_route_rules=request_data.common_route_rules,
+        use_common_routing=request_data.use_common_routing,
         vendor_trunks=request_data.vendor_trunks,
         translation_type=request_data.translation_type,
         trunk_type=request_data.trunk_type,
@@ -3558,9 +3567,9 @@ async def update_request(request_id: str, request_data: dict, current_user: dict
         # Only allow editing certain fields
         allowed_fields = [
             "priority", "customer", "customer_id", "customer_ids", "ticket_id", "rating", "routing",
-            "customer_trunk", "customer_trunks", "destination", "by_loss",
+            "customer_trunk", "customer_trunks", "customer_trunk_configs", "destination", "by_loss",
             "enable_mnp_hlr", "mnp_hlr_type", "enable_threshold", "threshold_count", "via_vendor", "enable_whitelisting",
-            "rating_vendor_trunks",
+            "rating_vendor_trunks", "common_route_rules", "use_common_routing",
             "vendor_trunks", "translation_type", "trunk_type", "trunk_name",
             "old_value", "new_value", "old_sid", "new_sid", "word_to_remove", "translation_destination",
             "test_type", "test_description",
