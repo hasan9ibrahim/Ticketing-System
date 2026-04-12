@@ -104,6 +104,7 @@ export default function VoiceTicketsPage() {
 
   // Ref to track the last processed URL params to prevent reopening on state changes
   const lastProcessedParamsRef = useRef(null);
+  const vendorListRef = useRef(null);
 
   // Handle ticket query parameter - open specific ticket when navigating from notification
   useEffect(() => {
@@ -1376,7 +1377,15 @@ export default function VoiceTicketsPage() {
                         className="bg-zinc-700 border-zinc-600 text-white text-sm"
                       />
                     </div>
-                    <div className="max-h-64 overflow-y-auto p-2">
+                    <div
+                      ref={vendorListRef}
+                      className="max-h-64 overflow-y-auto p-2"
+                      onWheel={(e) => {
+                        if (vendorListRef.current) {
+                          vendorListRef.current.scrollTop += e.deltaY;
+                        }
+                      }}
+                    >
                       {vendorTrunkOptions
                         .filter(trunk => trunk.toLowerCase().includes(vendorTrunkSearch.toLowerCase()))
                         .length === 0 ? (
