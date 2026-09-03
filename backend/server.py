@@ -3061,6 +3061,7 @@ class Alert(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     comments: List[dict] = Field(default_factory=list)  # List of {id, text, created_by, created_at}
     resolved: bool = False  # Whether the alert has been resolved/archived
+    updated_at: Optional[datetime] = None
 
 
 class AlertCreate(BaseModel):
@@ -3152,22 +3153,34 @@ async def create_alert(alert_data: AlertCreate, current_user: dict = Depends(get
 
 
 @api_router.get("/alerts/{section}")
-async def get_alerts(section: str, current_user: dict = Depends(get_current_user)):
+async def get_alerts(
+    section: str,
+    response: Response,
+    current_user: dict = Depends(get_current_user),
+    if_none_match: Optional[str] = Header(None)
+):
     """Get all alerts for a specific section (sms or voice)"""
     if section not in ["sms", "voice"]:
         raise HTTPException(status_code=400, detail="Section must be 'sms' or 'voice'")
-    
+
     # Check department type access
     dept = await get_user_department(current_user)
     ticket_type = get_user_ticket_type(dept)
     if ticket_type != "all" and ticket_type != section:
         raise HTTPException(status_code=403, detail=f"You don't have access to {section} alerts")
-    
-    alerts = await db.alerts.find(
-        {"ticket_type": section},
-        {"_id": 0}
-    ).sort("created_at", -1).to_list(1000)
-    
+
+    query = {"ticket_type": section}
+    # This is polled every 20-30s by every logged-in user's sidebar - skip
+    # re-fetching/re-transferring when nothing has changed since the
+    # client's last poll.
+    not_modified = await get_list_etag_or_304(
+        db.alerts, query, 0, 1000, if_none_match, response
+    )
+    if not_modified:
+        return not_modified
+
+    alerts = await db.alerts.find(query, {"_id": 0}).sort("created_at", -1).to_list(1000)
+
     return alerts
 
 
@@ -3195,7 +3208,10 @@ async def add_alert_comment(alert_id: str, comment: AlertComment, current_user: 
     # Add comment to alert
     await db.alerts.update_one(
         {"id": alert_id},
-        {"$push": {"comments": comment_obj}}
+        {
+            "$push": {"comments": comment_obj},
+            "$set": {"updated_at": datetime.now(timezone.utc).isoformat()}
+        }
     )
     
     # Create audit log for alert comment
@@ -3276,7 +3292,7 @@ async def resolve_alert(alert_id: str, current_user: dict = Depends(get_current_
     
     await db.alerts.update_one(
         {"id": alert_id},
-        {"$set": {"resolved": True}}
+        {"$set": {"resolved": True, "updated_at": datetime.now(timezone.utc).isoformat()}}
     )
     
     # Notify AMs and NOC about the resolved alert
