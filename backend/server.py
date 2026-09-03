@@ -896,6 +896,7 @@ class Client(BaseModel):
     customer_trunks: Optional[List[str]] = Field(default_factory=list)  # List of customer trunk names
     vendor_trunks: Optional[List[str]] = Field(default_factory=list)  # List of vendor trunk names
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: Optional[datetime] = None
 
 class ClientCreate(BaseModel):
     name: str  # Required
@@ -2381,19 +2382,36 @@ async def create_client(client_data: ClientCreate, current_user: dict = Depends(
     return client_obj
 
 @api_router.get("/clients", response_model=List[Client])
-async def get_clients(current_user: dict = Depends(get_current_user)):
+async def get_clients(
+    response: Response,
+    current_user: dict = Depends(get_current_user),
+    if_none_match: Optional[str] = Header(None)
+):
     """Get all clients - filtered by AM if user is AM"""
     dept = await get_user_department(current_user)
     role = get_user_role_from_department(dept)
-    
+
     query = {}
     if role == "am":
         query["assigned_am_id"] = current_user["id"]
-    
+
+    # This list rarely changes but is fetched by every page that needs
+    # enterprise names/dropdowns, repeatedly, via the frontend's shared
+    # cache (every ~30-60s while any such page is open). Skip re-fetching
+    # and re-transferring it when nothing has changed since the client's
+    # last copy.
+    not_modified = await get_list_etag_or_304(
+        db.clients, query, 0, 1000, if_none_match, response
+    )
+    if not_modified:
+        return not_modified
+
     clients = await db.clients.find(query, {"_id": 0}).to_list(1000)
     for client in clients:
         if isinstance(client['created_at'], str):
             client['created_at'] = datetime.fromisoformat(client['created_at'])
+        if isinstance(client.get('updated_at'), str):
+            client['updated_at'] = datetime.fromisoformat(client['updated_at'])
     return [Client(**client) for client in clients]
 
 @api_router.get("/my-enterprises", response_model=List[Client])
@@ -2414,23 +2432,26 @@ async def update_client(client_id: str, client_data: ClientUpdate, current_user:
     if not dept or not dept.get("can_edit_enterprises"):
         raise HTTPException(status_code=403, detail="Admin or NOC access required")
     update_dict = {k: v for k, v in client_data.model_dump().items() if v is not None}
-    
+    update_dict["updated_at"] = datetime.now(timezone.utc).isoformat()
+
     # Get client before update for audit
     client_before = await db.clients.find_one({"id": client_id}, {"_id": 0})
-    
+
     result = await db.clients.find_one_and_update(
         {"id": client_id},
         {"$set": update_dict},
         return_document=True,
         projection={"_id": 0}
     )
-    
+
     if not result:
         raise HTTPException(status_code=404, detail="Client not found")
-    
+
     if isinstance(result['created_at'], str):
         result['created_at'] = datetime.fromisoformat(result['created_at'])
-    
+    if isinstance(result.get('updated_at'), str):
+        result['updated_at'] = datetime.fromisoformat(result['updated_at'])
+
     # Create audit log for client update
     await create_audit_log(
         user_id=current_user["id"],
@@ -2468,17 +2489,20 @@ async def update_client_contact(client_id: str, contact_data: ClientContactUpdat
         raise HTTPException(status_code=404, detail="Client not found or not assigned to you")
     
     update_dict = {k: v for k, v in contact_data.model_dump().items() if v is not None}
-    
+    update_dict["updated_at"] = datetime.now(timezone.utc).isoformat()
+
     result = await db.clients.find_one_and_update(
         {"id": client_id},
         {"$set": update_dict},
         return_document=True,
         projection={"_id": 0}
     )
-    
+
     if isinstance(result['created_at'], str):
         result['created_at'] = datetime.fromisoformat(result['created_at'])
-    
+    if isinstance(result.get('updated_at'), str):
+        result['updated_at'] = datetime.fromisoformat(result['updated_at'])
+
     # Create audit log for client contact update
     await create_audit_log(
         user_id=current_user["id"],
