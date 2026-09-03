@@ -1,7 +1,8 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, UploadFile, File, WebSocket, WebSocketDisconnect, Query
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, UploadFile, File, WebSocket, WebSocketDisconnect, Query, Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
+from starlette.middleware.gzip import GZipMiddleware
 from starlette.websockets import WebSocketState
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
@@ -564,18 +565,20 @@ async def notify_noc_about_am_action(ticket, action_text, action_created_by, tic
     ticket_number = ticket.get("ticket_number", "")
     customer_name = ticket.get("customer", "")
     
-    # Create notification for each NOC user
+    # Build one notification doc per NOC user, then insert them all in a
+    # single batched write instead of one insert_one per recipient.
+    docs = []
     for noc_user in noc_users:
         # Check if NOC wants to be notified for AM actions (default True)
         if not noc_user.get("notify_on_am_action", True):
             continue
-        
+
         noc_id = noc_user.get("id")
         if not noc_id:
             continue
-        
+
         notification_id = str(uuid.uuid4())
-        
+
         doc = {
             "id": notification_id,
             "ticket_id": ticket.get("id"),
@@ -597,7 +600,10 @@ async def notify_noc_about_am_action(ticket, action_text, action_created_by, tic
             "created_at": datetime.now(timezone.utc)
         }
         doc['created_at'] = doc['created_at'].isoformat()
-        await db.ticket_notifications.insert_one(doc)
+        docs.append(doc)
+
+    if docs:
+        await db.ticket_notifications.insert_many(docs)
 
 
 async def notify_noc_about_noc_modification(ticket, modified_by_user, modified_by_username, changes, ticket_type="sms"):
@@ -816,25 +822,26 @@ async def notify_users_about_alert(
                 {"_id": 0, "id": 1, "username": 1, "name": 1}
             ).to_list(100)
         
-        # Get creator info
-        creator_user = await db.users.find_one({"id": created_by}, {"_id": 0, "username": 1, "name": 1})
+        # Get creator info and role in a single lookup (was fetched twice before:
+        # once for name/username, once more just to re-derive the role)
+        creator_user = await db.users.find_one({"id": created_by}, {"_id": 0})
         creator_name = (creator_user.get("name") or creator_user.get("username") or "User") if creator_user else "User"
-        
-        # Get user role to include in message
-        dept = await get_user_department(current_user if (current_user := await db.users.find_one({"id": created_by})) else {})
+        dept = await get_user_department(creator_user) if creator_user else None
         user_role = get_user_role_from_department(dept) if dept else ""
         creator_role = f" ({user_role})" if user_role else ""
-        
-        # Create notification for each NOC user
+
+        # Build one notification doc per NOC user, then insert them all in a
+        # single batched write instead of one insert_one per recipient.
+        docs = []
         for noc_user in noc_users:
             noc_id = noc_user.get("id")
             if not noc_id:
                 continue
-            
+
             # Don't notify the NOC user who created the alert
             if created_by and noc_id == created_by:
                 continue
-            
+
             # Build NOC-specific message
             noc_message = f"{creator_name}{creator_role} added comment to alert {alert_ticket_number} for {customer}"
             if notification_type == "alt_vendor":
@@ -843,8 +850,8 @@ async def notify_users_about_alert(
                 noc_message = f"New alert {alert_ticket_number} created for {customer}"
             elif notification_type == "resolved":
                 noc_message = f"Alert {alert_ticket_number} for {customer} has been resolved"
-            
-            await create_alert_notification(
+
+            notification = AlertNotification(
                 alert_id=alert_id,
                 alert_ticket_number=alert_ticket_number,
                 customer=customer,
@@ -860,6 +867,12 @@ async def notify_users_about_alert(
                 status=status,
                 priority=priority
             )
+            doc = notification.model_dump()
+            doc['created_at'] = doc['created_at'].isoformat()
+            docs.append(doc)
+
+        if docs:
+            await db.alert_notifications.insert_many(docs)
 
 
 class Token(BaseModel):
@@ -1131,12 +1144,28 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     user = await db.users.find_one({"id": user_id}, {"_id": 0})
     if user is None:
         raise HTTPException(status_code=401, detail="User not found")
-    
-    # Update last_active timestamp
-    await db.users.update_one(
-        {"id": user_id},
-        {"$set": {"last_active": datetime.now(timezone.utc)}}
-    )
+
+    # Update last_active timestamp, but only when it's actually gone stale.
+    # This was previously an unconditional write on every single authenticated
+    # request (including 10-30s polling calls), which is pure DB write overhead
+    # for a value only used for coarse "online/offline" presence display.
+    now = datetime.now(timezone.utc)
+    last_active = user.get("last_active")
+    if isinstance(last_active, str):
+        try:
+            last_active = datetime.fromisoformat(last_active)
+        except ValueError:
+            last_active = None
+    if last_active and last_active.tzinfo is None:
+        last_active = last_active.replace(tzinfo=timezone.utc)
+    if not last_active or (now - last_active) > timedelta(seconds=30):
+        await db.users.update_one(
+            {"id": user_id},
+            {"$set": {"last_active": now}}
+        )
+        user["last_active"] = now
+    else:
+        user["last_active"] = last_active
     
     # Attach department info to user for easy access
     if user.get("department_id"):
@@ -1740,16 +1769,20 @@ async def get_all_users_notification_preferences(current_user: dict = Depends(ge
     
     # Get all users with their departments
     all_users_cursor = await db.users.find({}, {"password_hash": 0}).to_list(1000)
-    
+
+    # Batch-fetch all departments once instead of one query per user (N+1).
+    all_departments = await db.departments.find({}, {"_id": 0}).to_list(1000)
+    departments_by_id = {d["id"]: d for d in all_departments}
+
     # Separate AM and NOC users based on their actual department/role
     am_users = []
     noc_users = []
-    
+
     for user in all_users_cursor:
         # Get the user's department
-        dept = await get_user_department(user)
+        dept = user.get("department") or departments_by_id.get(user.get("department_id"))
         user_role = get_user_role_from_department(dept) if dept else "unknown"
-        
+
         if user_role == "am":
             am_users.append(user)
         elif user_role == "noc":
@@ -3349,11 +3382,14 @@ class AMRequestCreate(BaseModel):
 
 @api_router.get("/requests", response_model=List[AMRequest])
 async def get_requests(
+    response: Response,
     department: Optional[str] = None,
     request_type: Optional[str] = None,
     status: Optional[str] = None,
     show_mine_only: Optional[bool] = False,
     sub_tab: Optional[str] = None,  # Filter by active or archive
+    limit: int = Query(200, ge=1, le=100000, description="Max number of most-recent matching requests to return"),
+    skip: int = Query(0, ge=0, description="Number of most-recent matching requests to skip"),
     current_user: dict = Depends(get_current_user)
 ):
     """Get all requests - filtered by user's department and role"""
@@ -3411,7 +3447,12 @@ async def get_requests(
             {"claimed_by": {"$ne": None}}
         ]
     
-    requests = await db.am_requests.find(query).sort("created_at", -1).to_list(100)
+    # Previously hard-capped at 100 with no skip/limit control, silently
+    # dropping any request beyond the 100 most recent. Now paginated with a
+    # real total count exposed via X-Total-Count so the client can load more.
+    total = await db.am_requests.count_documents(query)
+    response.headers["X-Total-Count"] = str(total)
+    requests = await db.am_requests.find(query).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
     
     # Convert datetime fields
     for req in requests:
@@ -3946,9 +3987,12 @@ async def create_sms_ticket(ticket_data: SMSTicketCreate, current_user: dict = D
 
 @api_router.get("/tickets/sms", response_model=List[SMSTicket])
 async def get_sms_tickets(
+    response: Response,
     current_user: dict = Depends(get_current_user),
     view_mode: str = Query("all", description="View mode for AMs: 'all' for all SMS tickets, 'assigned' for assigned enterprises only"),
-    trunk_filter: str = Query(None, description="Trunk filter for AMs: 'customer_trunk' or 'vendor_trunk'")
+    trunk_filter: str = Query(None, description="Trunk filter for AMs: 'customer_trunk' or 'vendor_trunk'"),
+    limit: int = Query(500, ge=1, le=100000, description="Max number of most-recent matching tickets to return"),
+    skip: int = Query(0, ge=0, description="Number of most-recent matching tickets to skip")
 ):
     """Get SMS tickets - filtered by department type and permissions"""
     # Check department type access
@@ -4027,8 +4071,13 @@ async def get_sms_tickets(
                 else:
                     query["customer_id"] = {"$in": client_ids}
     
-    # Get all tickets (no limit for accurate counts)
-    tickets = await db.sms_tickets.find(query, {"_id": 0}).sort("date", -1).to_list(100000)
+    # Paginated fetch: return only the most recent `limit` matching tickets
+    # (previously always fetched every matching ticket, uncapped, on every
+    # request including 10s polling refreshes). Total matching count is
+    # returned via X-Total-Count so the client can offer "load more".
+    total = await db.sms_tickets.count_documents(query)
+    response.headers["X-Total-Count"] = str(total)
+    tickets = await db.sms_tickets.find(query, {"_id": 0}).sort("date", -1).skip(skip).limit(limit).to_list(limit)
     for ticket in tickets:
         if isinstance(ticket.get('date'), str):
             ticket['date'] = datetime.fromisoformat(ticket['date'])
@@ -4278,9 +4327,12 @@ async def create_voice_ticket(ticket_data: VoiceTicketCreate, current_user: dict
 
 @api_router.get("/tickets/voice", response_model=List[VoiceTicket])
 async def get_voice_tickets(
+    response: Response,
     current_user: dict = Depends(get_current_user),
     view_mode: str = Query("all", description="View mode for AMs: 'all' for all Voice tickets, 'assigned' for assigned enterprises only"),
-    trunk_filter: str = Query(None, description="Trunk filter for AMs: 'customer_trunk' or 'vendor_trunk'")
+    trunk_filter: str = Query(None, description="Trunk filter for AMs: 'customer_trunk' or 'vendor_trunk'"),
+    limit: int = Query(500, ge=1, le=100000, description="Max number of most-recent matching tickets to return"),
+    skip: int = Query(0, ge=0, description="Number of most-recent matching tickets to skip")
 ):
     query = {}
     
@@ -4347,8 +4399,13 @@ async def get_voice_tickets(
                 else:
                     query["customer_id"] = {"$in": client_ids}
     
-    # Get all tickets (no limit for accurate counts)
-    tickets = await db.voice_tickets.find(query, {"_id": 0}).sort("date", -1).to_list(100000)
+    # Paginated fetch: return only the most recent `limit` matching tickets
+    # (previously always fetched every matching ticket, uncapped, on every
+    # request including 10s polling refreshes). Total matching count is
+    # returned via X-Total-Count so the client can offer "load more".
+    total = await db.voice_tickets.count_documents(query)
+    response.headers["X-Total-Count"] = str(total)
+    tickets = await db.voice_tickets.find(query, {"_id": 0}).sort("date", -1).skip(skip).limit(limit).to_list(limit)
     for ticket in tickets:
         if isinstance(ticket.get('date'), str):
             ticket['date'] = datetime.fromisoformat(ticket['date'])
@@ -4945,20 +5002,29 @@ async def get_unassigned_alerts(current_user: dict = Depends(get_current_user)):
     now = datetime.now(timezone.utc)
     alerts = []
     
+    # Project only the fields actually used below - these tickets carry a
+    # full `actions` history array and other heavy fields that were
+    # previously pulled from the DB on every poll just to compute a handful
+    # of derived alert fields.
+    alert_projection = {
+        "_id": 0, "id": 1, "ticket_number": 1, "priority": 1, "date": 1,
+        "customer": 1, "issue": 1, "issue_types": 1
+    }
+
     # Check SMS tickets
-    sms_tickets = await db.sms_tickets.find({
-        "status": "Unassigned"
-    }).to_list(1000)
-    
+    sms_tickets = await db.sms_tickets.find(
+        {"status": "Unassigned"}, alert_projection
+    ).to_list(1000)
+
     for ticket in sms_tickets:
         priority = ticket.get("priority", "Medium")
         interval = priority_intervals.get(priority, 15)  # Default to 15 minutes
         threshold_time = now - timedelta(minutes=interval)
-        
+
         ticket_date = ticket.get("date")
         if isinstance(ticket_date, str):
             ticket_date = datetime.fromisoformat(ticket_date)
-        
+
         if ticket_date and ticket_date <= threshold_time:
             alerts.append({
                 "id": ticket["id"],
@@ -4970,11 +5036,11 @@ async def get_unassigned_alerts(current_user: dict = Depends(get_current_user)):
                 "customer": ticket.get("customer", "Unknown"),
                 "issue": ticket.get("issue", ticket.get("issue_types", []))
             })
-    
+
     # Check Voice tickets
-    voice_tickets = await db.voice_tickets.find({
-        "status": "Unassigned"
-    }).to_list(1000)
+    voice_tickets = await db.voice_tickets.find(
+        {"status": "Unassigned"}, alert_projection
+    ).to_list(1000)
     
     for ticket in voice_tickets:
         priority = ticket.get("priority", "Medium")
@@ -5090,12 +5156,20 @@ async def get_assigned_ticket_reminders(current_user: dict = Depends(get_current
     
     now = datetime.now(timezone.utc)
     reminders = []
-    
+
+    # Project only the fields actually used below (see get_unassigned_alerts
+    # for why this matters - avoids pulling each ticket's full action history
+    # just to compute a reminder).
+    reminder_projection = {
+        "_id": 0, "id": 1, "ticket_number": 1, "priority": 1, "date": 1,
+        "assigned_at": 1, "customer": 1, "issue": 1, "issue_types": 1
+    }
+
     # Check SMS tickets assigned to current user
     sms_tickets = await db.sms_tickets.find({
         "assigned_to": current_user_id,
         "status": "Assigned"
-    }).to_list(1000)
+    }, reminder_projection).to_list(1000)
     
     for ticket in sms_tickets:
         priority = ticket.get("priority", "Medium")
@@ -5140,7 +5214,7 @@ async def get_assigned_ticket_reminders(current_user: dict = Depends(get_current
     voice_tickets = await db.voice_tickets.find({
         "assigned_to": current_user_id,
         "status": "Assigned"
-    }).to_list(1000)
+    }, reminder_projection).to_list(1000)
     
     for ticket in voice_tickets:
         priority = ticket.get("priority", "Medium")
@@ -5717,16 +5791,31 @@ async def get_conversations(current_user: dict = Depends(get_current_user)):
             {"participant_ids": user_id}
         ).sort("updated_at", -1).to_list(length=100)
 
+        # Batch-fetch all other participants in one query instead of one
+        # find_one per participant per conversation (N+1).
+        other_participant_ids = set()
+        for conv in conversations:
+            for pid in conv.get("participant_ids", []):
+                if pid != user_id:
+                    other_participant_ids.add(pid)
+
+        users_by_id = {}
+        if other_participant_ids:
+            participant_users = await db.users.find(
+                {"id": {"$in": list(other_participant_ids)}},
+                {"_id": 0, "id": 1, "username": 1, "name": 1, "last_active": 1}
+            ).to_list(length=len(other_participant_ids))
+            users_by_id = {u["id"]: u for u in participant_users}
+
+        online_threshold = datetime.now(timezone.utc) - timedelta(minutes=5)
+
         result = []
         for conv in conversations:
             # Get participant info
             participants = []
             for pid in conv.get("participant_ids", []):
                 if pid != user_id:
-                    puser = await db.users.find_one(
-                        {"id": pid},
-                        {"_id": 0, "id": 1, "username": 1, "name": 1, "last_active": 1}
-                    )
+                    puser = users_by_id.get(pid)
                     if puser:
                         is_online = False
                         if puser.get("last_active"):
@@ -5736,7 +5825,6 @@ async def get_conversations(current_user: dict = Depends(get_current_user)):
                                 last_active = datetime.fromisoformat(last_active)
                             if last_active.tzinfo is None:
                                 last_active = last_active.replace(tzinfo=timezone.utc)
-                            online_threshold = datetime.now(timezone.utc) - timedelta(minutes=5)
                             is_online = last_active > online_threshold
                         participants.append({
                             "id": puser["id"],
@@ -6064,7 +6152,10 @@ async def get_chat_file(filename: str):
         raise HTTPException(status_code=404, detail="File not found")
 
     from fastapi.responses import FileResponse
-    return FileResponse(file_path)
+    # Uploaded filenames are content-unique (random suffix), so the browser can
+    # cache them indefinitely instead of re-downloading the same attachment
+    # every time a conversation is reopened or the page reloads.
+    return FileResponse(file_path, headers={"Cache-Control": "public, max-age=31536000, immutable"})
 
 
 # =====================
@@ -6400,6 +6491,10 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["*"],
 )
+
+# Compress JSON/text responses over 500 bytes - cuts bandwidth drastically on
+# large ticket/request list payloads with no change to response content.
+app.add_middleware(GZipMiddleware, minimum_size=500)
 
 logging.basicConfig(
     level=logging.INFO,

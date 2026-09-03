@@ -19,6 +19,7 @@ import MultiSelect from "@/components/custom/MultiSelect";
 import MultiFilter from "@/components/custom/MultiFilter";
 import CompactImageViewer from "@/components/custom/CompactImageViewer";
 import axios from "axios";
+import { useDebounce } from "@/hooks/useDebounce";
 
 const API = `${process.env.REACT_APP_API_URL || "http://localhost:8000"}/api`;
 
@@ -134,6 +135,7 @@ export default function RequestsPage() {
   const smsPending = useMemo(() => getPendingByPriority("sms"), [getPendingByPriority]);
   const voicePending = useMemo(() => getPendingByPriority("voice"), [getPendingByPriority]);
   const [searchTerm, setSearchTerm] = useState("");
+  const debouncedSearchTerm = useDebounce(searchTerm, 300);
   const [statusFilter, setStatusFilter] = useState("all");
   const [showMyRequestsOnly, setShowMyRequestsOnly] = useState(false); // Toggle for AM to show only their own requests
   const [isLoading, setIsLoading] = useState(false);
@@ -1175,21 +1177,23 @@ export default function RequestsPage() {
       };
 
       if (isEditMode && editingRequest) {
-        await axios.put(`${API}/requests/${editingRequest.id}`, requestData, {
+        const response = await axios.put(`${API}/requests/${editingRequest.id}`, requestData, {
           headers: { Authorization: `Bearer ${token}` }
         });
         toast({ title: "Request updated successfully" });
+        const updated = response.data;
+        setRequests(prev => prev.map(r => r.id === updated.id ? updated : r));
       } else {
-        await axios.post(`${API}/requests`, requestData, {
+        const response = await axios.post(`${API}/requests`, requestData, {
           headers: { Authorization: `Bearer ${token}` }
         });
         toast({ title: "Request submitted successfully" });
+        setRequests(prev => [response.data, ...prev]);
       }
-      
+
       setDialogOpen(false);
       setIsEditMode(false);
       setEditingRequest(null);
-      fetchRequests();
       // Reset form
       setFormData(getInitialFormData());
     } catch (error) {
@@ -1440,9 +1444,9 @@ export default function RequestsPage() {
       await axios.delete(`${API}/requests/${requestToDelete}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      
+
       toast({ title: "Request deleted successfully" });
-      fetchRequests();
+      setRequests(prev => prev.filter(r => r.id !== requestToDelete));
     } catch (error) {
       console.error("Failed to delete request:", error);
       const errorMessage = error.response?.data?.detail || "Failed to delete request";
@@ -1483,15 +1487,16 @@ export default function RequestsPage() {
     if (!requestToClaim) return;
     try {
       const token = localStorage.getItem("token");
-      await axios.put(`${API}/requests/${requestToClaim.id}`, {
+      const response = await axios.put(`${API}/requests/${requestToClaim.id}`, {
         claimed_by: user.id,
         status: "in_progress"
       }, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      
+
       toast({ title: "Request claimed successfully" });
-      fetchRequests();
+      const updated = response.data;
+      setRequests(prev => prev.map(r => r.id === updated.id ? updated : r));
     } catch (error) {
       console.error("Failed to claim request:", error);
       const errorMessage = error.response?.data?.detail || "Failed to claim request";
@@ -1521,16 +1526,17 @@ export default function RequestsPage() {
         }
       }
       
-      await axios.put(`${API}/requests/${selectedRequest.id}`, {
+      const response = await axios.put(`${API}/requests/${selectedRequest.id}`, {
         status: newStatus,
         response: responseComment || null,
         test_result_images: testResultImagesBase64
       }, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      
+
       toast({ title: `Request ${newStatus === "completed" ? "completed" : "rejected"} successfully` });
-      fetchRequests();
+      const updated = response.data;
+      setRequests(prev => prev.map(r => r.id === updated.id ? updated : r));
     } catch (error) {
       console.error("Failed to respond to request:", error);
       const errorMessage = error.response?.data?.detail || "Failed to respond to request";
@@ -1568,8 +1574,8 @@ export default function RequestsPage() {
         if (req.status !== "completed" && req.status !== "rejected") return false;
       }
       
-      if (!searchTerm) return true;
-      const search = searchTerm.toLowerCase();
+      if (!debouncedSearchTerm) return true;
+      const search = debouncedSearchTerm.toLowerCase();
       return (
         req.customer?.toLowerCase().includes(search) ||
         req.request_type_label?.toLowerCase().includes(search) ||
@@ -1599,7 +1605,7 @@ export default function RequestsPage() {
         return true;
       });
     });
-  }, [requests, requestSubTab, searchTerm, multiFilters]);
+  }, [requests, requestSubTab, debouncedSearchTerm, multiFilters]);
 
   // Memoize sorted requests
   const sortedRequests = useMemo(() => {

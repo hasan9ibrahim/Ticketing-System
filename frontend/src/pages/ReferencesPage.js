@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import MultiFilter from "@/components/custom/MultiFilter";
+import { useDebounce } from "@/hooks/useDebounce";
 import {
   Dialog,
   DialogContent,
@@ -106,6 +107,10 @@ export default function ReferencesPage() {
   const [editingList, setEditingList] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [vendorSearchQuery, setVendorSearchQuery] = useState("");  // Separate search for vendor trunks in dialog
+  // Debounced copies of the free-text search inputs - avoid re-filtering the
+  // (already-fetched) lists/vendor trunks on every keystroke.
+  const debouncedSearchQuery = useDebounce(searchQuery, 300);
+  const debouncedVendorSearchQuery = useDebounce(vendorSearchQuery, 300);
   const [filters, setFilters] = useState([]);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [listToDelete, setListToDelete] = useState(null);
@@ -475,7 +480,7 @@ export default function ReferencesPage() {
           });
           return;
         }
-        await axios.put(
+        const res = await axios.put(
           `${API}/references/${listId}`,
           {
             name: formData.name,
@@ -486,13 +491,24 @@ export default function ReferencesPage() {
           },
           { headers: { Authorization: `Bearer ${token}` } }
         );
+        // Patch the updated list into local state instead of re-fetching everything.
+        const updatedList = res.data;
+        const patchLists = (prev) => prev.map((l) => ((l.id || l._id) === listId ? updatedList : l));
+        if (updatedList.section === "voice") {
+          setVoiceLists(patchLists);
+        } else {
+          setSmsLists(patchLists);
+        }
+        if (selectedListForView && (selectedListForView.id || selectedListForView._id) === listId) {
+          setSelectedListForView(updatedList);
+        }
         toast({
           title: "Success",
           description: "Reference list updated successfully"
         });
       } else {
         // Create new list
-        await axios.post(
+        const res = await axios.post(
           `${API}/references`,
           {
             name: formData.name,
@@ -504,6 +520,12 @@ export default function ReferencesPage() {
           },
           { headers: { Authorization: `Bearer ${token}` } }
         );
+        // Prepend the created list into local state instead of re-fetching everything.
+        if (activeSection === "voice") {
+          setVoiceLists((prev) => [res.data, ...prev]);
+        } else {
+          setSmsLists((prev) => [res.data, ...prev]);
+        }
         toast({
           title: "Success",
           description: "Reference list created successfully"
@@ -512,7 +534,6 @@ export default function ReferencesPage() {
 
       setDialogOpen(false);
       setVendorSearchQuery("");  // Reset vendor search when closing dialog
-      fetchData();
     } catch (error) {
       console.error("Failed to save:", error);
       console.error("Error response:", error.response);
@@ -560,13 +581,19 @@ export default function ReferencesPage() {
         title: "Success",
         description: "Reference list deleted successfully"
       });
+      // Patch the deleted list out of local state instead of re-fetching everything.
+      const removeList = (prev) => prev.filter((l) => (l.id || l._id) !== listId);
+      if (listToDelete?.section === "voice") {
+        setVoiceLists(removeList);
+      } else {
+        setSmsLists(removeList);
+      }
       setDeleteDialogOpen(false);
       setListToDelete(null);
       // Close view panel if the deleted list was being viewed
       if (selectedListForView && (selectedListForView.id === listToDelete?.id || selectedListForView._id === listToDelete?._id)) {
         setSelectedListForView(null);
       }
-      fetchData();
     } catch (error) {
       console.error("Failed to delete:", error);
       toast({
@@ -616,10 +643,12 @@ export default function ReferencesPage() {
       
       setCommentText("");
       setAlternativeVendor("");
-      
-      // Also refresh all alerts in background
-      fetchData();
-      
+
+      // Patch the new comment into the alert's entry in local state instead
+      // of re-fetching every list/alert/vendor-trunk endpoint again.
+      setSmsAlerts((prev) => prev.map((a) => (a.id === selectedAlert.id ? { ...a, comments: updatedComments } : a)));
+      setVoiceAlerts((prev) => prev.map((a) => (a.id === selectedAlert.id ? { ...a, comments: updatedComments } : a)));
+
     } catch (error) {
       console.error("Failed to add comment:", error);
       toast({
@@ -644,10 +673,12 @@ export default function ReferencesPage() {
         title: "Success",
         description: "Alert deleted successfully"
       });
-      
+
+      // Patch the deleted alert out of local state instead of re-fetching everything.
+      setSmsAlerts((prev) => prev.filter((a) => a.id !== alertToDelete));
+      setVoiceAlerts((prev) => prev.filter((a) => a.id !== alertToDelete));
       setSelectedAlert(null);
       setAlertToDelete(null);
-      fetchData();
     } catch (error) {
       console.error("Failed to delete alert:", error);
       toast({
@@ -672,10 +703,12 @@ export default function ReferencesPage() {
         title: "Success",
         description: "Alert resolved successfully"
       });
-      
+
+      // Patch the resolved status into local state instead of re-fetching everything.
+      setSmsAlerts((prev) => prev.map((a) => (a.id === alertToResolve ? { ...a, resolved: true } : a)));
+      setVoiceAlerts((prev) => prev.map((a) => (a.id === alertToResolve ? { ...a, resolved: true } : a)));
       setAlertToResolve(null);
-      fetchData();
-      
+
       // Refresh selected alert to get updated resolved status
       if (selectedAlert && selectedAlert.id === alertToResolve) {
         setSelectedAlert({...selectedAlert, resolved: true});
@@ -731,17 +764,17 @@ export default function ReferencesPage() {
   };
 
   const filteredVendorTrunks = (activeSection === "sms" ? smsVendorTrunks : voiceVendorTrunks)
-    .filter(trunk => trunk.toLowerCase().includes(vendorSearchQuery.toLowerCase()));
+    .filter(trunk => trunk.toLowerCase().includes(debouncedVendorSearchQuery.toLowerCase()));
 
   const filterLists = (lists) => {
     let filtered = lists;
-    
+
     // Apply search query
-    if (searchQuery) {
+    if (debouncedSearchQuery) {
       filtered = filtered.filter(list =>
-        list.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        list.destination.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        list.traffic_type.toLowerCase().includes(searchQuery.toLowerCase())
+        list.name.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
+        list.destination.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
+        list.traffic_type.toLowerCase().includes(debouncedSearchQuery.toLowerCase())
       );
     }
     

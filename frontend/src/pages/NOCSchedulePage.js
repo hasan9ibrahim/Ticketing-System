@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { ChevronLeft, ChevronRight, Save, FileText } from "lucide-react";
 import { toast } from "sonner";
+import { fetchCached } from "@/lib/dataCache";
 
 const API = `${process.env.REACT_APP_API_URL}/api`;
 
@@ -85,8 +86,9 @@ export default function NOCSchedulePage() {
 
   const fetchNOCUsers = async () => {
     try {
-      const response = await axios.get(`${API}/users`, getAuthHeader());
-      const users = response.data || [];
+      // Users rarely change - share one fetch across pages instead of every
+      // page re-fetching its own copy.
+      const users = await fetchCached("users", () => axios.get(`${API}/users`, getAuthHeader()).then((r) => r.data || []));
       // Filter to NOC users who are active
       const nocOnly = users.filter(u => u.role === "noc" && u.is_active !== false);
       setNocUsers(nocOnly);
@@ -231,13 +233,15 @@ export default function NOCSchedulePage() {
       }
       
       console.log("Save result:", result);
-      
+
+      // Patch the created/updated schedule into local state instead of
+      // re-fetching the whole month.
+      if (result) {
+        const key = `${result.noc_user_id}-${result.date}`;
+        setSchedules(prev => ({ ...prev, [key]: result }));
+      }
+
       setEditDialogOpen(false);
-      
-      // Force refresh with a small delay to ensure DB is updated
-      setTimeout(() => {
-        fetchSchedules();
-      }, 100);
     } catch (error) {
       console.error("Error saving schedule:", error);
       const errorMsg = error.response?.data?.detail || "Error saving schedule";
@@ -251,8 +255,14 @@ export default function NOCSchedulePage() {
     try {
       await axios.delete(`${API}/noc-schedule/${editData.scheduleId}`, getAuthHeader());
       toast.success("Schedule deleted");
+      // Patch the deleted schedule out of local state instead of re-fetching the whole month.
+      const key = getScheduleKey(editData.userId, editData.day);
+      setSchedules(prev => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
       setEditDialogOpen(false);
-      fetchSchedules();
     } catch (error) {
       console.error("Error deleting schedule:", error);
       toast.error("Error deleting schedule");
