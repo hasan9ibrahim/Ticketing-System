@@ -76,24 +76,6 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
     };
   }, [token, user?.id]);
 
-  // Also fetch conversations on mount (for initial load)
-  useEffect(() => {
-    if (!token || !user?.id) return;
-
-    const fetchConversations = async () => {
-      try {
-        const convResponse = await axios.get(`${API}/chat/conversations`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        setConversations(convResponse.data);
-      } catch (error) {
-        console.error('Error fetching conversations:', error);
-      }
-    };
-
-    fetchConversations();
-  }, [token, user?.id]);
-
   // Send message via WebSocket
   const sendWebSocketMessage = (message) => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {

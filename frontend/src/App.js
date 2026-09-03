@@ -44,14 +44,22 @@ function App() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const token = localStorage.getItem("token");
-    const userData = localStorage.getItem("user");
-    if (token && userData) {
-      const parsedUser = JSON.parse(userData);
-      // Fetch department info to get department_type
-      fetchUserDepartment(parsedUser, token);
-    }
-    setLoading(false);
+    const init = async () => {
+      const token = localStorage.getItem("token");
+      const userData = localStorage.getItem("user");
+      if (token && userData) {
+        const parsedUser = JSON.parse(userData);
+        // Fetch department info to get department_type. Awaited so the
+        // dashboard mounts exactly once with a complete `user` object -
+        // previously setLoading(false) fired immediately, mounting the
+        // whole dashboard tree with an incomplete user, then again moments
+        // later once this resolved and replaced it with a new object
+        // reference, causing every effect keyed on [user] to fire twice.
+        await fetchUserDepartment(parsedUser, token);
+      }
+      setLoading(false);
+    };
+    init();
   }, []);
 
   const fetchUserDepartment = async (currentUser, token) => {
