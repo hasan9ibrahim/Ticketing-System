@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, UploadFile, File, WebSocket, WebSocketDisconnect, Query, Response
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, UploadFile, File, WebSocket, WebSocketDisconnect, Query, Response, Header
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -19,6 +19,7 @@ import pandas as pd
 import io
 import pyotp
 import secrets
+import hashlib
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -1251,6 +1252,46 @@ def normalize_opened_via(opened_via):
         # Convert old string format to list
         return [v.strip() for v in opened_via.split(",") if v.strip()]
     return opened_via
+
+
+def compute_list_etag(total: int, skip: int, limit: int, latest_change) -> str:
+    """Build a cheap ETag for a paginated list response from its total count,
+    paging window, and the most-recently-changed matching record's timestamp.
+    Lets polling clients skip re-downloading (and re-serializing) an unchanged
+    page via a 304 Not Modified."""
+    raw = f"{total}:{skip}:{limit}:{latest_change or ''}"
+    return hashlib.md5(raw.encode()).hexdigest()
+
+
+async def get_list_etag_or_304(
+    collection,
+    query: dict,
+    skip: int,
+    limit: int,
+    if_none_match: Optional[str],
+    response: Response,
+    timestamp_field: str = "updated_at",
+):
+    """Cheaply check whether a paginated list query has changed since the
+    client's last poll (If-None-Match), before paying the cost of fetching
+    and serializing the full page. Returns a 304 Response if unchanged,
+    otherwise None (caller proceeds to fetch the actual page) after setting
+    ETag/Cache-Control/X-Total-Count on `response`.
+    """
+    total = await collection.count_documents(query)
+    latest_doc = await collection.find(
+        query, {"_id": 0, timestamp_field: 1}
+    ).sort(timestamp_field, -1).limit(1).to_list(1)
+    latest_change = latest_doc[0].get(timestamp_field) if latest_doc else None
+    etag = compute_list_etag(total, skip, limit, latest_change)
+
+    headers = {"ETag": etag, "Cache-Control": "no-cache", "X-Total-Count": str(total)}
+    if if_none_match == etag:
+        return Response(status_code=304, headers=headers)
+
+    for key, value in headers.items():
+        response.headers[key] = value
+    return None
 
 # ==================== AUTH ROUTES ====================
 
@@ -3390,6 +3431,7 @@ async def get_requests(
     sub_tab: Optional[str] = None,  # Filter by active or archive
     limit: int = Query(200, ge=1, le=100000, description="Max number of most-recent matching requests to return"),
     skip: int = Query(0, ge=0, description="Number of most-recent matching requests to skip"),
+    if_none_match: Optional[str] = Header(None),
     current_user: dict = Depends(get_current_user)
 ):
     """Get all requests - filtered by user's department and role"""
@@ -3450,8 +3492,16 @@ async def get_requests(
     # Previously hard-capped at 100 with no skip/limit control, silently
     # dropping any request beyond the 100 most recent. Now paginated with a
     # real total count exposed via X-Total-Count so the client can load more.
-    total = await db.am_requests.count_documents(query)
-    response.headers["X-Total-Count"] = str(total)
+    #
+    # This endpoint is polled every ~10-20s (both the Requests page itself and
+    # the dashboard sidebar badge). Skip re-fetching/re-serializing the page
+    # if nothing in this exact query/page has changed since the client's last
+    # poll (304 Not Modified - handled transparently by the browser's cache).
+    not_modified = await get_list_etag_or_304(
+        db.am_requests, query, skip, limit, if_none_match, response
+    )
+    if not_modified:
+        return not_modified
     requests = await db.am_requests.find(query).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
     
     # Convert datetime fields
@@ -3992,7 +4042,8 @@ async def get_sms_tickets(
     view_mode: str = Query("all", description="View mode for AMs: 'all' for all SMS tickets, 'assigned' for assigned enterprises only"),
     trunk_filter: str = Query(None, description="Trunk filter for AMs: 'customer_trunk' or 'vendor_trunk'"),
     limit: int = Query(500, ge=1, le=100000, description="Max number of most-recent matching tickets to return"),
-    skip: int = Query(0, ge=0, description="Number of most-recent matching tickets to skip")
+    skip: int = Query(0, ge=0, description="Number of most-recent matching tickets to skip"),
+    if_none_match: Optional[str] = Header(None)
 ):
     """Get SMS tickets - filtered by department type and permissions"""
     # Check department type access
@@ -4075,8 +4126,17 @@ async def get_sms_tickets(
     # (previously always fetched every matching ticket, uncapped, on every
     # request including 10s polling refreshes). Total matching count is
     # returned via X-Total-Count so the client can offer "load more".
-    total = await db.sms_tickets.count_documents(query)
-    response.headers["X-Total-Count"] = str(total)
+    #
+    # This endpoint is polled every ~10s by the ticket pages. Before paying
+    # to fetch+serialize the full page, check whether anything in this exact
+    # query/page has actually changed since the client's last poll - if not,
+    # return 304 Not Modified (browsers apply this transparently to repeat
+    # GETs with the same URL, no frontend changes needed).
+    not_modified = await get_list_etag_or_304(
+        db.sms_tickets, query, skip, limit, if_none_match, response
+    )
+    if not_modified:
+        return not_modified
     tickets = await db.sms_tickets.find(query, {"_id": 0}).sort("date", -1).skip(skip).limit(limit).to_list(limit)
     for ticket in tickets:
         if isinstance(ticket.get('date'), str):
@@ -4332,10 +4392,11 @@ async def get_voice_tickets(
     view_mode: str = Query("all", description="View mode for AMs: 'all' for all Voice tickets, 'assigned' for assigned enterprises only"),
     trunk_filter: str = Query(None, description="Trunk filter for AMs: 'customer_trunk' or 'vendor_trunk'"),
     limit: int = Query(500, ge=1, le=100000, description="Max number of most-recent matching tickets to return"),
-    skip: int = Query(0, ge=0, description="Number of most-recent matching tickets to skip")
+    skip: int = Query(0, ge=0, description="Number of most-recent matching tickets to skip"),
+    if_none_match: Optional[str] = Header(None)
 ):
     query = {}
-    
+
     if current_user["role"] == "am":
         # Check if AM is assigned to Voice - check both am_type and department_type
         am_type = current_user.get("am_type")
@@ -4403,8 +4464,17 @@ async def get_voice_tickets(
     # (previously always fetched every matching ticket, uncapped, on every
     # request including 10s polling refreshes). Total matching count is
     # returned via X-Total-Count so the client can offer "load more".
-    total = await db.voice_tickets.count_documents(query)
-    response.headers["X-Total-Count"] = str(total)
+    #
+    # This endpoint is polled every ~10s by the ticket pages. Before paying
+    # to fetch+serialize the full page, check whether anything in this exact
+    # query/page has actually changed since the client's last poll - if not,
+    # return 304 Not Modified (browsers apply this transparently to repeat
+    # GETs with the same URL, no frontend changes needed).
+    not_modified = await get_list_etag_or_304(
+        db.voice_tickets, query, skip, limit, if_none_match, response
+    )
+    if not_modified:
+        return not_modified
     tickets = await db.voice_tickets.find(query, {"_id": 0}).sort("date", -1).skip(skip).limit(limit).to_list(limit)
     for ticket in tickets:
         if isinstance(ticket.get('date'), str):
@@ -6490,6 +6560,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["*"],
+    # Let the browser cache a successful preflight (OPTIONS) for an hour
+    # instead of re-sending one before every single polled GET/POST.
+    max_age=3600,
 )
 
 # Compress JSON/text responses over 500 bytes - cuts bandwidth drastically on
@@ -6540,10 +6613,33 @@ async def startup_init():
         if "noc_monthly_notes" not in await db.list_collection_names():
             await db.create_collection("noc_monthly_notes")
         await db.noc_monthly_notes.create_index([("year", 1), ("month", 1)])
-        
+
         logger.info("Chat collections initialized successfully")
     except Exception as e:
         logger.error(f"Error initializing chat collections: {e}")
+
+    # Indexes for the heavily-polled, sorted/filtered ticket and request
+    # collections. These previously had no indexes at all, meaning every
+    # list query's sort (and the ETag pre-check's "most recently changed"
+    # lookup) required a full in-memory collection scan.
+    try:
+        await db.sms_tickets.create_index([("date", -1)])
+        await db.sms_tickets.create_index([("updated_at", -1)])
+        await db.sms_tickets.create_index([("status", 1), ("assigned_to", 1)])
+        await db.sms_tickets.create_index("customer_id")
+
+        await db.voice_tickets.create_index([("date", -1)])
+        await db.voice_tickets.create_index([("updated_at", -1)])
+        await db.voice_tickets.create_index([("status", 1), ("assigned_to", 1)])
+        await db.voice_tickets.create_index("customer_id")
+
+        await db.am_requests.create_index([("created_at", -1)])
+        await db.am_requests.create_index([("updated_at", -1)])
+        await db.am_requests.create_index([("department", 1), ("status", 1)])
+
+        logger.info("Ticket/request indexes initialized successfully")
+    except Exception as e:
+        logger.error(f"Error initializing ticket/request indexes: {e}")
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
