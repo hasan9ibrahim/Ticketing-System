@@ -1,7 +1,8 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, UploadFile, File, WebSocket, WebSocketDisconnect, Query
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, UploadFile, File, WebSocket, WebSocketDisconnect, Query, Response, Header
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
+from starlette.middleware.gzip import GZipMiddleware
 from starlette.websockets import WebSocketState
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
@@ -18,6 +19,7 @@ import pandas as pd
 import io
 import pyotp
 import secrets
+import hashlib
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -564,18 +566,20 @@ async def notify_noc_about_am_action(ticket, action_text, action_created_by, tic
     ticket_number = ticket.get("ticket_number", "")
     customer_name = ticket.get("customer", "")
     
-    # Create notification for each NOC user
+    # Build one notification doc per NOC user, then insert them all in a
+    # single batched write instead of one insert_one per recipient.
+    docs = []
     for noc_user in noc_users:
         # Check if NOC wants to be notified for AM actions (default True)
         if not noc_user.get("notify_on_am_action", True):
             continue
-        
+
         noc_id = noc_user.get("id")
         if not noc_id:
             continue
-        
+
         notification_id = str(uuid.uuid4())
-        
+
         doc = {
             "id": notification_id,
             "ticket_id": ticket.get("id"),
@@ -597,7 +601,10 @@ async def notify_noc_about_am_action(ticket, action_text, action_created_by, tic
             "created_at": datetime.now(timezone.utc)
         }
         doc['created_at'] = doc['created_at'].isoformat()
-        await db.ticket_notifications.insert_one(doc)
+        docs.append(doc)
+
+    if docs:
+        await db.ticket_notifications.insert_many(docs)
 
 
 async def notify_noc_about_noc_modification(ticket, modified_by_user, modified_by_username, changes, ticket_type="sms"):
@@ -816,25 +823,26 @@ async def notify_users_about_alert(
                 {"_id": 0, "id": 1, "username": 1, "name": 1}
             ).to_list(100)
         
-        # Get creator info
-        creator_user = await db.users.find_one({"id": created_by}, {"_id": 0, "username": 1, "name": 1})
+        # Get creator info and role in a single lookup (was fetched twice before:
+        # once for name/username, once more just to re-derive the role)
+        creator_user = await db.users.find_one({"id": created_by}, {"_id": 0})
         creator_name = (creator_user.get("name") or creator_user.get("username") or "User") if creator_user else "User"
-        
-        # Get user role to include in message
-        dept = await get_user_department(current_user if (current_user := await db.users.find_one({"id": created_by})) else {})
+        dept = await get_user_department(creator_user) if creator_user else None
         user_role = get_user_role_from_department(dept) if dept else ""
         creator_role = f" ({user_role})" if user_role else ""
-        
-        # Create notification for each NOC user
+
+        # Build one notification doc per NOC user, then insert them all in a
+        # single batched write instead of one insert_one per recipient.
+        docs = []
         for noc_user in noc_users:
             noc_id = noc_user.get("id")
             if not noc_id:
                 continue
-            
+
             # Don't notify the NOC user who created the alert
             if created_by and noc_id == created_by:
                 continue
-            
+
             # Build NOC-specific message
             noc_message = f"{creator_name}{creator_role} added comment to alert {alert_ticket_number} for {customer}"
             if notification_type == "alt_vendor":
@@ -843,8 +851,8 @@ async def notify_users_about_alert(
                 noc_message = f"New alert {alert_ticket_number} created for {customer}"
             elif notification_type == "resolved":
                 noc_message = f"Alert {alert_ticket_number} for {customer} has been resolved"
-            
-            await create_alert_notification(
+
+            notification = AlertNotification(
                 alert_id=alert_id,
                 alert_ticket_number=alert_ticket_number,
                 customer=customer,
@@ -860,6 +868,12 @@ async def notify_users_about_alert(
                 status=status,
                 priority=priority
             )
+            doc = notification.model_dump()
+            doc['created_at'] = doc['created_at'].isoformat()
+            docs.append(doc)
+
+        if docs:
+            await db.alert_notifications.insert_many(docs)
 
 
 class Token(BaseModel):
@@ -882,6 +896,7 @@ class Client(BaseModel):
     customer_trunks: Optional[List[str]] = Field(default_factory=list)  # List of customer trunk names
     vendor_trunks: Optional[List[str]] = Field(default_factory=list)  # List of vendor trunk names
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: Optional[datetime] = None
 
 class ClientCreate(BaseModel):
     name: str  # Required
@@ -1131,12 +1146,28 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     user = await db.users.find_one({"id": user_id}, {"_id": 0})
     if user is None:
         raise HTTPException(status_code=401, detail="User not found")
-    
-    # Update last_active timestamp
-    await db.users.update_one(
-        {"id": user_id},
-        {"$set": {"last_active": datetime.now(timezone.utc)}}
-    )
+
+    # Update last_active timestamp, but only when it's actually gone stale.
+    # This was previously an unconditional write on every single authenticated
+    # request (including 10-30s polling calls), which is pure DB write overhead
+    # for a value only used for coarse "online/offline" presence display.
+    now = datetime.now(timezone.utc)
+    last_active = user.get("last_active")
+    if isinstance(last_active, str):
+        try:
+            last_active = datetime.fromisoformat(last_active)
+        except ValueError:
+            last_active = None
+    if last_active and last_active.tzinfo is None:
+        last_active = last_active.replace(tzinfo=timezone.utc)
+    if not last_active or (now - last_active) > timedelta(seconds=30):
+        await db.users.update_one(
+            {"id": user_id},
+            {"$set": {"last_active": now}}
+        )
+        user["last_active"] = now
+    else:
+        user["last_active"] = last_active
     
     # Attach department info to user for easy access
     if user.get("department_id"):
@@ -1222,6 +1253,46 @@ def normalize_opened_via(opened_via):
         # Convert old string format to list
         return [v.strip() for v in opened_via.split(",") if v.strip()]
     return opened_via
+
+
+def compute_list_etag(total: int, skip: int, limit: int, latest_change) -> str:
+    """Build a cheap ETag for a paginated list response from its total count,
+    paging window, and the most-recently-changed matching record's timestamp.
+    Lets polling clients skip re-downloading (and re-serializing) an unchanged
+    page via a 304 Not Modified."""
+    raw = f"{total}:{skip}:{limit}:{latest_change or ''}"
+    return hashlib.md5(raw.encode()).hexdigest()
+
+
+async def get_list_etag_or_304(
+    collection,
+    query: dict,
+    skip: int,
+    limit: int,
+    if_none_match: Optional[str],
+    response: Response,
+    timestamp_field: str = "updated_at",
+):
+    """Cheaply check whether a paginated list query has changed since the
+    client's last poll (If-None-Match), before paying the cost of fetching
+    and serializing the full page. Returns a 304 Response if unchanged,
+    otherwise None (caller proceeds to fetch the actual page) after setting
+    ETag/Cache-Control/X-Total-Count on `response`.
+    """
+    total = await collection.count_documents(query)
+    latest_doc = await collection.find(
+        query, {"_id": 0, timestamp_field: 1}
+    ).sort(timestamp_field, -1).limit(1).to_list(1)
+    latest_change = latest_doc[0].get(timestamp_field) if latest_doc else None
+    etag = compute_list_etag(total, skip, limit, latest_change)
+
+    headers = {"ETag": etag, "Cache-Control": "no-cache", "X-Total-Count": str(total)}
+    if if_none_match == etag:
+        return Response(status_code=304, headers=headers)
+
+    for key, value in headers.items():
+        response.headers[key] = value
+    return None
 
 # ==================== AUTH ROUTES ====================
 
@@ -1740,16 +1811,20 @@ async def get_all_users_notification_preferences(current_user: dict = Depends(ge
     
     # Get all users with their departments
     all_users_cursor = await db.users.find({}, {"password_hash": 0}).to_list(1000)
-    
+
+    # Batch-fetch all departments once instead of one query per user (N+1).
+    all_departments = await db.departments.find({}, {"_id": 0}).to_list(1000)
+    departments_by_id = {d["id"]: d for d in all_departments}
+
     # Separate AM and NOC users based on their actual department/role
     am_users = []
     noc_users = []
-    
+
     for user in all_users_cursor:
         # Get the user's department
-        dept = await get_user_department(user)
+        dept = user.get("department") or departments_by_id.get(user.get("department_id"))
         user_role = get_user_role_from_department(dept) if dept else "unknown"
-        
+
         if user_role == "am":
             am_users.append(user)
         elif user_role == "noc":
@@ -2307,19 +2382,36 @@ async def create_client(client_data: ClientCreate, current_user: dict = Depends(
     return client_obj
 
 @api_router.get("/clients", response_model=List[Client])
-async def get_clients(current_user: dict = Depends(get_current_user)):
+async def get_clients(
+    response: Response,
+    current_user: dict = Depends(get_current_user),
+    if_none_match: Optional[str] = Header(None)
+):
     """Get all clients - filtered by AM if user is AM"""
     dept = await get_user_department(current_user)
     role = get_user_role_from_department(dept)
-    
+
     query = {}
     if role == "am":
         query["assigned_am_id"] = current_user["id"]
-    
+
+    # This list rarely changes but is fetched by every page that needs
+    # enterprise names/dropdowns, repeatedly, via the frontend's shared
+    # cache (every ~30-60s while any such page is open). Skip re-fetching
+    # and re-transferring it when nothing has changed since the client's
+    # last copy.
+    not_modified = await get_list_etag_or_304(
+        db.clients, query, 0, 1000, if_none_match, response
+    )
+    if not_modified:
+        return not_modified
+
     clients = await db.clients.find(query, {"_id": 0}).to_list(1000)
     for client in clients:
         if isinstance(client['created_at'], str):
             client['created_at'] = datetime.fromisoformat(client['created_at'])
+        if isinstance(client.get('updated_at'), str):
+            client['updated_at'] = datetime.fromisoformat(client['updated_at'])
     return [Client(**client) for client in clients]
 
 @api_router.get("/my-enterprises", response_model=List[Client])
@@ -2340,23 +2432,26 @@ async def update_client(client_id: str, client_data: ClientUpdate, current_user:
     if not dept or not dept.get("can_edit_enterprises"):
         raise HTTPException(status_code=403, detail="Admin or NOC access required")
     update_dict = {k: v for k, v in client_data.model_dump().items() if v is not None}
-    
+    update_dict["updated_at"] = datetime.now(timezone.utc).isoformat()
+
     # Get client before update for audit
     client_before = await db.clients.find_one({"id": client_id}, {"_id": 0})
-    
+
     result = await db.clients.find_one_and_update(
         {"id": client_id},
         {"$set": update_dict},
         return_document=True,
         projection={"_id": 0}
     )
-    
+
     if not result:
         raise HTTPException(status_code=404, detail="Client not found")
-    
+
     if isinstance(result['created_at'], str):
         result['created_at'] = datetime.fromisoformat(result['created_at'])
-    
+    if isinstance(result.get('updated_at'), str):
+        result['updated_at'] = datetime.fromisoformat(result['updated_at'])
+
     # Create audit log for client update
     await create_audit_log(
         user_id=current_user["id"],
@@ -2394,17 +2489,20 @@ async def update_client_contact(client_id: str, contact_data: ClientContactUpdat
         raise HTTPException(status_code=404, detail="Client not found or not assigned to you")
     
     update_dict = {k: v for k, v in contact_data.model_dump().items() if v is not None}
-    
+    update_dict["updated_at"] = datetime.now(timezone.utc).isoformat()
+
     result = await db.clients.find_one_and_update(
         {"id": client_id},
         {"$set": update_dict},
         return_document=True,
         projection={"_id": 0}
     )
-    
+
     if isinstance(result['created_at'], str):
         result['created_at'] = datetime.fromisoformat(result['created_at'])
-    
+    if isinstance(result.get('updated_at'), str):
+        result['updated_at'] = datetime.fromisoformat(result['updated_at'])
+
     # Create audit log for client contact update
     await create_audit_log(
         user_id=current_user["id"],
@@ -2986,6 +3084,7 @@ class Alert(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     comments: List[dict] = Field(default_factory=list)  # List of {id, text, created_by, created_at}
     resolved: bool = False  # Whether the alert has been resolved/archived
+    updated_at: Optional[datetime] = None
 
 
 class AlertCreate(BaseModel):
@@ -3077,22 +3176,34 @@ async def create_alert(alert_data: AlertCreate, current_user: dict = Depends(get
 
 
 @api_router.get("/alerts/{section}")
-async def get_alerts(section: str, current_user: dict = Depends(get_current_user)):
+async def get_alerts(
+    section: str,
+    response: Response,
+    current_user: dict = Depends(get_current_user),
+    if_none_match: Optional[str] = Header(None)
+):
     """Get all alerts for a specific section (sms or voice)"""
     if section not in ["sms", "voice"]:
         raise HTTPException(status_code=400, detail="Section must be 'sms' or 'voice'")
-    
+
     # Check department type access
     dept = await get_user_department(current_user)
     ticket_type = get_user_ticket_type(dept)
     if ticket_type != "all" and ticket_type != section:
         raise HTTPException(status_code=403, detail=f"You don't have access to {section} alerts")
-    
-    alerts = await db.alerts.find(
-        {"ticket_type": section},
-        {"_id": 0}
-    ).sort("created_at", -1).to_list(1000)
-    
+
+    query = {"ticket_type": section}
+    # This is polled every 20-30s by every logged-in user's sidebar - skip
+    # re-fetching/re-transferring when nothing has changed since the
+    # client's last poll.
+    not_modified = await get_list_etag_or_304(
+        db.alerts, query, 0, 1000, if_none_match, response
+    )
+    if not_modified:
+        return not_modified
+
+    alerts = await db.alerts.find(query, {"_id": 0}).sort("created_at", -1).to_list(1000)
+
     return alerts
 
 
@@ -3120,7 +3231,10 @@ async def add_alert_comment(alert_id: str, comment: AlertComment, current_user: 
     # Add comment to alert
     await db.alerts.update_one(
         {"id": alert_id},
-        {"$push": {"comments": comment_obj}}
+        {
+            "$push": {"comments": comment_obj},
+            "$set": {"updated_at": datetime.now(timezone.utc).isoformat()}
+        }
     )
     
     # Create audit log for alert comment
@@ -3201,7 +3315,7 @@ async def resolve_alert(alert_id: str, current_user: dict = Depends(get_current_
     
     await db.alerts.update_one(
         {"id": alert_id},
-        {"$set": {"resolved": True}}
+        {"$set": {"resolved": True, "updated_at": datetime.now(timezone.utc).isoformat()}}
     )
     
     # Notify AMs and NOC about the resolved alert
@@ -3372,11 +3486,15 @@ class AMRequestCreate(BaseModel):
 
 @api_router.get("/requests", response_model=List[AMRequest])
 async def get_requests(
+    response: Response,
     department: Optional[str] = None,
     request_type: Optional[str] = None,
     status: Optional[str] = None,
     show_mine_only: Optional[bool] = False,
     sub_tab: Optional[str] = None,  # Filter by active or archive
+    limit: int = Query(200, ge=1, le=100000, description="Max number of most-recent matching requests to return"),
+    skip: int = Query(0, ge=0, description="Number of most-recent matching requests to skip"),
+    if_none_match: Optional[str] = Header(None),
     current_user: dict = Depends(get_current_user)
 ):
     """Get all requests - filtered by user's department and role"""
@@ -3434,7 +3552,20 @@ async def get_requests(
             {"claimed_by": {"$ne": None}}
         ]
     
-    requests = await db.am_requests.find(query).sort("created_at", -1).to_list(100)
+    # Previously hard-capped at 100 with no skip/limit control, silently
+    # dropping any request beyond the 100 most recent. Now paginated with a
+    # real total count exposed via X-Total-Count so the client can load more.
+    #
+    # This endpoint is polled every ~10-20s (both the Requests page itself and
+    # the dashboard sidebar badge). Skip re-fetching/re-serializing the page
+    # if nothing in this exact query/page has changed since the client's last
+    # poll (304 Not Modified - handled transparently by the browser's cache).
+    not_modified = await get_list_etag_or_304(
+        db.am_requests, query, skip, limit, if_none_match, response
+    )
+    if not_modified:
+        return not_modified
+    requests = await db.am_requests.find(query).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
     
     # Convert datetime fields
     for req in requests:
@@ -3969,9 +4100,13 @@ async def create_sms_ticket(ticket_data: SMSTicketCreate, current_user: dict = D
 
 @api_router.get("/tickets/sms", response_model=List[SMSTicket])
 async def get_sms_tickets(
+    response: Response,
     current_user: dict = Depends(get_current_user),
     view_mode: str = Query("all", description="View mode for AMs: 'all' for all SMS tickets, 'assigned' for assigned enterprises only"),
-    trunk_filter: str = Query(None, description="Trunk filter for AMs: 'customer_trunk' or 'vendor_trunk'")
+    trunk_filter: str = Query(None, description="Trunk filter for AMs: 'customer_trunk' or 'vendor_trunk'"),
+    limit: int = Query(500, ge=1, le=100000, description="Max number of most-recent matching tickets to return"),
+    skip: int = Query(0, ge=0, description="Number of most-recent matching tickets to skip"),
+    if_none_match: Optional[str] = Header(None)
 ):
     """Get SMS tickets - filtered by department type and permissions"""
     # Check department type access
@@ -4050,8 +4185,22 @@ async def get_sms_tickets(
                 else:
                     query["customer_id"] = {"$in": client_ids}
     
-    # Get all tickets (no limit for accurate counts)
-    tickets = await db.sms_tickets.find(query, {"_id": 0}).sort("date", -1).to_list(100000)
+    # Paginated fetch: return only the most recent `limit` matching tickets
+    # (previously always fetched every matching ticket, uncapped, on every
+    # request including 10s polling refreshes). Total matching count is
+    # returned via X-Total-Count so the client can offer "load more".
+    #
+    # This endpoint is polled every ~10s by the ticket pages. Before paying
+    # to fetch+serialize the full page, check whether anything in this exact
+    # query/page has actually changed since the client's last poll - if not,
+    # return 304 Not Modified (browsers apply this transparently to repeat
+    # GETs with the same URL, no frontend changes needed).
+    not_modified = await get_list_etag_or_304(
+        db.sms_tickets, query, skip, limit, if_none_match, response
+    )
+    if not_modified:
+        return not_modified
+    tickets = await db.sms_tickets.find(query, {"_id": 0}).sort("date", -1).skip(skip).limit(limit).to_list(limit)
     for ticket in tickets:
         if isinstance(ticket.get('date'), str):
             ticket['date'] = datetime.fromisoformat(ticket['date'])
@@ -4301,12 +4450,16 @@ async def create_voice_ticket(ticket_data: VoiceTicketCreate, current_user: dict
 
 @api_router.get("/tickets/voice", response_model=List[VoiceTicket])
 async def get_voice_tickets(
+    response: Response,
     current_user: dict = Depends(get_current_user),
     view_mode: str = Query("all", description="View mode for AMs: 'all' for all Voice tickets, 'assigned' for assigned enterprises only"),
-    trunk_filter: str = Query(None, description="Trunk filter for AMs: 'customer_trunk' or 'vendor_trunk'")
+    trunk_filter: str = Query(None, description="Trunk filter for AMs: 'customer_trunk' or 'vendor_trunk'"),
+    limit: int = Query(500, ge=1, le=100000, description="Max number of most-recent matching tickets to return"),
+    skip: int = Query(0, ge=0, description="Number of most-recent matching tickets to skip"),
+    if_none_match: Optional[str] = Header(None)
 ):
     query = {}
-    
+
     if current_user["role"] == "am":
         # Check if AM is assigned to Voice - check both am_type and department_type
         am_type = current_user.get("am_type")
@@ -4370,8 +4523,22 @@ async def get_voice_tickets(
                 else:
                     query["customer_id"] = {"$in": client_ids}
     
-    # Get all tickets (no limit for accurate counts)
-    tickets = await db.voice_tickets.find(query, {"_id": 0}).sort("date", -1).to_list(100000)
+    # Paginated fetch: return only the most recent `limit` matching tickets
+    # (previously always fetched every matching ticket, uncapped, on every
+    # request including 10s polling refreshes). Total matching count is
+    # returned via X-Total-Count so the client can offer "load more".
+    #
+    # This endpoint is polled every ~10s by the ticket pages. Before paying
+    # to fetch+serialize the full page, check whether anything in this exact
+    # query/page has actually changed since the client's last poll - if not,
+    # return 304 Not Modified (browsers apply this transparently to repeat
+    # GETs with the same URL, no frontend changes needed).
+    not_modified = await get_list_etag_or_304(
+        db.voice_tickets, query, skip, limit, if_none_match, response
+    )
+    if not_modified:
+        return not_modified
+    tickets = await db.voice_tickets.find(query, {"_id": 0}).sort("date", -1).skip(skip).limit(limit).to_list(limit)
     for ticket in tickets:
         if isinstance(ticket.get('date'), str):
             ticket['date'] = datetime.fromisoformat(ticket['date'])
@@ -4968,20 +5135,29 @@ async def get_unassigned_alerts(current_user: dict = Depends(get_current_user)):
     now = datetime.now(timezone.utc)
     alerts = []
     
+    # Project only the fields actually used below - these tickets carry a
+    # full `actions` history array and other heavy fields that were
+    # previously pulled from the DB on every poll just to compute a handful
+    # of derived alert fields.
+    alert_projection = {
+        "_id": 0, "id": 1, "ticket_number": 1, "priority": 1, "date": 1,
+        "customer": 1, "issue": 1, "issue_types": 1
+    }
+
     # Check SMS tickets
-    sms_tickets = await db.sms_tickets.find({
-        "status": "Unassigned"
-    }).to_list(1000)
-    
+    sms_tickets = await db.sms_tickets.find(
+        {"status": "Unassigned"}, alert_projection
+    ).to_list(1000)
+
     for ticket in sms_tickets:
         priority = ticket.get("priority", "Medium")
         interval = priority_intervals.get(priority, 15)  # Default to 15 minutes
         threshold_time = now - timedelta(minutes=interval)
-        
+
         ticket_date = ticket.get("date")
         if isinstance(ticket_date, str):
             ticket_date = datetime.fromisoformat(ticket_date)
-        
+
         if ticket_date and ticket_date <= threshold_time:
             alerts.append({
                 "id": ticket["id"],
@@ -4993,11 +5169,11 @@ async def get_unassigned_alerts(current_user: dict = Depends(get_current_user)):
                 "customer": ticket.get("customer", "Unknown"),
                 "issue": ticket.get("issue", ticket.get("issue_types", []))
             })
-    
+
     # Check Voice tickets
-    voice_tickets = await db.voice_tickets.find({
-        "status": "Unassigned"
-    }).to_list(1000)
+    voice_tickets = await db.voice_tickets.find(
+        {"status": "Unassigned"}, alert_projection
+    ).to_list(1000)
     
     for ticket in voice_tickets:
         priority = ticket.get("priority", "Medium")
@@ -5113,12 +5289,20 @@ async def get_assigned_ticket_reminders(current_user: dict = Depends(get_current
     
     now = datetime.now(timezone.utc)
     reminders = []
-    
+
+    # Project only the fields actually used below (see get_unassigned_alerts
+    # for why this matters - avoids pulling each ticket's full action history
+    # just to compute a reminder).
+    reminder_projection = {
+        "_id": 0, "id": 1, "ticket_number": 1, "priority": 1, "date": 1,
+        "assigned_at": 1, "customer": 1, "issue": 1, "issue_types": 1
+    }
+
     # Check SMS tickets assigned to current user
     sms_tickets = await db.sms_tickets.find({
         "assigned_to": current_user_id,
         "status": "Assigned"
-    }).to_list(1000)
+    }, reminder_projection).to_list(1000)
     
     for ticket in sms_tickets:
         priority = ticket.get("priority", "Medium")
@@ -5163,7 +5347,7 @@ async def get_assigned_ticket_reminders(current_user: dict = Depends(get_current
     voice_tickets = await db.voice_tickets.find({
         "assigned_to": current_user_id,
         "status": "Assigned"
-    }).to_list(1000)
+    }, reminder_projection).to_list(1000)
     
     for ticket in voice_tickets:
         priority = ticket.get("priority", "Medium")
@@ -5740,16 +5924,31 @@ async def get_conversations(current_user: dict = Depends(get_current_user)):
             {"participant_ids": user_id}
         ).sort("updated_at", -1).to_list(length=100)
 
+        # Batch-fetch all other participants in one query instead of one
+        # find_one per participant per conversation (N+1).
+        other_participant_ids = set()
+        for conv in conversations:
+            for pid in conv.get("participant_ids", []):
+                if pid != user_id:
+                    other_participant_ids.add(pid)
+
+        users_by_id = {}
+        if other_participant_ids:
+            participant_users = await db.users.find(
+                {"id": {"$in": list(other_participant_ids)}},
+                {"_id": 0, "id": 1, "username": 1, "name": 1, "last_active": 1}
+            ).to_list(length=len(other_participant_ids))
+            users_by_id = {u["id"]: u for u in participant_users}
+
+        online_threshold = datetime.now(timezone.utc) - timedelta(minutes=5)
+
         result = []
         for conv in conversations:
             # Get participant info
             participants = []
             for pid in conv.get("participant_ids", []):
                 if pid != user_id:
-                    puser = await db.users.find_one(
-                        {"id": pid},
-                        {"_id": 0, "id": 1, "username": 1, "name": 1, "last_active": 1}
-                    )
+                    puser = users_by_id.get(pid)
                     if puser:
                         is_online = False
                         if puser.get("last_active"):
@@ -5759,7 +5958,6 @@ async def get_conversations(current_user: dict = Depends(get_current_user)):
                                 last_active = datetime.fromisoformat(last_active)
                             if last_active.tzinfo is None:
                                 last_active = last_active.replace(tzinfo=timezone.utc)
-                            online_threshold = datetime.now(timezone.utc) - timedelta(minutes=5)
                             is_online = last_active > online_threshold
                         participants.append({
                             "id": puser["id"],
@@ -6087,7 +6285,10 @@ async def get_chat_file(filename: str):
         raise HTTPException(status_code=404, detail="File not found")
 
     from fastapi.responses import FileResponse
-    return FileResponse(file_path)
+    # Uploaded filenames are content-unique (random suffix), so the browser can
+    # cache them indefinitely instead of re-downloading the same attachment
+    # every time a conversation is reopened or the page reloads.
+    return FileResponse(file_path, headers={"Cache-Control": "public, max-age=31536000, immutable"})
 
 
 # =====================
@@ -6422,7 +6623,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["*"],
+    # Let the browser cache a successful preflight (OPTIONS) for an hour
+    # instead of re-sending one before every single polled GET/POST.
+    max_age=3600,
 )
+
+# Compress JSON/text responses over 500 bytes - cuts bandwidth drastically on
+# large ticket/request list payloads with no change to response content.
+app.add_middleware(GZipMiddleware, minimum_size=500)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -6468,10 +6676,33 @@ async def startup_init():
         if "noc_monthly_notes" not in await db.list_collection_names():
             await db.create_collection("noc_monthly_notes")
         await db.noc_monthly_notes.create_index([("year", 1), ("month", 1)])
-        
+
         logger.info("Chat collections initialized successfully")
     except Exception as e:
         logger.error(f"Error initializing chat collections: {e}")
+
+    # Indexes for the heavily-polled, sorted/filtered ticket and request
+    # collections. These previously had no indexes at all, meaning every
+    # list query's sort (and the ETag pre-check's "most recently changed"
+    # lookup) required a full in-memory collection scan.
+    try:
+        await db.sms_tickets.create_index([("date", -1)])
+        await db.sms_tickets.create_index([("updated_at", -1)])
+        await db.sms_tickets.create_index([("status", 1), ("assigned_to", 1)])
+        await db.sms_tickets.create_index("customer_id")
+
+        await db.voice_tickets.create_index([("date", -1)])
+        await db.voice_tickets.create_index([("updated_at", -1)])
+        await db.voice_tickets.create_index([("status", 1), ("assigned_to", 1)])
+        await db.voice_tickets.create_index("customer_id")
+
+        await db.am_requests.create_index([("created_at", -1)])
+        await db.am_requests.create_index([("updated_at", -1)])
+        await db.am_requests.create_index([("department", 1), ("status", 1)])
+
+        logger.info("Ticket/request indexes initialized successfully")
+    except Exception as e:
+        logger.error(f"Error initializing ticket/request indexes: {e}")
 
 @app.on_event("shutdown")
 async def shutdown_db_client():

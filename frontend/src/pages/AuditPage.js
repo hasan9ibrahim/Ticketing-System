@@ -11,6 +11,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DateRangePickerWithRange } from "@/components/custom/DateRangePickerWithRange";
 import MultiFilter from "@/components/custom/MultiFilter";
 import { startOfWeek, endOfWeek } from "date-fns";
+import { useDebounce } from "@/hooks/useDebounce";
+import { fetchCached } from "@/lib/dataCache";
 
 const BACKEND_URL = process.env.REACT_APP_API_URL;
 const API = `${BACKEND_URL}/api`;
@@ -191,13 +193,22 @@ export default function AuditPage() {
     fetchAuditLogs();
   }, [entityType, actionType, dateRange, pagination.offset, pagination.limit]);
 
+  // Debounced copy of the free-text search input - avoids re-filtering the
+  // current page of audit logs on every keystroke. Note: this search only
+  // filters the currently-fetched page (pagination.limit rows), not the full
+  // audit log dataset - the /audit-logs backend endpoint has no search param,
+  // so this is pre-existing behavior, left as-is here.
+  const debouncedSearchTerm = useDebounce(searchTerm, 300);
+
   const fetchUsers = async () => {
     try {
       const token = localStorage.getItem("token");
-      const response = await axios.get(`${API}/users`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      setUsers(response.data);
+      // Users rarely change - share one fetch across pages instead of every
+      // page re-fetching its own copy.
+      const data = await fetchCached("users", () =>
+        axios.get(`${API}/users`, { headers: { Authorization: `Bearer ${token}` } }).then((r) => r.data)
+      );
+      setUsers(data);
     } catch (error) {
       console.error("Failed to fetch users:", error);
     }
@@ -284,8 +295,8 @@ export default function AuditPage() {
 
   const filteredLogs = auditLogs.filter(log => {
     // Search filter
-    if (searchTerm) {
-      const term = searchTerm.toLowerCase();
+    if (debouncedSearchTerm) {
+      const term = debouncedSearchTerm.toLowerCase();
       if (!log.username.toLowerCase().includes(term) &&
           !log.entity_name.toLowerCase().includes(term) &&
           !log.entity_type.toLowerCase().includes(term)) {

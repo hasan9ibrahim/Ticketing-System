@@ -12,6 +12,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import MultiFilter from "@/components/custom/MultiFilter";
+import { useDebounce } from "@/hooks/useDebounce";
+import { fetchCached, invalidateCache } from "@/lib/dataCache";
 
 const BACKEND_URL = process.env.REACT_APP_API_URL;
 const API = `${BACKEND_URL}/api`;
@@ -45,21 +47,27 @@ export default function EnterprisesPage() {
   const [newVendorTrunk, setNewVendorTrunk] = useState("");
 
   useEffect(() => { fetchData(); }, []);
-  
-  useEffect(() => { filterEnterprises(); }, [searchTerm, enterprises, filters]);
+
+  // Debounced copy of the free-text search input - avoids re-filtering the
+  // enterprise list on every keystroke.
+  const debouncedSearchTerm = useDebounce(searchTerm, 300);
+
+  useEffect(() => { filterEnterprises(); }, [debouncedSearchTerm, enterprises, filters]);
 
   const fetchData = async () => {
     try {
       const token = localStorage.getItem("token");
       const headers = { Authorization: `Bearer ${token}` };
-      const [enterprisesRes, usersRes, userRes] = await Promise.all([
-        axios.get(`${API}/clients`, { headers }),
-        axios.get(`${API}/users`, { headers }),
+      const [enterprisesData, usersData, userRes] = await Promise.all([
+        // Enterprises/users rarely change - share one fetch across pages
+        // instead of every page (and every poll tick) re-fetching its own copy.
+        fetchCached("clients", () => axios.get(`${API}/clients`, { headers }).then((r) => r.data)),
+        fetchCached("users", () => axios.get(`${API}/users`, { headers }).then((r) => r.data)),
         axios.get(`${API}/auth/me`, { headers }),
       ]);
-      setEnterprises(enterprisesRes.data);
-      setFilteredEnterprises(enterprisesRes.data);
-      setUsers(usersRes.data.filter((u) => u.role === "am"));
+      setEnterprises(enterprisesData);
+      setFilteredEnterprises(enterprisesData);
+      setUsers(usersData.filter((u) => u.role === "am"));
       setCurrentUser(userRes.data);
     } catch (error) {
       toast.error("Failed to load data");
@@ -82,11 +90,11 @@ export default function EnterprisesPage() {
     let filtered = [...enterprises];
     
     // Apply search term filter
-    if (searchTerm) {
+    if (debouncedSearchTerm) {
       filtered = filtered.filter(
         (ent) =>
-          ent.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          ent.contact_person?.toLowerCase().includes(searchTerm.toLowerCase())
+          ent.name.toLowerCase().includes(debouncedSearchTerm.toLowerCase()) ||
+          ent.contact_person?.toLowerCase().includes(debouncedSearchTerm.toLowerCase())
       );
     }
     
@@ -158,27 +166,29 @@ export default function EnterprisesPage() {
           noc_emails: formData.noc_emails,
           notes: formData.notes
         };
-        await axios.put(`${API}/clients/${editingEnterprise.id}/contact`, contactData, { headers });
+        const contactRes = await axios.put(`${API}/clients/${editingEnterprise.id}/contact`, contactData, { headers });
+        // Patch the updated enterprise into local state instead of re-fetching the whole list.
+        setEnterprises((prev) => prev.map((e) => (e.id === contactRes.data.id ? contactRes.data : e)));
         toast.success("Contact updated successfully");
         setSheetOpen(false);
-        fetchData();
         return;
       }
-      
+
       const dataToSubmit = {
         ...formData,
         customer_trunks: customerTrunks,
         vendor_trunks: vendorTrunks
       };
       if (editingEnterprise) {
-        await axios.put(`${API}/clients/${editingEnterprise.id}`, dataToSubmit, { headers });
+        const res = await axios.put(`${API}/clients/${editingEnterprise.id}`, dataToSubmit, { headers });
+        setEnterprises((prev) => prev.map((e) => (e.id === res.data.id ? res.data : e)));
         toast.success("Enterprise updated successfully");
       } else {
-        await axios.post(`${API}/clients`, dataToSubmit, { headers });
+        const res = await axios.post(`${API}/clients`, dataToSubmit, { headers });
+        setEnterprises((prev) => [res.data, ...prev]);
         toast.success("Enterprise created successfully");
       }
       setSheetOpen(false);
-      fetchData();
     } catch (error) {
       toast.error(error.response?.data?.detail || "Failed to save enterprise");
     }
@@ -189,8 +199,8 @@ export default function EnterprisesPage() {
       const token = localStorage.getItem("token");
       await axios.delete(`${API}/clients/${enterpriseToDelete.id}`, { headers: { Authorization: `Bearer ${token}` } });
       toast.success("Enterprise deleted successfully");
+      setEnterprises((prev) => prev.filter((e) => e.id !== enterpriseToDelete.id));
       setDeleteDialogOpen(false);
-      fetchData();
     } catch (error) {
       toast.error("Failed to delete enterprise");
     }
@@ -201,8 +211,10 @@ export default function EnterprisesPage() {
       const token = localStorage.getItem("token");
       const response = await axios.delete(`${API}/clients/delete-all`, { headers: { Authorization: `Bearer ${token}` } });
       toast.success(response.data.message || "All enterprises deleted successfully");
+      // Delete-all removes every enterprise - the response only carries a
+      // count, but that's enough to know the list is now empty.
+      setEnterprises([]);
       setDeleteAllDialogOpen(false);
-      fetchData();
     } catch (error) {
       toast.error(error.response?.data?.detail || "Failed to delete all enterprises");
     }
@@ -301,6 +313,10 @@ export default function EnterprisesPage() {
           : `Successfully imported ${imported_count} enterprises`
       );
       setImportDialogOpen(false);
+      // Import adds an unknown set of new records (the response only carries
+      // a count) - drop the shared cache entry so the next fetch is fresh
+      // instead of replaying the pre-import cached list.
+      invalidateCache("clients");
       fetchData();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to import enterprises');

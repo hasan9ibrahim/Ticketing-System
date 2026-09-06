@@ -10,6 +10,8 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useDebounce } from "@/hooks/useDebounce";
+import { fetchCached } from "@/lib/dataCache";
 
 const BACKEND_URL = process.env.REACT_APP_API_URL;
 const API = `${BACKEND_URL}/api`;
@@ -29,18 +31,24 @@ export default function DepartmentsPage() {
     fetchData();
   }, []);
 
+  // Debounced copy of the free-text search input - avoids re-filtering the
+  // department list on every keystroke.
+  const debouncedSearchTerm = useDebounce(searchTerm, 300);
+
   useEffect(() => {
     filterDepartments();
-  }, [searchTerm, departments]);
+  }, [debouncedSearchTerm, departments]);
 
   const fetchData = async () => {
     try {
       const token = localStorage.getItem("token");
-      const response = await axios.get(`${API}/departments`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      // Departments rarely change - share one fetch across pages (this page's
+      // own poll plus e.g. UsersPage) instead of each firing its own request.
+      const data = await fetchCached("departments", () =>
+        axios.get(`${API}/departments`, { headers: { Authorization: `Bearer ${token}` } }).then((r) => r.data)
+      );
       // Remove duplicates by department ID
-      const uniqueDepartments = response.data.filter((dept, index, self) => 
+      const uniqueDepartments = data.filter((dept, index, self) =>
         index === self.findIndex((d) => d.id === dept.id)
       );
       setDepartments(uniqueDepartments);
@@ -63,12 +71,12 @@ export default function DepartmentsPage() {
   }, []);
 
   const filterDepartments = () => {
-    if (!searchTerm) {
+    if (!debouncedSearchTerm) {
       setFilteredDepartments(departments);
       return;
     }
     const filtered = departments.filter((dept) =>
-      dept.name.toLowerCase().includes(searchTerm.toLowerCase())
+      dept.name.toLowerCase().includes(debouncedSearchTerm.toLowerCase())
     );
     setFilteredDepartments(filtered);
   };
@@ -107,14 +115,16 @@ export default function DepartmentsPage() {
       const headers = { Authorization: `Bearer ${token}` };
       
       if (editingDepartment) {
-        await axios.put(`${API}/departments/${editingDepartment.id}`, formData, { headers });
+        const res = await axios.put(`${API}/departments/${editingDepartment.id}`, formData, { headers });
+        // Patch the updated department into local state instead of re-fetching the whole list.
+        setDepartments((prev) => prev.map((d) => (d.id === res.data.id ? res.data : d)));
         toast.success("Department updated successfully");
       } else {
-        await axios.post(`${API}/departments`, formData, { headers });
+        const res = await axios.post(`${API}/departments`, formData, { headers });
+        setDepartments((prev) => [res.data, ...prev]);
         toast.success("Department created successfully");
       }
       setSheetOpen(false);
-      fetchData();
     } catch (error) {
       toast.error(error.response?.data?.detail || "Failed to save department");
     }
@@ -127,8 +137,8 @@ export default function DepartmentsPage() {
         headers: { Authorization: `Bearer ${token}` },
       });
       toast.success("Department deleted successfully");
+      setDepartments((prev) => prev.filter((d) => d.id !== departmentToDelete.id));
       setDeleteDialogOpen(false);
-      fetchData();
     } catch (error) {
       toast.error(error.response?.data?.detail || "Failed to delete department");
     }

@@ -1,6 +1,5 @@
 import { Calendar as CalendarIcon } from "lucide-react";
 import { addDays, format, startOfWeek, endOfWeek } from "date-fns";
-import { DateRange } from "react-day-picker";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
