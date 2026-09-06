@@ -2500,18 +2500,35 @@ async def import_clients(
             )
         
         imported_count = 0
+        skipped_count = 0
         errors = []
-        
+
+        # Build a set of (name, enterprise_type) for existing clients so we can
+        # detect duplicates without inserting a new document for every row
+        existing_clients = await db.clients.find({}, {"_id": 0, "name": 1, "enterprise_type": 1}).to_list(10000)
+        existing_keys = {
+            (c.get("name", "").strip().lower(), (c.get("enterprise_type") or "").strip().lower())
+            for c in existing_clients
+        }
+
         for index, row in df.iterrows():
             try:
                 # Validate required fields
                 if pd.isna(row['name']) or pd.isna(row['enterprise_type']):
                     errors.append(f"Row {index + 2}: Missing required fields (name, enterprise_type)")
                     continue
-                    
+
                 # Validate enterprise_type
                 if row['enterprise_type'] not in ['sms', 'voice']:
                     errors.append(f"Row {index + 2}: enterprise_type must be 'sms' or 'voice'")
+                    continue
+
+                # Skip duplicates - an enterprise with the same name and type already
+                # exists (either in the database or earlier in this same file)
+                dedup_key = (str(row['name']).strip().lower(), str(row['enterprise_type']).strip().lower())
+                if dedup_key in existing_keys:
+                    skipped_count += 1
+                    errors.append(f"Row {index + 2}: Skipped duplicate enterprise '{row['name']}' ({row['enterprise_type']})")
                     continue
                 
                 # Validate tier if provided
@@ -2566,6 +2583,7 @@ async def import_clients(
                 # Insert into database
                 await db.clients.insert_one(client_doc)
                 imported_count += 1
+                existing_keys.add(dedup_key)
                 
                 # Create audit log for imported enterprise
                 await create_audit_log(
@@ -2581,15 +2599,20 @@ async def import_clients(
             except Exception as e:
                 errors.append(f"Row {index + 2}: {str(e)}")
         
-        if errors and imported_count == 0:
+        if errors and imported_count == 0 and skipped_count == 0:
             raise HTTPException(
                 status_code=400,
                 detail=f"Import failed. Errors: {'; '.join(errors[:5])}"
             )
-        
+
+        message = f"Successfully imported {imported_count} enterprises"
+        if skipped_count:
+            message += f", skipped {skipped_count} duplicate(s)"
+
         return {
             "imported_count": imported_count,
-            "message": f"Successfully imported {imported_count} enterprises",
+            "skipped_count": skipped_count,
+            "message": message,
             "errors": errors if errors else None
         }
         

@@ -294,7 +294,12 @@ export default function EnterprisesPage() {
         }
       });
       
-      toast.success(`Successfully imported ${response.data.imported_count} enterprises`);
+      const { imported_count, skipped_count } = response.data;
+      toast.success(
+        skipped_count
+          ? `Imported ${imported_count} enterprises, skipped ${skipped_count} duplicate(s)`
+          : `Successfully imported ${imported_count} enterprises`
+      );
       setImportDialogOpen(false);
       fetchData();
     } catch (error) {
