@@ -141,8 +141,8 @@ export default function DashboardPage() {
            {/* Header with Date Filter */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div className="space-y-2">
-          <h1 className="text-4xl font-bold text-white">Dashboard</h1>
-          <p className="text-zinc-400">Overview of ticket status and metrics</p>
+          <h1 className="text-4xl font-bold text-gray-900 dark:text-white">Dashboard</h1>
+          <p className="text-gray-500 dark:text-zinc-400">Overview of ticket status and metrics</p>
         </div>
         <div className="flex items-center gap-2">
           <DateRangePickerWithRange
@@ -156,7 +156,7 @@ export default function DashboardPage() {
                 const today = new Date();
                 setDateRange({ from: today, to: today });
               }}
-              className="border-zinc-700 text-zinc-400 hover:text-white hover:bg-zinc-800 h-7 px-2 text-xs"
+              className="border-gray-200 dark:border-zinc-700 text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-zinc-800 h-7 px-2 text-xs"
             >
               Show Today
             </Button>
@@ -166,7 +166,7 @@ export default function DashboardPage() {
                 const today = new Date();
                 setDateRange({ from: startOfWeek(today, { weekStartsOn: 1 }), to: endOfWeek(today, { weekStartsOn: 1 }) });
               }}
-              className="border-zinc-700 text-zinc-400 hover:text-white hover:bg-zinc-800 h-7 px-2 text-xs"
+              className="border-gray-200 dark:border-zinc-700 text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-zinc-800 h-7 px-2 text-xs"
             >
               Reset to This Week
             </Button>
@@ -175,9 +175,9 @@ export default function DashboardPage() {
       </div>
 
       {/* Online Users Widget */}
-      <Card className="bg-zinc-900/50 border-white/10">
+      <Card className="bg-white/50 dark:bg-zinc-900/50 border-black/10 dark:border-white/10">
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium text-zinc-400 flex items-center gap-2">
+          <CardTitle className="text-sm font-medium text-gray-500 dark:text-zinc-400 flex items-center gap-2">
             <Users className="h-4 w-4 text-emerald-500" />
             Online Users
             <span className="text-xs bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full ml-2">
@@ -193,10 +193,10 @@ export default function DashboardPage() {
               {onlineUsers.map((user) => (
                 <div
                   key={user.id}
-                  className="flex items-center gap-2 bg-zinc-800/50 px-3 py-1.5 rounded-full border border-white/5"
+                  className="flex items-center gap-2 bg-gray-100/50 dark:bg-zinc-800/50 px-3 py-1.5 rounded-full border border-black/5 dark:border-white/5"
                 >
                   <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-                  <span className="text-sm text-zinc-300">{user.username}</span>
+                  <span className="text-sm text-gray-700 dark:text-zinc-300">{user.username}</span>
                   {user.name && (
                     <span className="text-xs text-zinc-500">({user.name})</span>
                   )}
@@ -210,48 +210,48 @@ export default function DashboardPage() {
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {showSmsStats && (
-          <Card className="bg-zinc-900/50 border-white/10 grid-border" data-testid="sms-tickets-card">
+          <Card className="bg-white/50 dark:bg-zinc-900/50 border-black/10 dark:border-white/10 grid-border" data-testid="sms-tickets-card">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-zinc-400">Total SMS Tickets</CardTitle>
+              <CardTitle className="text-sm font-medium text-gray-500 dark:text-zinc-400">Total SMS Tickets</CardTitle>
               <MessageSquare className="h-4 w-4 text-emerald-500" />
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold text-white tabular-nums">{stats?.total_sms_tickets || 0}</div>
+              <div className="text-3xl font-bold text-gray-900 dark:text-white tabular-nums">{stats?.total_sms_tickets || 0}</div>
             </CardContent>
           </Card>
         )}
 
         {showVoiceStats && (
-          <Card className="bg-zinc-900/50 border-white/10 grid-border" data-testid="voice-tickets-card">
+          <Card className="bg-white/50 dark:bg-zinc-900/50 border-black/10 dark:border-white/10 grid-border" data-testid="voice-tickets-card">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-zinc-400">Total Voice Tickets</CardTitle>
+              <CardTitle className="text-sm font-medium text-gray-500 dark:text-zinc-400">Total Voice Tickets</CardTitle>
               <Phone className="h-4 w-4 text-emerald-500" />
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold text-white tabular-nums">{stats?.total_voice_tickets || 0}</div>
+              <div className="text-3xl font-bold text-gray-900 dark:text-white tabular-nums">{stats?.total_voice_tickets || 0}</div>
             </CardContent>
           </Card>
         )}
 
-        <Card className="bg-zinc-900/50 border-white/10 grid-border">
+        <Card className="bg-white/50 dark:bg-zinc-900/50 border-black/10 dark:border-white/10 grid-border">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-zinc-400">Pending Tickets</CardTitle>
+            <CardTitle className="text-sm font-medium text-gray-500 dark:text-zinc-400">Pending Tickets</CardTitle>
             <Activity className="h-4 w-4 text-blue-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold text-white tabular-nums">
+            <div className="text-3xl font-bold text-gray-900 dark:text-white tabular-nums">
               {(showSmsStats ? (stats?.sms_pending || 0) : 0) + (showVoiceStats ? (stats?.voice_pending || 0) : 0)}
             </div>
           </CardContent>
         </Card>
 
-        <Card className="bg-zinc-900/50 border-white/10 grid-border">
+        <Card className="bg-white/50 dark:bg-zinc-900/50 border-black/10 dark:border-white/10 grid-border">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-zinc-400">Resolved Tickets</CardTitle>
+            <CardTitle className="text-sm font-medium text-gray-500 dark:text-zinc-400">Resolved Tickets</CardTitle>
             <TrendingUp className="h-4 w-4 text-emerald-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold text-white tabular-nums">
+            <div className="text-3xl font-bold text-gray-900 dark:text-white tabular-nums">
               {(showSmsStats ? (stats?.sms_by_status?.Resolved || 0) : 0) + (showVoiceStats ? (stats?.voice_by_status?.Resolved || 0) : 0)}
             </div>
           </CardContent>
@@ -261,9 +261,9 @@ export default function DashboardPage() {
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {showSmsStats && (
-          <Card className="bg-zinc-900/50 border-white/10">
+          <Card className="bg-white/50 dark:bg-zinc-900/50 border-black/10 dark:border-white/10">
             <CardHeader>
-              <CardTitle className="text-white">SMS Tickets by Status</CardTitle>
+              <CardTitle className="text-gray-900 dark:text-white">SMS Tickets by Status</CardTitle>
             </CardHeader>
             <CardContent>
               {smsStatusData.length > 0 ? (
@@ -294,9 +294,9 @@ export default function DashboardPage() {
         )}
 
         {showVoiceStats && (
-          <Card className="bg-zinc-900/50 border-white/10">
+          <Card className="bg-white/50 dark:bg-zinc-900/50 border-black/10 dark:border-white/10">
             <CardHeader>
-              <CardTitle className="text-white">Voice Tickets by Status</CardTitle>
+              <CardTitle className="text-gray-900 dark:text-white">Voice Tickets by Status</CardTitle>
             </CardHeader>
             <CardContent>
               {voiceStatusData.length > 0 ? (
@@ -328,9 +328,9 @@ export default function DashboardPage() {
       </div>
 
       {/* Recent Tickets */}
-      <Card className="bg-zinc-900/50 border-white/10">
+      <Card className="bg-white/50 dark:bg-zinc-900/50 border-black/10 dark:border-white/10">
         <CardHeader>
-          <CardTitle className="text-white">Recent Tickets</CardTitle>
+          <CardTitle className="text-gray-900 dark:text-white">Recent Tickets</CardTitle>
         </CardHeader>
         <CardContent>
           {stats?.recent_tickets && Array.isArray(stats.recent_tickets) && stats.recent_tickets.length > 0 ? (
@@ -346,17 +346,17 @@ export default function DashboardPage() {
                 .map((ticket) => (
                   <div
                     key={ticket.id}
-                    className="flex items-center justify-between p-3 bg-zinc-800/50 rounded-lg border border-white/5 hover:border-white/10 transition-colors"
+                    className="flex items-center justify-between p-3 bg-gray-100/50 dark:bg-zinc-800/50 rounded-lg border border-black/5 dark:border-white/5 hover:border-black/10 dark:hover:border-white/10 transition-colors"
                     data-testid="recent-ticket-item"
                   >
                     <div className="flex items-center space-x-4">
                       <PriorityIndicator priority={ticket.priority} />
                       <div>
                         <div className="flex items-center space-x-2">
-                          <span className="text-white font-medium">{ticket.ticket_number}</span>
+                          <span className="text-gray-900 dark:text-white font-medium">{ticket.ticket_number}</span>
                           <span className="text-xs text-zinc-500">({ticket.type})</span>
                         </div>
-                        <p className="text-sm text-zinc-400">{ticket.customer}</p>
+                        <p className="text-sm text-gray-500 dark:text-zinc-400">{ticket.customer}</p>
                       </div>
                     </div>
                     <StatusBadge status={ticket.status} />

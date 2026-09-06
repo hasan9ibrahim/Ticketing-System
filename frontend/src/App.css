@@ -8,8 +8,8 @@
 
 body {
   font-family: 'Inter', sans-serif;
-  background: #09090b;
-  color: #fafafa;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
 }
 
 h1, h2, h3, h4, h5, h6 {
@@ -18,32 +18,32 @@ h1, h2, h3, h4, h5, h6 {
 
 .App {
   min-height: 100vh;
-  background: #09090b;
+  background: hsl(var(--background));
 }
 
-/* Scrollbar styling for dark theme */
+/* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #18181b;
+  background: hsl(var(--muted));
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #3f3f46;
+  background: hsl(var(--border));
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #52525b;
+  background: hsl(var(--muted-foreground) / 0.5);
 }
 
 /* Custom utilities */
 .grid-border {
-  border-right: 1px solid rgba(255, 255, 255, 0.05);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-right: 1px solid hsl(var(--foreground) / 0.05);
+  border-bottom: 1px solid hsl(var(--foreground) / 0.05);
 }
 
 .technical-glass {

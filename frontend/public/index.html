@@ -23,6 +23,17 @@
         Learn how to configure a non-root public URL by running `npm run build`.
         -->
         <title>Wii Telecom | Ticketing System</title>
+        <script>
+          (function () {
+            try {
+              if (localStorage.getItem("theme") !== "light") {
+                document.documentElement.classList.add("dark");
+              }
+            } catch (e) {
+              document.documentElement.classList.add("dark");
+            }
+          })();
+        </script>
     </head>
     <body>
         <noscript>You need to enable JavaScript to run this app.</noscript>

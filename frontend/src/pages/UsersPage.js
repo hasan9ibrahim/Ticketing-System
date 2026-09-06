@@ -219,8 +219,8 @@ export default function UsersPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-4xl font-bold text-white">Users</h1>
-          <p className="text-zinc-400 mt-1">Manage system users and roles</p>
+          <h1 className="text-4xl font-bold text-gray-900 dark:text-white">Users</h1>
+          <p className="text-gray-500 dark:text-zinc-400 mt-1">Manage system users and roles</p>
         </div>
         <Button
           onClick={openCreateSheet}
@@ -241,7 +241,7 @@ export default function UsersPage() {
             data-testid="search-users-input"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10 bg-zinc-900 border-zinc-700 text-white placeholder:text-zinc-500"
+            className="pl-10 bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white placeholder:text-zinc-500"
           />
         </div>
         <MultiFilter
@@ -265,29 +265,29 @@ export default function UsersPage() {
       </div>
 
       {/* Table */}
-      <div className="bg-zinc-900/50 border border-white/10 rounded-lg overflow-hidden">
+      <div className="bg-white/50 dark:bg-zinc-900/50 border border-black/10 dark:border-white/10 rounded-lg overflow-hidden">
         <Table>
           <TableHeader>
-            <TableRow className="border-white/5 hover:bg-transparent">
-              <TableHead className="text-zinc-400">Name</TableHead>
-              <TableHead className="text-zinc-400">Username</TableHead>
-              <TableHead className="text-zinc-400">Email</TableHead>
-              <TableHead className="text-zinc-400">Phone</TableHead>
-              <TableHead className="text-zinc-400">Department</TableHead>
-              <TableHead className="text-zinc-400">2FA</TableHead>
-              <TableHead className="text-zinc-400">Active</TableHead>
-              <TableHead className="text-zinc-400">My Enterprises</TableHead>
-              <TableHead className="text-zinc-400">Actions</TableHead>
+            <TableRow className="border-black/5 dark:border-white/5 hover:bg-transparent">
+              <TableHead className="text-gray-500 dark:text-zinc-400">Name</TableHead>
+              <TableHead className="text-gray-500 dark:text-zinc-400">Username</TableHead>
+              <TableHead className="text-gray-500 dark:text-zinc-400">Email</TableHead>
+              <TableHead className="text-gray-500 dark:text-zinc-400">Phone</TableHead>
+              <TableHead className="text-gray-500 dark:text-zinc-400">Department</TableHead>
+              <TableHead className="text-gray-500 dark:text-zinc-400">2FA</TableHead>
+              <TableHead className="text-gray-500 dark:text-zinc-400">Active</TableHead>
+              <TableHead className="text-gray-500 dark:text-zinc-400">My Enterprises</TableHead>
+              <TableHead className="text-gray-500 dark:text-zinc-400">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {filteredUsers.length > 0 ? (
               filteredUsers.map((user) => (
-                <TableRow key={user.id} className="border-white/5 hover:bg-zinc-800/50" data-testid="user-row">
-                  <TableCell className="text-white font-medium">{user.name || "-"}</TableCell>
-                  <TableCell className="text-zinc-300">{user.username}</TableCell>
-                  <TableCell className="text-zinc-300">{user.email || "-"}</TableCell>
-                  <TableCell className="text-zinc-300">{user.phone || "-"}</TableCell>
+                <TableRow key={user.id} className="border-black/5 dark:border-white/5 hover:bg-gray-100/50 dark:hover:bg-zinc-800/50" data-testid="user-row">
+                  <TableCell className="text-gray-900 dark:text-white font-medium">{user.name || "-"}</TableCell>
+                  <TableCell className="text-gray-700 dark:text-zinc-300">{user.username}</TableCell>
+                  <TableCell className="text-gray-700 dark:text-zinc-300">{user.email || "-"}</TableCell>
+                  <TableCell className="text-gray-700 dark:text-zinc-300">{user.phone || "-"}</TableCell>
                   <TableCell>
                     {user.department_id ? (
                       <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-purple-500/20 text-purple-500 border border-purple-500/30">
@@ -390,9 +390,9 @@ export default function UsersPage() {
 
       {/* User Sheet */}
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-        <SheetContent className="bg-zinc-900 border-white/10 text-white sm:max-w-lg overflow-y-auto" data-testid="user-sheet">
+        <SheetContent className="bg-white dark:bg-zinc-900 border-black/10 dark:border-white/10 text-gray-900 dark:text-white sm:max-w-lg overflow-y-auto" data-testid="user-sheet">
           <SheetHeader>
-            <SheetTitle className="text-white">{editingUser ? "Edit User" : "Create User"}</SheetTitle>
+            <SheetTitle className="text-gray-900 dark:text-white">{editingUser ? "Edit User" : "Create User"}</SheetTitle>
           </SheetHeader>
           <form onSubmit={handleSubmit} className="space-y-4 mt-6">
             <div className="space-y-2">
@@ -400,7 +400,7 @@ export default function UsersPage() {
               <Input
                 value={formData.name || ""}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                className="bg-zinc-800 border-zinc-700 text-white"
+                className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white"
                 data-testid="name-input"
                 required
               />
@@ -411,7 +411,7 @@ export default function UsersPage() {
               <Input
                 value={formData.username || ""}
                 onChange={(e) => setFormData({ ...formData, username: e.target.value })}
-                className="bg-zinc-800 border-zinc-700 text-white"
+                className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white"
                 data-testid="username-input"
                 required
               />
@@ -423,7 +423,7 @@ export default function UsersPage() {
                 type="email"
                 value={formData.email || ""}
                 onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                className="bg-zinc-800 border-zinc-700 text-white"
+                className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white"
                        data-testid="email-input"
                  required
               />
@@ -434,7 +434,7 @@ export default function UsersPage() {
               <Input
                 value={formData.phone || ""}
                 onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                className="bg-zinc-800 border-zinc-700 text-white"
+                className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white"
               />
             </div>
 
@@ -444,7 +444,7 @@ export default function UsersPage() {
                 type="password"
                 value={formData.password || ""}
                 onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                className="bg-zinc-800 border-zinc-700 text-white"
+                className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white"
                 data-testid="password-input"
                 required={!editingUser}
               />
@@ -457,10 +457,10 @@ export default function UsersPage() {
                 onValueChange={(value) => setFormData({ ...formData, department_id: value })}
                 required
               >
-                <SelectTrigger className="bg-zinc-800 border-zinc-700" data-testid="department-select">
+                <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700" data-testid="department-select">
                   <SelectValue placeholder="Select department" />
                 </SelectTrigger>
-                <SelectContent className="bg-zinc-800 border-zinc-700">
+                <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
                   {departments.map((dept) => (
                     <SelectItem key={dept.id} value={dept.id}>
                       {dept.name} ({dept.department_type || 'all'})
@@ -477,10 +477,10 @@ export default function UsersPage() {
                 value={formData.role || "noc"}
                 onValueChange={(value) => setFormData({ ...formData, role: value })}
               >
-                <SelectTrigger className="bg-zinc-800 border-zinc-700">
+                <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="bg-zinc-800 border-zinc-700">
+                <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
                   <SelectItem value="admin">Admin</SelectItem>
                   <SelectItem value="am">Account Manager</SelectItem>
                   <SelectItem value="noc">NOC Member</SelectItem>
@@ -490,11 +490,11 @@ export default function UsersPage() {
 
             {/* 2FA Settings - Admin can enable/disable */}
             {editingUser && (
-              <div className="space-y-4 p-4 bg-zinc-800/50 rounded-lg border border-zinc-700">
+              <div className="space-y-4 p-4 bg-gray-100/50 dark:bg-zinc-800/50 rounded-lg border border-gray-200 dark:border-zinc-700">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <Shield className="h-5 w-5 text-zinc-400" />
-                    <Label className="text-white">Two-Factor Authentication</Label>
+                    <Shield className="h-5 w-5 text-gray-500 dark:text-zinc-400" />
+                    <Label className="text-gray-900 dark:text-white">Two-Factor Authentication</Label>
                   </div>
                   <Switch
                     checked={formData.two_factor_enabled || false}
@@ -503,15 +503,15 @@ export default function UsersPage() {
                 </div>
                 {formData.two_factor_enabled && (
                   <div className="space-y-2">
-                    <Label className="text-zinc-400">2FA Method</Label>
+                    <Label className="text-gray-500 dark:text-zinc-400">2FA Method</Label>
                     <Select
                       value={formData.two_factor_method || "totp"}
                       onValueChange={(value) => setFormData({ ...formData, two_factor_method: value })}
                     >
-                      <SelectTrigger className="bg-zinc-800 border-zinc-700">
+                      <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
                         <SelectValue />
                       </SelectTrigger>
-                      <SelectContent className="bg-zinc-800 border-zinc-700">
+                      <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
                         <SelectItem value="totp">Google Authenticator</SelectItem>
                       </SelectContent>
                     </Select>
@@ -524,7 +524,7 @@ export default function UsersPage() {
               <Button type="submit" className="bg-emerald-500 text-black hover:bg-emerald-400" data-testid="save-user-button">
                 {editingUser ? "Update User" : "Create User"}
               </Button>
-              <Button type="button" variant="outline" onClick={() => setSheetOpen(false)} className="border-zinc-700 text-white hover:bg-zinc-800">
+              <Button type="button" variant="outline" onClick={() => setSheetOpen(false)} className="border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-zinc-800">
                 Cancel
               </Button>
             </div>
@@ -534,16 +534,16 @@ export default function UsersPage() {
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <AlertDialogContent className="bg-zinc-900 border-white/10">
+        <AlertDialogContent className="bg-white dark:bg-zinc-900 border-black/10 dark:border-white/10">
           <AlertDialogHeader>
-            <AlertDialogTitle className="text-white">Delete User</AlertDialogTitle>
-            <AlertDialogDescription className="text-zinc-400">
+            <AlertDialogTitle className="text-gray-900 dark:text-white">Delete User</AlertDialogTitle>
+            <AlertDialogDescription className="text-gray-500 dark:text-zinc-400">
               Are you sure you want to delete {userToDelete?.username}? This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel className="border-zinc-700 text-white hover:bg-zinc-800">Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} className="bg-red-500 text-white hover:bg-red-600">
+            <AlertDialogCancel className="border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-zinc-800">Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete} className="bg-red-500 text-gray-900 dark:text-white hover:bg-red-600">
               Delete
             </AlertDialogAction>
           </AlertDialogFooter>

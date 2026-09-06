@@ -111,13 +111,13 @@ export default function IssueTypeSelect({
 
   return (
     <div className="space-y-3">
-      <Label className="text-zinc-400">Issue Types</Label>
+      <Label className="text-gray-500 dark:text-zinc-400">Issue Types</Label>
       
       {/* Main dropdown trigger */}
       <div ref={dropdownRef} className="relative">
         <div
           onClick={() => !disabled && setIsOpen(!isOpen)}
-          className={`flex items-center justify-between min-h-[40px] px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-md cursor-pointer hover:border-zinc-600 transition-colors ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+          className={`flex items-center justify-between min-h-[40px] px-3 py-2 bg-gray-100 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-md cursor-pointer hover:border-gray-300 dark:hover:border-zinc-600 transition-colors ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
           data-testid="issue-type-select-trigger"
         >
           <div className="flex-1 flex flex-wrap gap-1">
@@ -147,21 +147,21 @@ export default function IssueTypeSelect({
               </>
             )}
           </div>
-          <ChevronDown className={`h-4 w-4 text-zinc-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+          <ChevronDown className={`h-4 w-4 text-gray-500 dark:text-zinc-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
         </div>
 
         {/* Dropdown menu */}
         {isOpen && !disabled && (
-          <div className="absolute z-50 w-full mt-1 bg-zinc-800 border border-zinc-700 rounded-md shadow-lg max-h-96 overflow-hidden">
+          <div className="absolute z-50 w-full mt-1 bg-gray-100 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-md shadow-lg max-h-96 overflow-hidden">
             {/* Search input */}
-            <div className="p-2 border-b border-zinc-700">
+            <div className="p-2 border-b border-gray-200 dark:border-zinc-700">
               <div className="relative">
                 <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 h-4 w-4 text-zinc-500" />
                 <Input
                   placeholder="Search issues..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-8 h-8 bg-zinc-900 border-zinc-600 text-white text-sm"
+                  className="pl-8 h-8 bg-white dark:bg-zinc-900 border-gray-300 dark:border-zinc-600 text-gray-900 dark:text-white text-sm"
                   data-testid="issue-type-search"
                 />
               </div>
@@ -174,7 +174,7 @@ export default function IssueTypeSelect({
                 return (
                   <div key={type}>
                     <div
-                      className="flex items-center gap-2 px-2 py-2 rounded hover:bg-zinc-700 cursor-pointer select-none"
+                      className="flex items-center gap-2 px-2 py-2 rounded hover:bg-gray-200 dark:hover:bg-zinc-700 cursor-pointer select-none"
                       onClick={() => handleTypeToggle(type)}
                       data-testid={`issue-type-${type.toLowerCase().replace(/[^a-z0-9]/g, '-')}`}
                     >
@@ -182,16 +182,16 @@ export default function IssueTypeSelect({
                         className={`w-4 h-4 min-w-[16px] rounded border flex items-center justify-center transition-colors ${
                           isChecked 
                             ? 'bg-emerald-500 border-emerald-500' 
-                            : 'border-zinc-500 bg-transparent'
+                            : 'border-gray-400 dark:border-zinc-500 bg-transparent'
                         }`}
                       >
                         {isChecked && (
-                          <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                          <svg className="w-3 h-3 text-gray-900 dark:text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                             <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                           </svg>
                         )}
                       </div>
-                      <span className="text-sm text-zinc-200 flex-1">
+                      <span className="text-sm text-gray-800 dark:text-zinc-200 flex-1">
                         {type}
                       </span>
                     </div>
@@ -202,7 +202,7 @@ export default function IssueTypeSelect({
                           placeholder="Specify FAS type..."
                           value={fasType}
                           onChange={(e) => onFasTypeChange(e.target.value)}
-                          className="h-7 bg-zinc-900 border-zinc-600 text-white text-xs"
+                          className="h-7 bg-white dark:bg-zinc-900 border-gray-300 dark:border-zinc-600 text-gray-900 dark:text-white text-xs"
                           data-testid="fas-type-input"
                         />
                       </div>
@@ -216,31 +216,31 @@ export default function IssueTypeSelect({
             </div>
 
             {/* Other option */}
-            <div className="border-t border-zinc-700 p-2">
+            <div className="border-t border-gray-200 dark:border-zinc-700 p-2">
               <div className="flex items-center gap-2 mb-2">
                 <div 
                   className={`w-4 h-4 rounded border flex items-center justify-center cursor-pointer transition-colors ${
                     otherText 
                       ? 'bg-emerald-500 border-emerald-500' 
-                      : 'border-zinc-500 bg-transparent'
+                      : 'border-gray-400 dark:border-zinc-500 bg-transparent'
                   }`}
                   onClick={() => {
                     if (otherText) onOtherChange("");
                   }}
                 >
                   {otherText && (
-                    <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                    <svg className="w-3 h-3 text-gray-900 dark:text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                     </svg>
                   )}
                 </div>
-                <span className="text-sm text-zinc-200">Other (custom)</span>
+                <span className="text-sm text-gray-800 dark:text-zinc-200">Other (custom)</span>
               </div>
               <Input
                 placeholder="Describe other issue..."
                 value={otherText}
                 onChange={(e) => onOtherChange(e.target.value)}
-                className="h-8 bg-zinc-900 border-zinc-600 text-white text-sm"
+                className="h-8 bg-white dark:bg-zinc-900 border-gray-300 dark:border-zinc-600 text-gray-900 dark:text-white text-sm"
                 data-testid="issue-type-other-input"
               />
             </div>

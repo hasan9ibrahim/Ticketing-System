@@ -27,7 +27,7 @@ export const DateRangePickerWithRange = ({ dateRange, onDateRangeChange }) => {
       <PopoverTrigger asChild>
         <Button
           variant="outline"
-          className="w-[200px] justify-start text-left font-normal bg-zinc-900 border-zinc-700 text-white hover:bg-zinc-800 hover:text-white h-9"
+          className="w-[200px] justify-start text-left font-normal bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-zinc-800 hover:text-gray-900 dark:hover:text-white h-9"
         >
           <CalendarIcon className="mr-2 h-4 w-4" />
           {dateRange?.from ? (
@@ -44,8 +44,8 @@ export const DateRangePickerWithRange = ({ dateRange, onDateRangeChange }) => {
           )}
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-auto p-0 bg-zinc-900 border-zinc-700" align="start">
-        <div className="p-2 border-b border-zinc-700">
+      <PopoverContent className="w-auto p-0 bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700" align="start">
+        <div className="p-2 border-b border-gray-200 dark:border-zinc-700">
           <div className="flex gap-1 flex-wrap">
             <Button
               variant="ghost"
@@ -53,7 +53,7 @@ export const DateRangePickerWithRange = ({ dateRange, onDateRangeChange }) => {
               onClick={() => {
                 onDateRangeChange(getToday());
               }}
-              className="text-xs text-zinc-400 hover:text-white hover:bg-zinc-800 h-7 px-2"
+              className="text-xs text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-zinc-800 h-7 px-2"
             >
               Show Today
             </Button>
@@ -63,7 +63,7 @@ export const DateRangePickerWithRange = ({ dateRange, onDateRangeChange }) => {
               onClick={() => {
                 onDateRangeChange(getThisWeek());
               }}
-              className="text-xs text-zinc-400 hover:text-white hover:bg-zinc-800 h-7 px-2"
+              className="text-xs text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-zinc-800 h-7 px-2"
             >
               This Week
             </Button>
@@ -74,7 +74,7 @@ export const DateRangePickerWithRange = ({ dateRange, onDateRangeChange }) => {
                 const today = new Date();
                 onDateRangeChange({ from: addDays(today, -7), to: today });
               }}
-              className="text-xs text-zinc-400 hover:text-white hover:bg-zinc-800 h-7 px-2"
+              className="text-xs text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-zinc-800 h-7 px-2"
             >
               Last 7 Days
             </Button>
@@ -84,7 +84,7 @@ export const DateRangePickerWithRange = ({ dateRange, onDateRangeChange }) => {
               onClick={() => {
                 onDateRangeChange(null);
               }}
-              className="text-xs text-zinc-400 hover:text-white hover:bg-zinc-800 h-7 px-2"
+              className="text-xs text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-zinc-800 h-7 px-2"
             >
               All
             </Button>
@@ -99,7 +99,7 @@ export const DateRangePickerWithRange = ({ dateRange, onDateRangeChange }) => {
               setIsOpen(false);
             }
           }}
-          className="bg-zinc-900 text-white"
+          className="bg-white dark:bg-zinc-900 text-gray-900 dark:text-white"
         />
       </PopoverContent>
     </Popover>

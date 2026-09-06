@@ -72,10 +72,10 @@ const REQUEST_TYPES = {
 };
 
 const PRIORITIES = [
-  { value: "Low", color: "bg-zinc-500", text: "text-zinc-100", description: "To be done in 30 mins" },
-  { value: "Medium", color: "bg-blue-500", text: "text-white", description: "To be done in 20 mins" },
-  { value: "High", color: "bg-orange-500", text: "text-white", description: "To be done in 10 mins" },
-  { value: "Urgent", color: "bg-red-600", text: "text-white", description: "To be done in 5 mins (Only in case of Live Traffic)" }
+  { value: "Low", color: "bg-gray-400 dark:bg-zinc-500", text: "text-gray-900 dark:text-zinc-100", description: "To be done in 30 mins" },
+  { value: "Medium", color: "bg-blue-500", text: "text-gray-900 dark:text-white", description: "To be done in 20 mins" },
+  { value: "High", color: "bg-orange-500", text: "text-gray-900 dark:text-white", description: "To be done in 10 mins" },
+  { value: "Urgent", color: "bg-red-600", text: "text-gray-900 dark:text-white", description: "To be done in 5 mins (Only in case of Live Traffic)" }
 ];
 
 // Trunk Types for SMS and Voice
@@ -1553,7 +1553,7 @@ export default function RequestsPage() {
 
   const getPriorityColor = (priority) => {
     const p = PRIORITIES.find(p => p.value === priority);
-    return p ? `${p.color} ${p.text}` : "bg-zinc-500 text-zinc-100";
+    return p ? `${p.color} ${p.text}` : "bg-gray-400 dark:bg-zinc-500 text-gray-900 dark:text-zinc-100";
   };
 
   const getStatusConfig = (status) => {
@@ -1774,8 +1774,8 @@ export default function RequestsPage() {
     <div className="p-6 space-y-6">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold text-white">AM Requests</h1>
-          <p className="text-zinc-400">Submit and track requests for NOC</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">AM Requests</h1>
+          <p className="text-gray-500 dark:text-zinc-400">Submit and track requests for NOC</p>
         </div>
         {userRole === "am" && (
           <Button onClick={() => {
@@ -1795,12 +1795,12 @@ export default function RequestsPage() {
       {/* Filters */}
       <div className="flex gap-4">
         <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-zinc-400" />
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-500 dark:text-zinc-400" />
           <Input
             placeholder="Search requests..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10 bg-zinc-800 border-zinc-700 text-white"
+            className="pl-10 bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white"
           />
         </div>
         <MultiFilter
@@ -1839,7 +1839,7 @@ export default function RequestsPage() {
                 fetchRequests(checked);
               }}
             />
-            <Label htmlFor="show-my-requests" className="text-zinc-300 text-sm cursor-pointer">
+            <Label htmlFor="show-my-requests" className="text-gray-700 dark:text-zinc-300 text-sm cursor-pointer">
               Show My Requests Only
             </Label>
           </div>
@@ -1849,7 +1849,7 @@ export default function RequestsPage() {
       {/* Tabs - For NOC/Admin show both SMS/Voice, for AM show only their department */}
       {userRole !== "am" ? (
         <Tabs value={activeTab} onValueChange={(val) => { setActiveTab(val); setRequestSubTab("active"); }}>
-          <TabsList className="bg-zinc-800">
+          <TabsList className="bg-gray-100 dark:bg-zinc-800">
             <TabsTrigger value="sms" className="data-[state=active]:bg-amber-500 data-[state=active]:text-black">
               SMS Requests
             </TabsTrigger>
@@ -1859,7 +1859,7 @@ export default function RequestsPage() {
           </TabsList>
         </Tabs>
       ) : (
-        <div className="text-lg font-semibold text-white mb-2">
+        <div className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
           {isSmsDepartment ? "SMS Requests" : isVoiceDepartment ? "Voice Requests" : "My Requests"}
         </div>
       )}
@@ -1869,14 +1869,14 @@ export default function RequestsPage() {
         <Button
           variant={requestSubTab === "active" ? "default" : "outline"}
           onClick={() => setRequestSubTab("active")}
-          className={requestSubTab === "active" ? "bg-green-600 hover:bg-green-700" : "border-zinc-600 text-zinc-300 hover:bg-zinc-800"}
+          className={requestSubTab === "active" ? "bg-green-600 hover:bg-green-700" : "border-gray-300 dark:border-zinc-600 text-gray-700 dark:text-zinc-300 hover:bg-gray-100 dark:hover:bg-zinc-800"}
         >
           Active
         </Button>
         <Button
           variant={requestSubTab === "archive" ? "default" : "outline"}
           onClick={() => setRequestSubTab("archive")}
-          className={requestSubTab === "archive" ? "bg-blue-600 hover:bg-blue-700" : "border-zinc-600 text-zinc-300 hover:bg-zinc-800"}
+          className={requestSubTab === "archive" ? "bg-blue-600 hover:bg-blue-700" : "border-gray-300 dark:border-zinc-600 text-gray-700 dark:text-zinc-300 hover:bg-gray-100 dark:hover:bg-zinc-800"}
         >
           Archive
         </Button>
@@ -1885,17 +1885,17 @@ export default function RequestsPage() {
       {/* Requests List */}
       <div className="grid gap-4">
         {isLoading ? (
-          <Card className="bg-zinc-900 border-zinc-800">
+          <Card className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-800">
             <CardContent className="flex flex-col items-center justify-center py-12">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-amber-500 mb-4"></div>
-              <p className="text-zinc-400">Loading requests...</p>
+              <p className="text-gray-500 dark:text-zinc-400">Loading requests...</p>
             </CardContent>
           </Card>
         ) : sortedRequests.length === 0 ? (
-          <Card className="bg-zinc-900 border-zinc-800">
+          <Card className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-800">
             <CardContent className="flex flex-col items-center justify-center py-12">
               <Filter className="h-12 w-12 text-zinc-600 mb-4" />
-              <p className="text-zinc-400">No requests found</p>
+              <p className="text-gray-500 dark:text-zinc-400">No requests found</p>
             </CardContent>
           </Card>
         ) : (
@@ -1904,7 +1904,7 @@ export default function RequestsPage() {
             const StatusIcon = statusConfig.icon;
             
             return (
-              <Card key={request.id} className="bg-zinc-900 border-zinc-800">
+              <Card key={request.id} className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-800">
                 <CardContent className="p-4">
                   <div className="flex justify-between items-start">
                     <div className="flex-1">
@@ -1912,22 +1912,22 @@ export default function RequestsPage() {
                         <span className={`px-2 py-0.5 rounded text-xs font-medium ${getPriorityColor(request.priority)}`}>
                           {request.priority}
                         </span>
-                        <Badge variant="outline" className="border-zinc-600 text-zinc-300">
+                        <Badge variant="outline" className="border-gray-300 dark:border-zinc-600 text-gray-700 dark:text-zinc-300">
                           {request.request_type_label}
                         </Badge>
-                        <Badge variant="outline" className="border-zinc-600 text-zinc-300 capitalize">
+                        <Badge variant="outline" className="border-gray-300 dark:border-zinc-600 text-gray-700 dark:text-zinc-300 capitalize">
                           {request.department}
                         </Badge>
                       </div>
-                      <h3 className="text-white font-medium">{request.customer}</h3>
-                      <p className="text-zinc-400 text-sm">
+                      <h3 className="text-gray-900 dark:text-white font-medium">{request.customer}</h3>
+                      <p className="text-gray-500 dark:text-zinc-400 text-sm">
                         Created by {request.created_by_username} on {new Date(request.created_at).toLocaleDateString()}
                         {request.claimed_by_username && <span className="block text-yellow-400">Claimed by {request.claimed_by_username}</span>}
                       </p>
                       
                       {/* Show relevant details based on request type */}
                       {request.request_type === "rating_routing" && (
-                        <div className="mt-2 text-sm text-zinc-400">
+                        <div className="mt-2 text-sm text-gray-500 dark:text-zinc-400">
                           {/* Customer Trunks */}
                           {request.customer_trunks && request.customer_trunks.length > 0 && (
                             <div className="mb-1">
@@ -1961,7 +1961,7 @@ export default function RequestsPage() {
                       )}
                       
                       {(request.request_type === "testing" || request.request_type_label?.includes("Testing")) && (
-                        <div className="mt-2 text-sm text-zinc-400">
+                        <div className="mt-2 text-sm text-gray-500 dark:text-zinc-400">
                           {request.vendor_trunks && request.vendor_trunks.length > 0 && (
                             <div className="mb-1">
                               <span className="text-zinc-500">Vendor Trunk(s): </span>
@@ -1982,7 +1982,7 @@ export default function RequestsPage() {
                       )}
                       
                       {request.request_type === "translation" && (
-                        <div className="mt-2 text-sm text-zinc-400">
+                        <div className="mt-2 text-sm text-gray-500 dark:text-zinc-400">
                           {request.trunk_name && (
                             <div className="mb-1">
                               <span className="text-zinc-500">Customer Trunk: </span>
@@ -2005,7 +2005,7 @@ export default function RequestsPage() {
                       )}
                       
                       {request.request_type === "lcr" && (
-                        <div className="mt-2 text-sm text-zinc-400">
+                        <div className="mt-2 text-sm text-gray-500 dark:text-zinc-400">
                           {request.vendor_trunks && request.vendor_trunks.length > 0 && (
                             <div className="mb-1">
                               <span className="text-zinc-500">Vendor Trunk(s): </span>
@@ -2026,7 +2026,7 @@ export default function RequestsPage() {
                       )}
 
                       {request.request_type === "investigation" && (
-                        <div className="mt-2 text-sm text-zinc-400">
+                        <div className="mt-2 text-sm text-gray-500 dark:text-zinc-400">
                           {request.customer_trunk && (
                             <div className="mb-1">
                               <span className="text-zinc-500">Customer Trunk: </span>
@@ -2044,7 +2044,7 @@ export default function RequestsPage() {
 
                       {/* New Trunk Request Display */}
                       {(request.request_type === "trunk_request_sms" || request.request_type === "trunk_request_voice") && (
-                        <div className="mt-2 text-sm text-zinc-400">
+                        <div className="mt-2 text-sm text-gray-500 dark:text-zinc-400">
                           {request.customer && (
                             <div className="mb-1">
                               <span className="text-zinc-500">Customer(s): </span>
@@ -2070,7 +2070,7 @@ export default function RequestsPage() {
 
                       {/* Open TT Display */}
                       {request.request_type === "open_tt" && (
-                        <div className="mt-2 text-sm text-zinc-400">
+                        <div className="mt-2 text-sm text-gray-500 dark:text-zinc-400">
                           {request.destination && (
                             <div className="mb-1">
                               <span className="text-zinc-500">Destination: </span>
@@ -2103,7 +2103,7 @@ export default function RequestsPage() {
                       )}
 
                       {request.response && (
-                        <div className="mt-3 p-2 bg-zinc-800 rounded text-sm text-zinc-300">
+                        <div className="mt-3 p-2 bg-gray-100 dark:bg-zinc-800 rounded text-sm text-gray-700 dark:text-zinc-300">
                           <strong>Response:</strong> {request.response}
                         </div>
                       )}
@@ -2117,12 +2117,12 @@ export default function RequestsPage() {
                   
                   {/* Delete button for admins - shows for all requests in any state */}
                   {userRole === "admin" && (
-                    <div className="flex gap-2 mt-3 pt-3 border-t border-zinc-800">
+                    <div className="flex gap-2 mt-3 pt-3 border-t border-gray-200 dark:border-zinc-800">
                       <Button 
                         variant="outline" 
                         size="sm" 
                         onClick={() => handleDeleteRequest(request.id)}
-                        className="border-zinc-600 text-red-400 hover:bg-red-900/20 hover:text-red-300"
+                        className="border-gray-300 dark:border-zinc-600 text-red-400 hover:bg-red-900/20 hover:text-red-300"
                       >
                         <Trash2 className="h-4 w-4 mr-1" /> Delete
                       </Button>
@@ -2131,12 +2131,12 @@ export default function RequestsPage() {
                   
                   {/* Edit/Delete buttons - only for AMs when request is pending and created by current user */}
                   {userRole === "am" && request.created_by === user.id && request.status === "pending" && (
-                    <div className="flex gap-2 mt-3 pt-3 border-t border-zinc-800">
+                    <div className="flex gap-2 mt-3 pt-3 border-t border-gray-200 dark:border-zinc-800">
                       <Button 
                         variant="outline" 
                         size="sm" 
                         onClick={() => handleViewRequest(request)}
-                        className="border-zinc-600 text-zinc-300 hover:bg-zinc-800 hover:text-white"
+                        className="border-gray-300 dark:border-zinc-600 text-gray-700 dark:text-zinc-300 hover:bg-gray-100 dark:hover:bg-zinc-800 hover:text-gray-900 dark:hover:text-white"
                       >
                         <Search className="h-4 w-4 mr-1" /> View
                       </Button>
@@ -2144,7 +2144,7 @@ export default function RequestsPage() {
                         variant="outline" 
                         size="sm" 
                         onClick={() => handleEditRequest(request)}
-                        className="border-zinc-600 text-zinc-300 hover:bg-zinc-800 hover:text-white"
+                        className="border-gray-300 dark:border-zinc-600 text-gray-700 dark:text-zinc-300 hover:bg-gray-100 dark:hover:bg-zinc-800 hover:text-gray-900 dark:hover:text-white"
                       >
                         <Edit className="h-4 w-4 mr-1" /> Edit
                       </Button>
@@ -2152,7 +2152,7 @@ export default function RequestsPage() {
                         variant="outline" 
                         size="sm" 
                         onClick={() => handleDeleteRequest(request.id)}
-                        className="border-zinc-600 text-red-400 hover:bg-red-900/20 hover:text-red-300"
+                        className="border-gray-300 dark:border-zinc-600 text-red-400 hover:bg-red-900/20 hover:text-red-300"
                       >
                         <Trash2 className="h-4 w-4 mr-1" /> Delete
                       </Button>
@@ -2161,12 +2161,12 @@ export default function RequestsPage() {
                   
                   {/* View only for AMs who created the request - when not pending */}
                   {userRole === "am" && request.created_by === user.id && request.status !== "pending" && (
-                    <div className="flex gap-2 mt-3 pt-3 border-t border-zinc-800">
+                    <div className="flex gap-2 mt-3 pt-3 border-t border-gray-200 dark:border-zinc-800">
                       <Button 
                         variant="outline" 
                         size="sm" 
                         onClick={() => handleViewRequest(request)}
-                        className="border-zinc-600 text-zinc-300 hover:bg-zinc-800 hover:text-white"
+                        className="border-gray-300 dark:border-zinc-600 text-gray-700 dark:text-zinc-300 hover:bg-gray-100 dark:hover:bg-zinc-800 hover:text-gray-900 dark:hover:text-white"
                       >
                         <Search className="h-4 w-4 mr-1" /> View
                       </Button>
@@ -2175,12 +2175,12 @@ export default function RequestsPage() {
                   
                   {/* View button for AMs to view other AMs' requests (not their own) */}
                   {userRole === "am" && request.created_by !== user.id && (
-                    <div className="flex gap-2 mt-3 pt-3 border-t border-zinc-800">
+                    <div className="flex gap-2 mt-3 pt-3 border-t border-gray-200 dark:border-zinc-800">
                       <Button 
                         variant="outline" 
                         size="sm" 
                         onClick={() => handleViewRequest(request)}
-                        className="border-zinc-600 text-zinc-300 hover:bg-zinc-800 hover:text-white"
+                        className="border-gray-300 dark:border-zinc-600 text-gray-700 dark:text-zinc-300 hover:bg-gray-100 dark:hover:bg-zinc-800 hover:text-gray-900 dark:hover:text-white"
                       >
                         <Search className="h-4 w-4 mr-1" /> View
                       </Button>
@@ -2189,12 +2189,12 @@ export default function RequestsPage() {
                   
                   {/* Clone/Resend button for AMs to duplicate their own requests (not pending) */}
                   {userRole === "am" && request.created_by === user.id && request.status !== "pending" && (
-                    <div className="flex gap-2 mt-3 pt-3 border-t border-zinc-800">
+                    <div className="flex gap-2 mt-3 pt-3 border-t border-gray-200 dark:border-zinc-800">
                       <Button 
                         variant="outline" 
                         size="sm" 
                         onClick={() => handleCloneRequest(request)}
-                        className="border-zinc-600 text-zinc-300 hover:bg-zinc-800 hover:text-white"
+                        className="border-gray-300 dark:border-zinc-600 text-gray-700 dark:text-zinc-300 hover:bg-gray-100 dark:hover:bg-zinc-800 hover:text-gray-900 dark:hover:text-white"
                       >
                         <Copy className="h-4 w-4 mr-1" /> Clone/Resend
                       </Button>
@@ -2203,12 +2203,12 @@ export default function RequestsPage() {
                   
                   {/* Create LCR Request button for AMs - only for completed Testing requests in Voice */}
                   {userRole === "am" && request.created_by === user.id && request.status === "completed" && request.department === "voice" && (request.request_type === "testing" || request.request_type_label?.includes("Testing")) && (
-                    <div className="flex gap-2 mt-3 pt-3 border-t border-zinc-800">
+                    <div className="flex gap-2 mt-3 pt-3 border-t border-gray-200 dark:border-zinc-800">
                       <Button 
                         variant="outline" 
                         size="sm" 
                         onClick={() => handleCreateLcrFromTesting(request)}
-                        className="border-zinc-600 text-amber-400 hover:bg-amber-900/20 hover:text-amber-300"
+                        className="border-gray-300 dark:border-zinc-600 text-amber-400 hover:bg-amber-900/20 hover:text-amber-300"
                       >
                         <Plus className="h-4 w-4 mr-1" /> Create LCR Request
                       </Button>
@@ -2217,12 +2217,12 @@ export default function RequestsPage() {
 
                   {/* View/Respond buttons for NOC and Admin */}
                   {(userRole === "noc" || userRole === "admin") && request.status === "pending" && !request.claimed_by && (
-                    <div className="flex gap-2 mt-3 pt-3 border-t border-zinc-800">
+                    <div className="flex gap-2 mt-3 pt-3 border-t border-gray-200 dark:border-zinc-800">
                       <Button 
                         variant="outline" 
                         size="sm" 
                         onClick={() => handleViewRequest(request)}
-                        className="border-zinc-600 text-zinc-300 hover:bg-zinc-800 hover:text-white"
+                        className="border-gray-300 dark:border-zinc-600 text-gray-700 dark:text-zinc-300 hover:bg-gray-100 dark:hover:bg-zinc-800 hover:text-gray-900 dark:hover:text-white"
                       >
                         <Search className="h-4 w-4 mr-1" /> View
                       </Button>
@@ -2239,12 +2239,12 @@ export default function RequestsPage() {
 
                   {/* Show Complete/Reject only for the NOC user who claimed the request or responded to it */}
                   {(userRole === "noc" || userRole === "admin") && request.status === "in_progress" && (request.claimed_by === user.id || request.responded_by === user.id) && (
-                    <div className="flex gap-2 mt-3 pt-3 border-t border-zinc-800">
+                    <div className="flex gap-2 mt-3 pt-3 border-t border-gray-200 dark:border-zinc-800">
                       <Button 
                         variant="outline" 
                         size="sm" 
                         onClick={() => handleViewRequest(request)}
-                        className="border-zinc-600 text-zinc-300 hover:bg-zinc-800 hover:text-white"
+                        className="border-gray-300 dark:border-zinc-600 text-gray-700 dark:text-zinc-300 hover:bg-gray-100 dark:hover:bg-zinc-800 hover:text-gray-900 dark:hover:text-white"
                       >
                         <Search className="h-4 w-4 mr-1" /> View
                       </Button>
@@ -2269,12 +2269,12 @@ export default function RequestsPage() {
 
                   {/* View only for in_progress requests not claimed by current user */}
                   {(userRole === "noc" || userRole === "admin") && request.status === "in_progress" && request.claimed_by !== user.id && (
-                    <div className="flex gap-2 mt-3 pt-3 border-t border-zinc-800">
+                    <div className="flex gap-2 mt-3 pt-3 border-t border-gray-200 dark:border-zinc-800">
                       <Button 
                         variant="outline" 
                         size="sm" 
                         onClick={() => handleViewRequest(request)}
-                        className="border-zinc-600 text-zinc-300 hover:bg-zinc-800 hover:text-white"
+                        className="border-gray-300 dark:border-zinc-600 text-gray-700 dark:text-zinc-300 hover:bg-gray-100 dark:hover:bg-zinc-800 hover:text-gray-900 dark:hover:text-white"
                       >
                         <Search className="h-4 w-4 mr-1" /> View
                       </Button>
@@ -2283,12 +2283,12 @@ export default function RequestsPage() {
 
                   {/* View only button for completed/rejected requests */}
                   {(userRole === "noc" || userRole === "admin") && (request.status === "completed" || request.status === "rejected") && (
-                    <div className="flex gap-2 mt-3 pt-3 border-t border-zinc-800">
+                    <div className="flex gap-2 mt-3 pt-3 border-t border-gray-200 dark:border-zinc-800">
                       <Button 
                         variant="outline" 
                         size="sm" 
                         onClick={() => handleViewRequest(request)}
-                        className="border-zinc-600 text-zinc-300 hover:bg-zinc-800 hover:text-white"
+                        className="border-gray-300 dark:border-zinc-600 text-gray-700 dark:text-zinc-300 hover:bg-gray-100 dark:hover:bg-zinc-800 hover:text-gray-900 dark:hover:text-white"
                       >
                         <Search className="h-4 w-4 mr-1" /> View
                       </Button>
@@ -2314,7 +2314,7 @@ export default function RequestsPage() {
           setTrunkWithLcr(true);
         }
       }}>
-        <DialogContent disableOutsideClick className="bg-zinc-900 border-white/10 text-white max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent disableOutsideClick className="bg-white dark:bg-zinc-900 border-black/10 dark:border-white/10 text-gray-900 dark:text-white max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{isEditMode ? "Edit" : "New"} {displayTab.toUpperCase()} Request</DialogTitle>
           </DialogHeader>
@@ -2322,12 +2322,12 @@ export default function RequestsPage() {
           <div className="space-y-4">
             {/* Request Type */}
             <div>
-              <Label className="text-zinc-400">Request Type</Label>
+              <Label className="text-gray-500 dark:text-zinc-400">Request Type</Label>
               <Select value={formData.request_type} onValueChange={handleRequestTypeChange}>
-                <SelectTrigger className="bg-zinc-800 border-zinc-700 text-white">
+                <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white">
                   <SelectValue placeholder="Select request type" />
                 </SelectTrigger>
-                <SelectContent className="bg-zinc-800 border-zinc-700">
+                <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
                   {Object.entries(REQUEST_TYPES).filter(([key, type]) => {
                     // Filter by department - use flexible matching for AMs
                     if (type.forDepartment) {
@@ -2342,10 +2342,10 @@ export default function RequestsPage() {
                     }
                     return true;
                   }).map(([key, type]) => (
-                    <SelectItem key={key} value={key} className="text-white data-[highlighted]:bg-white data-[highlighted]:text-black">
+                    <SelectItem key={key} value={key} className="text-gray-900 dark:text-white data-[highlighted]:bg-white data-[highlighted]:text-black">
                       <div className="text-left data-[highlighted]:text-black">
                         <div className="font-medium text-left">{type.label}</div>
-                        <div className="text-xs text-zinc-400 text-left data-[highlighted]:text-black">{type.description}</div>
+                        <div className="text-xs text-gray-500 dark:text-zinc-400 text-left data-[highlighted]:text-black">{type.description}</div>
                       </div>
                     </SelectItem>
                   ))}
@@ -2356,16 +2356,16 @@ export default function RequestsPage() {
             {/* Priority - Show only when request type is selected */}
             {formData.request_type && (
               <div>
-                <Label className="text-zinc-400">Priority</Label>
+                <Label className="text-gray-500 dark:text-zinc-400">Priority</Label>
                 <Select value={formData.priority} onValueChange={(v) => setFormData({ ...formData, priority: v })}>
-                  <SelectTrigger className="bg-zinc-800 border-zinc-700 text-white">
-                    <SelectValue className="text-white" />
+                  <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white">
+                    <SelectValue className="text-gray-900 dark:text-white" />
                   </SelectTrigger>
-                  <SelectContent className="bg-zinc-800 border-zinc-700">
+                  <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
                     {PRIORITIES.map((p) => (
-                      <SelectItem key={p.value} value={p.value} className="text-white">
+                      <SelectItem key={p.value} value={p.value} className="text-gray-900 dark:text-white">
                         <span>{p.value}</span>
-                        <span className="text-zinc-400 text-xs ml-2">({p.description})</span>
+                        <span className="text-gray-500 dark:text-zinc-400 text-xs ml-2">({p.description})</span>
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -2376,12 +2376,12 @@ export default function RequestsPage() {
             {/* Ticket # - Optional field for linking to a ticket */}
             {formData.request_type && (
               <div>
-                <Label className="text-zinc-400">Ticket # (Optional)</Label>
+                <Label className="text-gray-500 dark:text-zinc-400">Ticket # (Optional)</Label>
                 <Input
                   value={formData.ticket_id || ""}
                   onChange={(e) => setFormData({ ...formData, ticket_id: e.target.value })}
                   placeholder="Enter related ticket number"
-                  className="bg-zinc-800 border-zinc-700 text-white"
+                  className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white"
                 />
               </div>
             )}
@@ -2389,7 +2389,7 @@ export default function RequestsPage() {
             {/* Customer - Show only when request type is selected and not for Testing/Investigation/Translation/LCR/Trunk Request/Open TT */}
             {formData.request_type && formData.request_type !== "testing" && formData.request_type !== "investigation" && formData.request_type !== "translation" && formData.request_type !== "lcr" && formData.request_type !== "trunk_request_sms" && formData.request_type !== "trunk_request_voice" && formData.request_type !== "open_tt" && (
               <div>
-                <Label className="text-zinc-400">
+                <Label className="text-gray-500 dark:text-zinc-400">
                   {formData.request_type === "translation" || formData.request_type === "rating_routing" ? "Customer(s)" : "Customer"}
                 </Label>
                 {formData.request_type === "rating_routing" ? (
@@ -2415,7 +2415,7 @@ export default function RequestsPage() {
                     value={formData.customer}
                     onChange={(e) => setFormData({ ...formData, customer: e.target.value })}
                     placeholder={formData.request_type === "translation" ? "Customer name" : "Customer name"}
-                    className="bg-zinc-800 border-zinc-700"
+                    className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700"
                   />
                 )}
               </div>
@@ -2425,10 +2425,10 @@ export default function RequestsPage() {
             {formData.request_type === "rating_routing" && (
               <>
                 {/* Common Routing Option */}
-                <div className="mb-4 p-3 bg-zinc-800/50 rounded-lg border border-zinc-700">
+                <div className="mb-4 p-3 bg-gray-100/50 dark:bg-zinc-800/50 rounded-lg border border-gray-200 dark:border-zinc-700">
                   <div className="flex items-center justify-between">
                     <div>
-                      <span className="text-white text-sm font-medium">Common Routing</span>
+                      <span className="text-gray-900 dark:text-white text-sm font-medium">Common Routing</span>
                       <p className="text-zinc-500 text-xs mt-1">Use a single routing plan for all customer trunks</p>
                     </div>
                     <label className="relative inline-flex items-center cursor-pointer">
@@ -2438,13 +2438,13 @@ export default function RequestsPage() {
                         onChange={(e) => setFormData({ ...formData, use_common_routing: e.target.checked })}
                         className="sr-only peer"
                       />
-                      <div className="w-11 h-6 bg-zinc-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-cyan-600"></div>
+                      <div className="w-11 h-6 bg-gray-200 dark:bg-zinc-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-black dark:peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-cyan-600"></div>
                     </label>
                   </div>
                   
                   {/* Common Routing Plan Section - Shown when enabled */}
                   {formData.use_common_routing && (
-                    <div className="mt-4 pt-4 border-t border-zinc-600">
+                    <div className="mt-4 pt-4 border-t border-gray-300 dark:border-zinc-600">
                       <div className="flex items-center gap-2 mb-3">
                         <div className="w-1 h-4 bg-blue-500 rounded"></div>
                         <span className="text-blue-300 font-medium text-sm">Common Routing Plan</span>
@@ -2459,7 +2459,7 @@ export default function RequestsPage() {
                           const isPercentageValid = percentageSum === 100;
                           
                           return (
-                            <div key={ruleIndex} className="bg-zinc-900/60 rounded-lg p-3 border border-blue-600/30">
+                            <div key={ruleIndex} className="bg-white/60 dark:bg-zinc-900/60 rounded-lg p-3 border border-blue-600/30">
                               {/* Route Rule Header */}
                               <div className="mb-3">
                                 <div className="flex items-center justify-between mb-2">
@@ -2478,17 +2478,17 @@ export default function RequestsPage() {
                                 {/* Priority and Destination fields */}
                                 <div className="grid grid-cols-2 gap-2">
                                   <div className="flex items-center gap-2">
-                                    <span className="text-zinc-400 text-xs whitespace-nowrap">Priority:</span>
+                                    <span className="text-gray-500 dark:text-zinc-400 text-xs whitespace-nowrap">Priority:</span>
                                     <Input
                                       type="number"
                                       value={rule.priority || 1}
                                       onChange={(e) => updateCommonRouteRule(ruleIndex, "priority", parseInt(e.target.value) || 1)}
-                                      className="bg-zinc-800 border-zinc-600 text-white text-xs h-7 w-14"
+                                      className="bg-gray-100 dark:bg-zinc-800 border-gray-300 dark:border-zinc-600 text-gray-900 dark:text-white text-xs h-7 w-14"
                                       min={1}
                                     />
                                   </div>
                                   <div className="flex items-center gap-2">
-                                    <span className="text-zinc-400 text-xs whitespace-nowrap">Dest:</span>
+                                    <span className="text-gray-500 dark:text-zinc-400 text-xs whitespace-nowrap">Dest:</span>
                                     <SearchableSelect
                                       options={[{ value: "All", label: "All" }, { value: "Rest", label: "Rest" }, ...getAllDestinations().map(d => ({ value: d, label: d }))]}
                                       value={rule.destination || ""}
@@ -2503,7 +2503,7 @@ export default function RequestsPage() {
                               {/* Vendors in this Route Rule */}
                               <div className="space-y-2 mb-3">
                                 {ruleVendors.map((vendor, vendorIndex) => (
-                                  <div key={vendorIndex} className="bg-zinc-800/60 rounded-lg p-2 border border-zinc-700/30">
+                                  <div key={vendorIndex} className="bg-gray-100/60 dark:bg-zinc-800/60 rounded-lg p-2 border border-gray-200/30 dark:border-zinc-700/30">
                                     <div className="flex items-center justify-between mb-2">
                                       <span className="text-zinc-500 text-xs">Vendor {vendorIndex + 1}</span>
                                       {ruleVendors.length > 1 && (
@@ -2535,12 +2535,12 @@ export default function RequestsPage() {
                                         value={vendor.cost_type || "fixed"}
                                         onValueChange={(value) => updateVendorInCommonRule(ruleIndex, vendorIndex, "cost_type", value)}
                                       >
-                                        <SelectTrigger className="bg-zinc-900 border-zinc-700 text-white text-xs h-7 w-16">
+                                        <SelectTrigger className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7 w-16">
                                           <SelectValue />
                                         </SelectTrigger>
-                                        <SelectContent className="bg-zinc-800 border-zinc-700">
-                                          <SelectItem value="fixed" className="text-white text-xs">Fixed</SelectItem>
-                                          <SelectItem value="range" className="text-white text-xs">Range</SelectItem>
+                                        <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
+                                          <SelectItem value="fixed" className="text-gray-900 dark:text-white text-xs">Fixed</SelectItem>
+                                          <SelectItem value="range" className="text-gray-900 dark:text-white text-xs">Range</SelectItem>
                                         </SelectContent>
                                       </Select>
                                       {vendor.cost_type === "fixed" ? (
@@ -2548,7 +2548,7 @@ export default function RequestsPage() {
                                           value={vendor.cost_min || ""}
                                           onChange={(e) => updateVendorInCommonRule(ruleIndex, vendorIndex, "cost_min", e.target.value)}
                                           placeholder="EUR"
-                                          className="bg-zinc-900 border-zinc-700 text-white text-xs h-7 flex-1"
+                                          className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7 flex-1"
                                         />
                                       ) : (
                                         <div className="flex items-center gap-1 flex-1">
@@ -2556,14 +2556,14 @@ export default function RequestsPage() {
                                             value={vendor.cost_min || ""}
                                             onChange={(e) => updateVendorInCommonRule(ruleIndex, vendorIndex, "cost_min", e.target.value)}
                                             placeholder="Min"
-                                            className="bg-zinc-900 border-zinc-700 text-white text-xs h-7 w-14"
+                                            className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7 w-14"
                                           />
                                           <span className="text-zinc-500 text-xs">-</span>
                                           <Input
                                             value={vendor.cost_max || ""}
                                             onChange={(e) => updateVendorInCommonRule(ruleIndex, vendorIndex, "cost_max", e.target.value)}
                                             placeholder="Max"
-                                            className="bg-zinc-900 border-zinc-700 text-white text-xs h-7 w-14"
+                                            className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7 w-14"
                                           />
                                         </div>
                                       )}
@@ -2578,7 +2578,7 @@ export default function RequestsPage() {
                                             value={vendor.percentage || ""}
                                             onChange={(e) => updateVendorInCommonRule(ruleIndex, vendorIndex, "percentage", e.target.value)}
                                             placeholder="0"
-                                            className="bg-zinc-900 border-zinc-700 text-white text-xs h-7 w-14"
+                                            className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7 w-14"
                                           />
                                           <span className="text-zinc-500 text-xs">%</span>
                                         </div>
@@ -2606,7 +2606,7 @@ export default function RequestsPage() {
                               </div>
                               
                               {/* Advanced Settings */}
-                              <div className="border-t border-zinc-700/50 pt-2 mt-2">
+                              <div className="border-t border-gray-200/50 dark:border-zinc-700/50 pt-2 mt-2">
                                 <div className="text-xs text-zinc-500 mb-2">Advanced Settings</div>
                                 <div className="flex flex-wrap gap-3">
                                   <div className="flex items-center gap-1.5">
@@ -2617,7 +2617,7 @@ export default function RequestsPage() {
                                       onChange={(e) => updateCommonRouteRule(ruleIndex, "by_loss", e.target.checked)}
                                       className="w-3 h-3 accent-purple-500 rounded"
                                     />
-                                    <label htmlFor={`common_loss_${ruleIndex}`} className="text-zinc-400 text-xs cursor-pointer">By Loss</label>
+                                    <label htmlFor={`common_loss_${ruleIndex}`} className="text-gray-500 dark:text-zinc-400 text-xs cursor-pointer">By Loss</label>
                                   </div>
                                   {displayTab === "sms" && (
                                     <>
@@ -2643,7 +2643,7 @@ export default function RequestsPage() {
                                           }}
                                           className="w-3 h-3 accent-cyan-500 rounded"
                                         />
-                                        <label htmlFor={`common_mnp_${ruleIndex}`} className="text-zinc-400 text-xs cursor-pointer">MNP</label>
+                                        <label htmlFor={`common_mnp_${ruleIndex}`} className="text-gray-500 dark:text-zinc-400 text-xs cursor-pointer">MNP</label>
                                       </div>
                                       <div className="flex items-center gap-1.5">
                                         <input
@@ -2666,7 +2666,7 @@ export default function RequestsPage() {
                                           }}
                                           className="w-3 h-3 accent-cyan-500 rounded"
                                         />
-                                        <label htmlFor={`common_hlr_${ruleIndex}`} className="text-zinc-400 text-xs cursor-pointer">HLR</label>
+                                        <label htmlFor={`common_hlr_${ruleIndex}`} className="text-gray-500 dark:text-zinc-400 text-xs cursor-pointer">HLR</label>
                                       </div>
                                     </>
                                   )}
@@ -2677,7 +2677,7 @@ export default function RequestsPage() {
                                     value={rule.note || ""}
                                     onChange={(e) => updateCommonRouteRule(ruleIndex, "note", e.target.value)}
                                     placeholder="Add note for this route rule (optional)"
-                                    className="bg-zinc-900 border-zinc-700 text-white text-xs h-7"
+                                    className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7"
                                   />
                                 </div>
                               </div>
@@ -2694,10 +2694,10 @@ export default function RequestsPage() {
                           >
                             <Plus className="h-3 w-3 mr-1" /> Add Route Rule
                           </Button>
-                          <div className="absolute bottom-full left-0 right-0 mb-1 bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-10">
+                          <div className="absolute bottom-full left-0 right-0 mb-1 bg-gray-100 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-lg shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-10">
                             <button
                               onClick={addCommonRouteRule}
-                              className="w-full px-3 py-2 text-xs text-left text-blue-400 hover:bg-zinc-700 rounded-t-lg"
+                              className="w-full px-3 py-2 text-xs text-left text-blue-400 hover:bg-gray-200 dark:hover:bg-zinc-700 rounded-t-lg"
                             >
                               New Route Rule
                             </button>
@@ -2710,7 +2710,7 @@ export default function RequestsPage() {
                                   addCommonRouteRule();
                                 }
                               }}
-                              className="w-full px-3 py-2 text-xs text-left text-cyan-400 hover:bg-zinc-700 rounded-b-lg"
+                              className="w-full px-3 py-2 text-xs text-left text-cyan-400 hover:bg-gray-200 dark:hover:bg-zinc-700 rounded-b-lg"
                             >
                               Clone Last Route Rule
                             </button>
@@ -2729,7 +2729,7 @@ export default function RequestsPage() {
                     const showRouting = !formData.use_common_routing;
                     
                     return (
-                      <div key={configIndex} className="border border-amber-600/30 rounded-lg p-4 bg-zinc-900/80">
+                      <div key={configIndex} className="border border-amber-600/30 rounded-lg p-4 bg-white/80 dark:bg-zinc-900/80">
                         {/* Header with customer trunk selection and remove button */}
                         <div className="flex items-center justify-between mb-4">
                           <span className="text-amber-400 font-medium">Customer Trunk {configIndex + 1}</span>
@@ -2749,13 +2749,13 @@ export default function RequestsPage() {
                           onValueChange={(value) => updateCustomerTrunkConfig(configIndex, "trunk", value)}
                           required
                         >
-                          <SelectTrigger className="bg-zinc-800 border-zinc-700 text-white mb-4">
+                          <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white mb-4">
                             <SelectValue placeholder="Select customer trunk" />
                           </SelectTrigger>
-                          <SelectContent className="bg-zinc-800 border-zinc-700">
+                          <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
                             {(formData.customer_ids || []).flatMap(customerId => 
                               (enterprises.find(e => e.id === customerId)?.customer_trunks || []).map((tName) => (
-                                <SelectItem key={`${customerId}-${tName}`} value={tName} className="text-white">
+                                <SelectItem key={`${customerId}-${tName}`} value={tName} className="text-gray-900 dark:text-white">
                                   {enterprises.find(e => e.id === customerId)?.name} - {tName}
                                 </SelectItem>
                               ))
@@ -2766,7 +2766,7 @@ export default function RequestsPage() {
                         {/* Two-column layout: Rating Plan | Routing Plan */}
                         <div className="grid grid-cols-2 gap-4">
                           {/* Rating Plan Section - Compact with multiple destination-rate pairs */}
-                          <div className="bg-zinc-800/40 rounded-lg p-3">
+                          <div className="bg-gray-100/40 dark:bg-zinc-800/40 rounded-lg p-3">
                             <div className="flex items-center gap-2 mb-3">
                               <div className="w-1 h-4 bg-amber-500 rounded"></div>
                               <span className="text-amber-300 font-medium text-sm">Rating Plan</span>
@@ -2783,7 +2783,7 @@ export default function RequestsPage() {
                                       updateCustomerTrunkConfig(configIndex, "rating_pairs", newPairs);
                                     }}
                                     placeholder="Destination"
-                                    className="bg-zinc-900 border-zinc-700 text-white text-xs h-8 flex-1"
+                                    className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-8 flex-1"
                                   />
                                   <Input
                                     value={pair.rate || ""}
@@ -2793,7 +2793,7 @@ export default function RequestsPage() {
                                       updateCustomerTrunkConfig(configIndex, "rating_pairs", newPairs);
                                     }}
                                     placeholder="Rate"
-                                    className="bg-zinc-900 border-zinc-700 text-white text-xs h-8 w-16"
+                                    className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-8 w-16"
                                   />
                                   <span className="text-zinc-500 text-xs">EUR</span>
                                   {destRates.length > 1 && (
@@ -2828,7 +2828,7 @@ export default function RequestsPage() {
                           
                           {/* Routing Plan Section - With Route Rules - Hidden when using Common Routing */}
                           {showRouting && (
-                            <div className="bg-zinc-800/40 rounded-lg p-3">
+                            <div className="bg-gray-100/40 dark:bg-zinc-800/40 rounded-lg p-3">
                             <div className="flex items-center gap-2 mb-3">
                               <div className="w-1 h-4 bg-blue-500 rounded"></div>
                               <span className="text-blue-300 font-medium text-sm">Routing Plan</span>
@@ -2843,7 +2843,7 @@ export default function RequestsPage() {
                                 const isPercentageValid = percentageSum === 100;
                                 
                                 return (
-                                  <div key={ruleIndex} className="bg-zinc-900/60 rounded-lg p-3 border border-blue-600/30">
+                                  <div key={ruleIndex} className="bg-white/60 dark:bg-zinc-900/60 rounded-lg p-3 border border-blue-600/30">
                                     {/* Route Rule Header */}
                                     <div className="mb-3">
                                       <div className="flex items-center justify-between mb-2">
@@ -2862,17 +2862,17 @@ export default function RequestsPage() {
                                       {/* Priority and Destination fields */}
                                       <div className="grid grid-cols-2 gap-2">
                                         <div className="flex items-center gap-2">
-                                          <span className="text-zinc-400 text-xs whitespace-nowrap">Priority:</span>
+                                          <span className="text-gray-500 dark:text-zinc-400 text-xs whitespace-nowrap">Priority:</span>
                                           <Input
                                             type="number"
                                             value={rule.priority || 1}
                                             onChange={(e) => updateRouteRule(configIndex, ruleIndex, "priority", parseInt(e.target.value) || 1)}
-                                            className="bg-zinc-800 border-zinc-600 text-white text-xs h-7 w-14"
+                                            className="bg-gray-100 dark:bg-zinc-800 border-gray-300 dark:border-zinc-600 text-gray-900 dark:text-white text-xs h-7 w-14"
                                             min={1}
                                           />
                                         </div>
                                         <div className="flex items-center gap-2">
-                                          <span className="text-zinc-400 text-xs whitespace-nowrap">Dest:</span>
+                                          <span className="text-gray-500 dark:text-zinc-400 text-xs whitespace-nowrap">Dest:</span>
                                           <SearchableSelect
                                             options={[{ value: "All", label: "All" }, { value: "Rest", label: "Rest" }, ...(config.rating_pairs || []).filter(p => p.destination).map(p => ({ value: p.destination, label: p.destination }))]}
                                             value={rule.destination || ""}
@@ -2887,7 +2887,7 @@ export default function RequestsPage() {
                                     {/* Vendors in this Route Rule */}
                                     <div className="space-y-2 mb-3">
                                       {ruleVendors.map((vendor, vendorIndex) => (
-                                        <div key={vendorIndex} className="bg-zinc-800/60 rounded-lg p-2 border border-zinc-700/30">
+                                        <div key={vendorIndex} className="bg-gray-100/60 dark:bg-zinc-800/60 rounded-lg p-2 border border-gray-200/30 dark:border-zinc-700/30">
                                           <div className="flex items-center justify-between mb-2">
                                             <span className="text-zinc-500 text-xs">Vendor {vendorIndex + 1}</span>
                                             {ruleVendors.length > 1 && (
@@ -2919,12 +2919,12 @@ export default function RequestsPage() {
                                               value={vendor.cost_type || "fixed"}
                                               onValueChange={(value) => updateVendorInRule(configIndex, ruleIndex, vendorIndex, "cost_type", value)}
                                             >
-                                              <SelectTrigger className="bg-zinc-900 border-zinc-700 text-white text-xs h-7 w-16">
+                                              <SelectTrigger className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7 w-16">
                                                 <SelectValue />
                                               </SelectTrigger>
-                                              <SelectContent className="bg-zinc-800 border-zinc-700">
-                                                <SelectItem value="fixed" className="text-white text-xs">Fixed</SelectItem>
-                                                <SelectItem value="range" className="text-white text-xs">Range</SelectItem>
+                                              <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
+                                                <SelectItem value="fixed" className="text-gray-900 dark:text-white text-xs">Fixed</SelectItem>
+                                                <SelectItem value="range" className="text-gray-900 dark:text-white text-xs">Range</SelectItem>
                                               </SelectContent>
                                             </Select>
                                             {vendor.cost_type === "fixed" ? (
@@ -2932,7 +2932,7 @@ export default function RequestsPage() {
                                                 value={vendor.cost_min || ""}
                                                 onChange={(e) => updateVendorInRule(configIndex, ruleIndex, vendorIndex, "cost_min", e.target.value)}
                                                 placeholder="EUR"
-                                                className="bg-zinc-900 border-zinc-700 text-white text-xs h-7 flex-1"
+                                                className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7 flex-1"
                                               />
                                             ) : (
                                               <div className="flex items-center gap-1 flex-1">
@@ -2940,14 +2940,14 @@ export default function RequestsPage() {
                                                   value={vendor.cost_min || ""}
                                                   onChange={(e) => updateVendorInRule(configIndex, ruleIndex, vendorIndex, "cost_min", e.target.value)}
                                                   placeholder="Min"
-                                                  className="bg-zinc-900 border-zinc-700 text-white text-xs h-7 w-14"
+                                                  className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7 w-14"
                                                 />
                                                 <span className="text-zinc-500 text-xs">-</span>
                                                 <Input
                                                   value={vendor.cost_max || ""}
                                                   onChange={(e) => updateVendorInRule(configIndex, ruleIndex, vendorIndex, "cost_max", e.target.value)}
                                                   placeholder="Max"
-                                                  className="bg-zinc-900 border-zinc-700 text-white text-xs h-7 w-14"
+                                                  className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7 w-14"
                                                 />
                                               </div>
                                             )}
@@ -2962,7 +2962,7 @@ export default function RequestsPage() {
                                                   value={vendor.percentage || ""}
                                                   onChange={(e) => updateVendorInRule(configIndex, ruleIndex, vendorIndex, "percentage", e.target.value)}
                                                   placeholder="0"
-                                                  className="bg-zinc-900 border-zinc-700 text-white text-xs h-7 w-14"
+                                                  className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7 w-14"
                                                 />
                                                 <span className="text-zinc-500 text-xs">%</span>
                                               </div>
@@ -2990,7 +2990,7 @@ export default function RequestsPage() {
                                     </div>
                                     
                                     {/* Route Rule Advanced Settings */}
-                                    <div className="border-t border-zinc-700/50 pt-2 mt-2">
+                                    <div className="border-t border-gray-200/50 dark:border-zinc-700/50 pt-2 mt-2">
                                       <div className="text-xs text-zinc-500 mb-2">Advanced Settings</div>
                                       <div className="flex flex-wrap gap-3">
                                         <div className="flex items-center gap-1.5">
@@ -3001,7 +3001,7 @@ export default function RequestsPage() {
                                             onChange={(e) => updateRouteRule(configIndex, ruleIndex, "by_loss", e.target.checked)}
                                             className="w-3 h-3 accent-purple-500 rounded"
                                           />
-                                          <label htmlFor={`rule_loss_${configIndex}_${ruleIndex}`} className="text-zinc-400 text-xs cursor-pointer">By Loss</label>
+                                          <label htmlFor={`rule_loss_${configIndex}_${ruleIndex}`} className="text-gray-500 dark:text-zinc-400 text-xs cursor-pointer">By Loss</label>
                                         </div>
                                         {displayTab === "sms" && (
                                           <>
@@ -3032,7 +3032,7 @@ export default function RequestsPage() {
                                                 }}
                                                 className="w-3 h-3 accent-cyan-500 rounded"
                                               />
-                                              <label htmlFor={`rule_mnp_${configIndex}_${ruleIndex}`} className="text-zinc-400 text-xs cursor-pointer">MNP</label>
+                                              <label htmlFor={`rule_mnp_${configIndex}_${ruleIndex}`} className="text-gray-500 dark:text-zinc-400 text-xs cursor-pointer">MNP</label>
                                             </div>
                                             <div className="flex items-center gap-1.5">
                                               <input
@@ -3060,7 +3060,7 @@ export default function RequestsPage() {
                                                 }}
                                                 className="w-3 h-3 accent-cyan-500 rounded"
                                               />
-                                              <label htmlFor={`rule_hlr_${configIndex}_${ruleIndex}`} className="text-zinc-400 text-xs cursor-pointer">HLR</label>
+                                              <label htmlFor={`rule_hlr_${configIndex}_${ruleIndex}`} className="text-gray-500 dark:text-zinc-400 text-xs cursor-pointer">HLR</label>
                                             </div>
                                           </>
                                         )}
@@ -3071,7 +3071,7 @@ export default function RequestsPage() {
                                           value={rule.note || ""}
                                           onChange={(e) => updateRouteRule(configIndex, ruleIndex, "note", e.target.value)}
                                           placeholder="Add note for this route rule (optional)"
-                                          className="bg-zinc-900 border-zinc-700 text-white text-xs h-7"
+                                          className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7"
                                         />
                                       </div>
                                     </div>
@@ -3088,10 +3088,10 @@ export default function RequestsPage() {
                                 >
                                   <Plus className="h-3 w-3 mr-1" /> Add Route Rule
                                 </Button>
-                                <div className="absolute bottom-full left-0 right-0 mb-1 bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-10">
+                                <div className="absolute bottom-full left-0 right-0 mb-1 bg-gray-100 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-lg shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-10">
                                   <button
                                     onClick={() => addRouteRule(configIndex)}
-                                    className="w-full px-3 py-2 text-xs text-left text-blue-400 hover:bg-zinc-700 rounded-t-lg"
+                                    className="w-full px-3 py-2 text-xs text-left text-blue-400 hover:bg-gray-200 dark:hover:bg-zinc-700 rounded-t-lg"
                                   >
                                     New Route Rule
                                   </button>
@@ -3104,7 +3104,7 @@ export default function RequestsPage() {
                                         addRouteRule(configIndex);
                                       }
                                     }}
-                                    className="w-full px-3 py-2 text-xs text-left text-cyan-400 hover:bg-zinc-700 rounded-b-lg"
+                                    className="w-full px-3 py-2 text-xs text-left text-cyan-400 hover:bg-gray-200 dark:hover:bg-zinc-700 rounded-b-lg"
                                   >
                                     Clone Last Route Rule
                                   </button>
@@ -3132,14 +3132,14 @@ export default function RequestsPage() {
                 {/* Test Type - Only show for Voice */}
                 {displayTab === "voice" && (
                   <div>
-                    <Label className="text-zinc-400">Test Type</Label>
+                    <Label className="text-gray-500 dark:text-zinc-400">Test Type</Label>
                     <Select value={formData.test_type || ""} onValueChange={(v) => setFormData({ ...formData, test_type: v })}>
-                      <SelectTrigger className="bg-zinc-800 border-zinc-700 text-white">
+                      <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white">
                         <SelectValue placeholder="Select test type" />
                       </SelectTrigger>
-                      <SelectContent className="bg-zinc-800 border-zinc-700">
-                        <SelectItem value="tool_test" className="text-white">Tool Test</SelectItem>
-                        <SelectItem value="manual_test" className="text-white">Manual Test</SelectItem>
+                      <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
+                        <SelectItem value="tool_test" className="text-gray-900 dark:text-white">Tool Test</SelectItem>
+                        <SelectItem value="manual_test" className="text-gray-900 dark:text-white">Manual Test</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -3147,30 +3147,30 @@ export default function RequestsPage() {
                 {/* Test Description - Only show for Voice (optional) */}
                 {displayTab === "voice" && (
                   <div>
-                    <Label className="text-zinc-400">Test Description (Optional)</Label>
+                    <Label className="text-gray-500 dark:text-zinc-400">Test Description (Optional)</Label>
                     <Textarea
                       value={formData.test_description || ""}
                       onChange={(e) => setFormData({ ...formData, test_description: e.target.value })}
                       placeholder="Describe the test to be performed..."
                       rows={2}
-                      className="bg-zinc-800 border-zinc-700"
+                      className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700"
                     />
                   </div>
                 )}
                 <div>
-                  <Label className="text-zinc-400">Destination(s) (e.g., Country - Network)</Label>
+                  <Label className="text-gray-500 dark:text-zinc-400">Destination(s) (e.g., Country - Network)</Label>
                   <Input
                     value={formData.destination}
                     onChange={(e) => setFormData({ ...formData, destination: e.target.value })}
                     placeholder="Destinations (e.g., Country - Network) (comma separated for multiple)"
-                    className="bg-zinc-800 border-zinc-700"
+                    className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700"
                   />
                 </div>
                 <div>
-                  <Label className="text-zinc-400">Vendor Trunk(s) to Test</Label>
+                  <Label className="text-gray-500 dark:text-zinc-400">Vendor Trunk(s) to Test</Label>
                   <p className="text-xs text-zinc-500 mb-2">At least one vendor trunk is required</p>
                   {formData.vendor_trunks.map((trunk, index) => (
-                    <div key={index} className="mb-4 p-3 bg-zinc-800/50 rounded-lg border border-zinc-700">
+                    <div key={index} className="mb-4 p-3 bg-gray-100/50 dark:bg-zinc-800/50 rounded-lg border border-gray-200 dark:border-zinc-700">
                       <div className="flex gap-2 mb-2">
                         <SearchableSelect
                           options={vendorTrunkOptions.map(vt => ({ value: vt, label: vt }))}
@@ -3196,13 +3196,13 @@ export default function RequestsPage() {
                                 value={pair.sid}
                                 onChange={(e) => handleSidContentPairChange(index, pairIndex, "sid", e.target.value)}
                                 placeholder="SID"
-                                className="bg-zinc-800 border-zinc-700 w-32"
+                                className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 w-32"
                               />
                               <Input
                                 value={pair.content}
                                 onChange={(e) => handleSidContentPairChange(index, pairIndex, "content", e.target.value)}
                                 placeholder="Content"
-                                className="bg-zinc-800 border-zinc-700 flex-1"
+                                className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 flex-1"
                               />
                               {(trunk.sid_content_pairs || []).length > 1 && (
                                 <Button 
@@ -3220,7 +3220,7 @@ export default function RequestsPage() {
                             variant="outline" 
                             size="sm" 
                             onClick={() => addSidContentPair(index)}
-                            className="text-zinc-400"
+                            className="text-gray-500 dark:text-zinc-400"
                           >
                             <Plus className="h-3 w-3 mr-1" /> Add SID/Content Pair
                           </Button>
@@ -3235,7 +3235,7 @@ export default function RequestsPage() {
                                 value={ani}
                                 onChange={(e) => handleAniNumberChange(index, aniIndex, e.target.value)}
                                 placeholder="e.g., +1234567890"
-                                className="bg-zinc-800 border-zinc-700 flex-1"
+                                className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 flex-1"
                               />
                               {(trunk.ani_numbers || []).length > 1 && (
                                 <Button 
@@ -3253,7 +3253,7 @@ export default function RequestsPage() {
                             variant="outline" 
                             size="sm" 
                             onClick={() => addAniNumber(index)}
-                            className="text-zinc-400"
+                            className="text-gray-500 dark:text-zinc-400"
                           >
                             <Plus className="h-3 w-3 mr-1" /> Add ANI/A-Number
                           </Button>
@@ -3272,7 +3272,7 @@ export default function RequestsPage() {
             {formData.request_type === "translation" && (
               <>
                 <div>
-                  <Label className="text-zinc-400">Enterprise</Label>
+                  <Label className="text-gray-500 dark:text-zinc-400">Enterprise</Label>
                   <SearchableSelect 
                     options={enterprises.filter(e => e.enterprise_type === displayTab || e.enterprise_type === "all").map(e => ({ value: e.id, label: e.name }))} 
                     value={formData.customer_id} 
@@ -3289,12 +3289,12 @@ export default function RequestsPage() {
                   />
                 </div>
                 <div>
-                  <Label className="text-zinc-400">Translation Type</Label>
+                  <Label className="text-gray-500 dark:text-zinc-400">Translation Type</Label>
                   <Select value={formData.translation_type} onValueChange={(v) => setFormData({ ...formData, translation_type: v })}>
-                    <SelectTrigger className="bg-zinc-800 border-zinc-700">
+                    <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
                       <SelectValue placeholder="Select type" />
                     </SelectTrigger>
-                    <SelectContent className="bg-zinc-800 border-zinc-700">
+                    <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
                       <SelectItem value="sid_change">SID Change</SelectItem>
                       <SelectItem value="content_change">Content Change</SelectItem>
                       <SelectItem value="sid_content_change">SID & Content Change</SelectItem>
@@ -3303,24 +3303,24 @@ export default function RequestsPage() {
                   </Select>
                 </div>
                 <div>
-                  <Label className="text-zinc-400">Trunk Type</Label>
+                  <Label className="text-gray-500 dark:text-zinc-400">Trunk Type</Label>
                   <Select value={formData.trunk_type} onValueChange={(v) => setFormData({ ...formData, trunk_type: v, trunk_name: "" })}>
-                    <SelectTrigger className="bg-zinc-800 border-zinc-700">
+                    <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
                       <SelectValue placeholder="Select trunk type" />
                     </SelectTrigger>
-                    <SelectContent className="bg-zinc-800 border-zinc-700">
+                    <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
                       <SelectItem value="customer">Customer Trunk</SelectItem>
                       <SelectItem value="vendor">Vendor Trunk</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
                 <div>
-                  <Label className="text-zinc-400">Trunk Name *</Label>
+                  <Label className="text-gray-500 dark:text-zinc-400">Trunk Name *</Label>
                   <Select value={formData.trunk_name || ""} onValueChange={(v) => setFormData({ ...formData, trunk_name: v })} required disabled={!formData.customer_id || !formData.trunk_type}>
-                    <SelectTrigger className="bg-zinc-800 border-zinc-700 text-white">
+                    <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white">
                       <SelectValue placeholder={formData.trunk_type ? "Select trunk" : "Select trunk type first"} />
                     </SelectTrigger>
-                    <SelectContent className="bg-zinc-800 border-zinc-700">
+                    <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
                       {(formData.trunk_type === "customer" 
                         ? enterprises.find(e => e.id === formData.customer_id)?.customer_trunks || []
                         : formData.trunk_type === "vendor"
@@ -3331,7 +3331,7 @@ export default function RequestsPage() {
                             })
                           : []
                       ).map((trunk) => (
-                        <SelectItem key={trunk} value={trunk} className="text-white">{trunk}</SelectItem>
+                        <SelectItem key={trunk} value={trunk} className="text-gray-900 dark:text-white">{trunk}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -3339,21 +3339,21 @@ export default function RequestsPage() {
                 {formData.translation_type === "sid_change" && (
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <Label className="text-zinc-400">Old SID</Label>
+                      <Label className="text-gray-500 dark:text-zinc-400">Old SID</Label>
                       <Input
                         value={formData.old_value}
                         onChange={(e) => setFormData({ ...formData, old_value: e.target.value })}
                         placeholder="Current SID"
-                        className="bg-zinc-800 border-zinc-700"
+                        className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700"
                       />
                     </div>
                     <div>
-                      <Label className="text-zinc-400">New SID</Label>
+                      <Label className="text-gray-500 dark:text-zinc-400">New SID</Label>
                       <Input
                         value={formData.new_value}
                         onChange={(e) => setFormData({ ...formData, new_value: e.target.value })}
                         placeholder="New SID"
-                        className="bg-zinc-800 border-zinc-700"
+                        className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700"
                       />
                     </div>
                   </div>
@@ -3361,21 +3361,21 @@ export default function RequestsPage() {
                 {formData.translation_type === "content_change" && (
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <Label className="text-zinc-400">Old Content</Label>
+                      <Label className="text-gray-500 dark:text-zinc-400">Old Content</Label>
                       <Input
                         value={formData.old_value}
                         onChange={(e) => setFormData({ ...formData, old_value: e.target.value })}
                         placeholder="Current Content"
-                        className="bg-zinc-800 border-zinc-700"
+                        className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700"
                       />
                     </div>
                     <div>
-                      <Label className="text-zinc-400">New Content</Label>
+                      <Label className="text-gray-500 dark:text-zinc-400">New Content</Label>
                       <Input
                         value={formData.new_value}
                         onChange={(e) => setFormData({ ...formData, new_value: e.target.value })}
                         placeholder="New Content"
-                        className="bg-zinc-800 border-zinc-700"
+                        className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700"
                       />
                     </div>
                   </div>
@@ -3384,41 +3384,41 @@ export default function RequestsPage() {
                   <>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <Label className="text-zinc-400">Old SID</Label>
+                        <Label className="text-gray-500 dark:text-zinc-400">Old SID</Label>
                         <Input
                           value={formData.old_sid}
                           onChange={(e) => setFormData({ ...formData, old_sid: e.target.value })}
                           placeholder="Current SID"
-                          className="bg-zinc-800 border-zinc-700"
+                          className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700"
                         />
                       </div>
                       <div>
-                        <Label className="text-zinc-400">New SID</Label>
+                        <Label className="text-gray-500 dark:text-zinc-400">New SID</Label>
                         <Input
                           value={formData.new_sid}
                           onChange={(e) => setFormData({ ...formData, new_sid: e.target.value })}
                           placeholder="New SID"
-                          className="bg-zinc-800 border-zinc-700"
+                          className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700"
                         />
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-4 mt-4">
                       <div>
-                        <Label className="text-zinc-400">Old Content</Label>
+                        <Label className="text-gray-500 dark:text-zinc-400">Old Content</Label>
                         <Input
                           value={formData.old_value}
                           onChange={(e) => setFormData({ ...formData, old_value: e.target.value })}
                           placeholder="Current Content"
-                          className="bg-zinc-800 border-zinc-700"
+                          className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700"
                         />
                       </div>
                       <div>
-                        <Label className="text-zinc-400">New Content</Label>
+                        <Label className="text-gray-500 dark:text-zinc-400">New Content</Label>
                         <Input
                           value={formData.new_value}
                           onChange={(e) => setFormData({ ...formData, new_value: e.target.value })}
                           placeholder="New Content"
-                          className="bg-zinc-800 border-zinc-700"
+                          className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700"
                         />
                       </div>
                     </div>
@@ -3426,22 +3426,22 @@ export default function RequestsPage() {
                 )}
                 {formData.translation_type === "remove" && (
                   <div>
-                    <Label className="text-zinc-400">Word to Remove</Label>
+                    <Label className="text-gray-500 dark:text-zinc-400">Word to Remove</Label>
                     <Input
                       value={formData.word_to_remove}
                       onChange={(e) => setFormData({ ...formData, word_to_remove: e.target.value })}
                       placeholder="Word/phrase to remove from content"
-                      className="bg-zinc-800 border-zinc-700"
+                      className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700"
                     />
                   </div>
                 )}
                 <div>
-                  <Label className="text-zinc-400">Destination (e.g., Country - Network)</Label>
+                  <Label className="text-gray-500 dark:text-zinc-400">Destination (e.g., Country - Network)</Label>
                   <Input
                     value={formData.translation_destination}
                     onChange={(e) => setFormData({ ...formData, translation_destination: e.target.value })}
                     placeholder="e.g., Ghana - MTN, Nigeria - All Networks"
-                    className="bg-zinc-800 border-zinc-700"
+                    className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700"
                   />
                 </div>
               </>
@@ -3451,7 +3451,7 @@ export default function RequestsPage() {
             {formData.request_type === "investigation" && (
               <>
                 <div>
-                  <Label className="text-zinc-400">Enterprise</Label>
+                  <Label className="text-gray-500 dark:text-zinc-400">Enterprise</Label>
                   <SearchableSelect 
                     options={enterprises.filter(e => e.enterprise_type === displayTab || e.enterprise_type === "all").map(e => ({ value: e.id, label: e.name }))} 
                     value={formData.customer_id} 
@@ -3478,38 +3478,38 @@ export default function RequestsPage() {
                   />
                 </div>
                 <div>
-                  <Label className="text-zinc-400">Customer Trunk *</Label>
+                  <Label className="text-gray-500 dark:text-zinc-400">Customer Trunk *</Label>
                   <Select value={formData.customer_trunk || ""} onValueChange={(value) => setFormData({ ...formData, customer_trunk: value })} required disabled={!formData.customer_id}>
-                    <SelectTrigger className="bg-zinc-800 border-zinc-700 text-white">
+                    <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white">
                       <SelectValue placeholder={formData.customer_id ? "Select customer trunk" : "Select customer first"} />
                     </SelectTrigger>
-                    <SelectContent className="bg-zinc-800 border-zinc-700">
+                    <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
                       {(formData.customer_id 
                         ? enterprises.find(e => e.id === formData.customer_id)?.customer_trunks || []
                         : []
                       ).map((trunk) => (
-                        <SelectItem key={trunk} value={trunk} className="text-white">{trunk}</SelectItem>
+                        <SelectItem key={trunk} value={trunk} className="text-gray-900 dark:text-white">{trunk}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
                 <div>
-                  <Label className="text-zinc-400">Destination (e.g., Country - Network)</Label>
+                  <Label className="text-gray-500 dark:text-zinc-400">Destination (e.g., Country - Network)</Label>
                   <Input
                     value={formData.investigation_destination}
                     onChange={(e) => setFormData({ ...formData, investigation_destination: e.target.value })}
                     placeholder="e.g., Ghana - MTN, Nigeria - All Networks"
-                    className="bg-zinc-800 border-zinc-700"
+                    className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700"
                   />
                 </div>
                 <div>
-                  <Label className="text-zinc-400">Issue Description</Label>
+                  <Label className="text-gray-500 dark:text-zinc-400">Issue Description</Label>
                   <Textarea
                     value={formData.issue_description}
                     onChange={(e) => setFormData({ ...formData, issue_description: e.target.value })}
                     placeholder="Describe the issue in detail..."
                     rows={3}
-                    className="bg-zinc-800 border-zinc-700"
+                    className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700"
                   />
                 </div>
               </>
@@ -3519,41 +3519,41 @@ export default function RequestsPage() {
             {formData.request_type === "lcr" && (
               <>
                 <div>
-                  <Label className="text-zinc-400">Destination (e.g., Country - Network)</Label>
+                  <Label className="text-gray-500 dark:text-zinc-400">Destination (e.g., Country - Network)</Label>
                   <Input
                     value={formData.destination}
                     onChange={(e) => setFormData({ ...formData, destination: e.target.value })}
                     placeholder="e.g., Ghana - MTN, Nigeria - All Networks"
-                    className="bg-zinc-800 border-zinc-700"
+                    className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700"
                   />
                 </div>
                 <div>
-                  <Label className="text-zinc-400">Which LCR (PRM, STD or CC)</Label>
+                  <Label className="text-gray-500 dark:text-zinc-400">Which LCR (PRM, STD or CC)</Label>
                   <Select value={formData.lcr_type} onValueChange={(v) => setFormData({ ...formData, lcr_type: v })}>
-                    <SelectTrigger className="bg-zinc-800 border-zinc-700 text-white">
+                    <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white">
                       <SelectValue placeholder="Select LCR type" />
                     </SelectTrigger>
-                    <SelectContent className="bg-zinc-800 border-zinc-700">
-                      <SelectItem value="PRM" className="text-white">PRM</SelectItem>
-                      <SelectItem value="STD" className="text-white">STD</SelectItem>
-                      <SelectItem value="CC" className="text-white">CC</SelectItem>
+                    <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
+                      <SelectItem value="PRM" className="text-gray-900 dark:text-white">PRM</SelectItem>
+                      <SelectItem value="STD" className="text-gray-900 dark:text-white">STD</SelectItem>
+                      <SelectItem value="CC" className="text-gray-900 dark:text-white">CC</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
                 <div>
-                  <Label className="text-zinc-400">Change</Label>
+                  <Label className="text-gray-500 dark:text-zinc-400">Change</Label>
                   <Select value={formData.lcr_change} onValueChange={(v) => setFormData({ ...formData, lcr_change: v })}>
-                    <SelectTrigger className="bg-zinc-800 border-zinc-700 text-white">
+                    <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white">
                       <SelectValue placeholder="Select change type" />
                     </SelectTrigger>
-                    <SelectContent className="bg-zinc-800 border-zinc-700">
-                      <SelectItem value="add" className="text-white">Add</SelectItem>
-                      <SelectItem value="drop" className="text-white">Drop</SelectItem>
+                    <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
+                      <SelectItem value="add" className="text-gray-900 dark:text-white">Add</SelectItem>
+                      <SelectItem value="drop" className="text-gray-900 dark:text-white">Drop</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
                 <div>
-                  <Label className="text-zinc-400">Vendor Trunk(s) *</Label>
+                  <Label className="text-gray-500 dark:text-zinc-400">Vendor Trunk(s) *</Label>
                   <p className="text-xs text-zinc-500 mb-2">At least one vendor trunk is required</p>
                   {formData.vendor_trunks.map((trunk, index) => (
                     <div key={index} className="flex gap-2 mb-2">
@@ -3581,7 +3581,7 @@ export default function RequestsPage() {
             {(formData.request_type === "trunk_request_sms" || formData.request_type === "trunk_request_voice") && (
               <>
                 <div>
-                  <Label className="text-zinc-400">Customer(s)</Label>
+                  <Label className="text-gray-500 dark:text-zinc-400">Customer(s)</Label>
                   <MultiSelect
                     options={enterprises
                       .filter(e => e.enterprise_type === displayTab || e.enterprise_type === "all")
@@ -3600,48 +3600,48 @@ export default function RequestsPage() {
                   />
                 </div>
                 <div>
-                  <Label className="text-zinc-400">Trunk Type</Label>
+                  <Label className="text-gray-500 dark:text-zinc-400">Trunk Type</Label>
                   <Select value={formData.trunk_type} onValueChange={(v) => setFormData({ ...formData, trunk_type: v })}>
-                    <SelectTrigger className="bg-zinc-800 border-zinc-700 text-white">
+                    <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white">
                       <SelectValue placeholder="Select trunk type" />
                     </SelectTrigger>
-                    <SelectContent className="bg-zinc-800 border-zinc-700">
+                    <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
                       {formData.request_type === "trunk_request_sms" ? (
                         <>
-                          <SelectItem value="Direct" className="text-white">Direct</SelectItem>
-                          <SelectItem value="HQ" className="text-white">HQ</SelectItem>
-                          <SelectItem value="SIM" className="text-white">SIM</SelectItem>
-                          <SelectItem value="WHS" className="text-white">WHS</SelectItem>
-                          <SelectItem value="Local" className="text-white">Local</SelectItem>
-                          <SelectItem value="Promo" className="text-white">Promo</SelectItem>
-                          <SelectItem value="CS" className="text-white">CS</SelectItem>
+                          <SelectItem value="Direct" className="text-gray-900 dark:text-white">Direct</SelectItem>
+                          <SelectItem value="HQ" className="text-gray-900 dark:text-white">HQ</SelectItem>
+                          <SelectItem value="SIM" className="text-gray-900 dark:text-white">SIM</SelectItem>
+                          <SelectItem value="WHS" className="text-gray-900 dark:text-white">WHS</SelectItem>
+                          <SelectItem value="Local" className="text-gray-900 dark:text-white">Local</SelectItem>
+                          <SelectItem value="Promo" className="text-gray-900 dark:text-white">Promo</SelectItem>
+                          <SelectItem value="CS" className="text-gray-900 dark:text-white">CS</SelectItem>
                         </>
                       ) : (
                         <>
-                          <SelectItem value="PRM" className="text-white">PRM</SelectItem>
-                          <SelectItem value="STD" className="text-white">STD</SelectItem>
-                          <SelectItem value="CC" className="text-white">CC</SelectItem>
-                          <SelectItem value="TDM" className="text-white">TDM</SelectItem>
-                          <SelectItem value="ORTP" className="text-white">ORTP</SelectItem>
-                          <SelectItem value="ATX" className="text-white">ATX</SelectItem>
+                          <SelectItem value="PRM" className="text-gray-900 dark:text-white">PRM</SelectItem>
+                          <SelectItem value="STD" className="text-gray-900 dark:text-white">STD</SelectItem>
+                          <SelectItem value="CC" className="text-gray-900 dark:text-white">CC</SelectItem>
+                          <SelectItem value="TDM" className="text-gray-900 dark:text-white">TDM</SelectItem>
+                          <SelectItem value="ORTP" className="text-gray-900 dark:text-white">ORTP</SelectItem>
+                          <SelectItem value="ATX" className="text-gray-900 dark:text-white">ATX</SelectItem>
                         </>
                       )}
                     </SelectContent>
                   </Select>
                 </div>
                 <div>
-                  <Label className="text-zinc-400">Direction *</Label>
+                  <Label className="text-gray-500 dark:text-zinc-400">Direction *</Label>
                   <Select 
                     value={trunkDirection} 
                     onValueChange={(v) => setTrunkDirection(v)}
                   >
-                    <SelectTrigger className="bg-zinc-800 border-zinc-700 text-white">
+                    <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white">
                       <SelectValue placeholder="Select direction" />
                     </SelectTrigger>
-                    <SelectContent className="bg-zinc-800 border-zinc-700">
-                      <SelectItem value="Customer" className="text-white">Customer</SelectItem>
-                      <SelectItem value="Vendor" className="text-white">Vendor</SelectItem>
-                      <SelectItem value="Both" className="text-white">Both</SelectItem>
+                    <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
+                      <SelectItem value="Customer" className="text-gray-900 dark:text-white">Customer</SelectItem>
+                      <SelectItem value="Vendor" className="text-gray-900 dark:text-white">Vendor</SelectItem>
+                      <SelectItem value="Both" className="text-gray-900 dark:text-white">Both</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -3653,7 +3653,7 @@ export default function RequestsPage() {
                     onChange={(e) => setTrunkWithLcr(e.target.checked)}
                     className="w-4 h-4 accent-blue-500"
                   />
-                  <label htmlFor="with_lcr" className="text-white text-sm cursor-pointer">With LCR *</label>
+                  <label htmlFor="with_lcr" className="text-gray-900 dark:text-white text-sm cursor-pointer">With LCR *</label>
                 </div>
               </>
             )}
@@ -3662,19 +3662,19 @@ export default function RequestsPage() {
             {formData.request_type === "open_tt" && (
               <>
                 <div>
-                  <Label className="text-zinc-400">Destination *</Label>
+                  <Label className="text-gray-500 dark:text-zinc-400">Destination *</Label>
                   <Input
                     value={formData.destination}
                     onChange={(e) => setFormData({ ...formData, destination: e.target.value })}
                     placeholder="e.g., Ghana - MTN, Nigeria - All Networks"
-                    className="bg-zinc-800 border-zinc-700 text-white"
+                    className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white"
                   />
                 </div>
                 <div>
-                  <Label className="text-zinc-400">Vendor Trunk(s) *</Label>
+                  <Label className="text-gray-500 dark:text-zinc-400">Vendor Trunk(s) *</Label>
                   <p className="text-xs text-zinc-500 mb-2">Select vendor trunk(s)</p>
                   {formData.vendor_trunks.map((trunk, index) => (
-                    <div key={index} className="mb-3 p-3 bg-zinc-800/50 rounded-lg border border-zinc-700">
+                    <div key={index} className="mb-3 p-3 bg-gray-100/50 dark:bg-zinc-800/50 rounded-lg border border-gray-200 dark:border-zinc-700">
                       <div className="flex gap-2">
                         <SearchableSelect
                           options={vendorTrunkOptions.map(vt => ({ value: vt, label: vt }))}
@@ -3690,29 +3690,29 @@ export default function RequestsPage() {
                       </div>
                     </div>
                   ))}
-                  <Button variant="outline" size="sm" onClick={addVendorTrunk} className="bg-zinc-800 border-zinc-700 text-white hover:bg-zinc-700 mt-2">
+                  <Button variant="outline" size="sm" onClick={addVendorTrunk} className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white hover:bg-gray-200 dark:hover:bg-zinc-700 mt-2">
                     <Plus className="h-4 w-4 mr-1" /> Add Vendor Trunk
                   </Button>
                 </div>
                 <div>
-                  <Label className="text-zinc-400">Open By *</Label>
+                  <Label className="text-gray-500 dark:text-zinc-400">Open By *</Label>
                   <Select value={formData.open_by} onValueChange={(v) => setFormData({ ...formData, open_by: v })}>
-                    <SelectTrigger className="bg-zinc-800 border-zinc-700 text-white">
+                    <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white">
                       <SelectValue placeholder="Select how to open" />
                     </SelectTrigger>
-                    <SelectContent className="bg-zinc-800 border-zinc-700">
-                      <SelectItem value="Teams" className="text-white">Teams</SelectItem>
-                      <SelectItem value="Email" className="text-white">Email</SelectItem>
+                    <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
+                      <SelectItem value="Teams" className="text-gray-900 dark:text-white">Teams</SelectItem>
+                      <SelectItem value="Email" className="text-gray-900 dark:text-white">Email</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
                 <div>
-                  <Label className="text-zinc-400">Notes (Optional)</Label>
+                  <Label className="text-gray-500 dark:text-zinc-400">Notes (Optional)</Label>
                   <Textarea
                     value={formData.open_tt_notes}
                     onChange={(e) => setFormData({ ...formData, open_tt_notes: e.target.value })}
                     placeholder="Additional notes..."
-                    className="bg-zinc-800 border-zinc-700 text-white"
+                    className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white"
                     rows={3}
                   />
                 </div>
@@ -3721,7 +3721,7 @@ export default function RequestsPage() {
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)} className="bg-zinc-800 border-zinc-700 text-white hover:bg-zinc-700">
+            <Button variant="outline" onClick={() => setDialogOpen(false)} className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white hover:bg-gray-200 dark:hover:bg-zinc-700">
               Cancel
             </Button>
             <Button 
@@ -3736,20 +3736,20 @@ export default function RequestsPage() {
 
       {/* Delete Confirmation AlertDialog */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <AlertDialogContent className="bg-zinc-900 border-white/10 text-white">
+        <AlertDialogContent className="bg-white dark:bg-zinc-900 border-black/10 dark:border-white/10 text-gray-900 dark:text-white">
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Request</AlertDialogTitle>
           </AlertDialogHeader>
-          <p className="text-zinc-400">
+          <p className="text-gray-500 dark:text-zinc-400">
             Are you sure you want to delete this request? This action cannot be undone.
           </p>
           <AlertDialogFooter>
-            <AlertDialogCancel className="bg-zinc-800 border-zinc-700 text-white hover:bg-zinc-700">
+            <AlertDialogCancel className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white hover:bg-gray-200 dark:hover:bg-zinc-700">
               Cancel
             </AlertDialogCancel>
             <AlertDialogAction 
               onClick={confirmDelete}
-              className="bg-red-600 text-white hover:bg-red-700"
+              className="bg-red-600 text-gray-900 dark:text-white hover:bg-red-700"
             >
               Delete
             </AlertDialogAction>
@@ -3759,7 +3759,7 @@ export default function RequestsPage() {
 
       {/* View Request Details Dialog */}
       <Dialog open={viewRequestDialogOpen} onOpenChange={setViewRequestDialogOpen}>
-        <DialogContent disableOutsideClick className="bg-zinc-900 border-white/10 text-white max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent disableOutsideClick className="bg-white dark:bg-zinc-900 border-black/10 dark:border-white/10 text-gray-900 dark:text-white max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Request Details</DialogTitle>
           </DialogHeader>
@@ -3767,47 +3767,47 @@ export default function RequestsPage() {
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label className="text-zinc-400">Request Type</Label>
-                  <p className="text-white">{selectedRequest.request_type_label}</p>
+                  <Label className="text-gray-500 dark:text-zinc-400">Request Type</Label>
+                  <p className="text-gray-900 dark:text-white">{selectedRequest.request_type_label}</p>
                 </div>
                 <div>
-                  <Label className="text-zinc-400">Ticket #</Label>
-                  <p className="text-white">{selectedRequest.ticket_id || "N/A"}</p>
+                  <Label className="text-gray-500 dark:text-zinc-400">Ticket #</Label>
+                  <p className="text-gray-900 dark:text-white">{selectedRequest.ticket_id || "N/A"}</p>
                 </div>
                 <div>
-                  <Label className="text-zinc-400">Department</Label>
-                  <p className="text-white capitalize">{selectedRequest.department}</p>
+                  <Label className="text-gray-500 dark:text-zinc-400">Department</Label>
+                  <p className="text-gray-900 dark:text-white capitalize">{selectedRequest.department}</p>
                 </div>
                 <div>
-                  <Label className="text-zinc-400">Priority</Label>
-                  <p className="text-white">{selectedRequest.priority}</p>
+                  <Label className="text-gray-500 dark:text-zinc-400">Priority</Label>
+                  <p className="text-gray-900 dark:text-white">{selectedRequest.priority}</p>
                 </div>
                 <div>
-                  <Label className="text-zinc-400">Status</Label>
-                  <p className="text-white capitalize">{selectedRequest.status}</p>
+                  <Label className="text-gray-500 dark:text-zinc-400">Status</Label>
+                  <p className="text-gray-900 dark:text-white capitalize">{selectedRequest.status}</p>
                 </div>
                 {selectedRequest.request_type !== "testing" && selectedRequest.request_type !== "lcr" && selectedRequest.request_type !== "trunk_request_sms" && selectedRequest.request_type !== "trunk_request_voice" && (
                 <div>
-                  <Label className="text-zinc-400">Customer</Label>
-                  <p className="text-white">{selectedRequest.customer || selectedRequest.enterprise?.name || "N/A"}</p>
+                  <Label className="text-gray-500 dark:text-zinc-400">Customer</Label>
+                  <p className="text-gray-900 dark:text-white">{selectedRequest.customer || selectedRequest.enterprise?.name || "N/A"}</p>
                 </div>
                 )}
                 <div>
-                  <Label className="text-zinc-400">Created By</Label>
-                  <p className="text-white">{selectedRequest.created_by_username}</p>
+                  <Label className="text-gray-500 dark:text-zinc-400">Created By</Label>
+                  <p className="text-gray-900 dark:text-white">{selectedRequest.created_by_username}</p>
                 </div>
                 <div>
-                  <Label className="text-zinc-400">Created At</Label>
-                  <p className="text-white">{new Date(selectedRequest.created_at).toLocaleString()}</p>
+                  <Label className="text-gray-500 dark:text-zinc-400">Created At</Label>
+                  <p className="text-gray-900 dark:text-white">{new Date(selectedRequest.created_at).toLocaleString()}</p>
                 </div>
               </div>
 
               {/* Request-specific fields */}
               {selectedRequest.request_type === "rating_routing" && (
-                <div className="border-t border-zinc-700 pt-4">
-                  <Label className="text-zinc-400">Rating/Routing Details</Label>
+                <div className="border-t border-gray-200 dark:border-zinc-700 pt-4">
+                  <Label className="text-gray-500 dark:text-zinc-400">Rating/Routing Details</Label>
                   <div className="mt-2 space-y-2">
-                    {selectedRequest.customer && <p className="text-white">Customer: {selectedRequest.customer}</p>}
+                    {selectedRequest.customer && <p className="text-gray-900 dark:text-white">Customer: {selectedRequest.customer}</p>}
 
                     {/* Always show customer trunks with rating plans */}
                     {(selectedRequest.customer_trunk_configs || selectedRequest.customer_trunks || []).length > 0 && (
@@ -3822,7 +3822,7 @@ export default function RequestsPage() {
                       const legacyVendors = isNewFormat ? [] : (selectedRequest.rating_vendor_trunks || []).filter(v => v.trunk);
                       
                       return (
-                        <div key={i} className="border border-amber-600/30 rounded-lg p-3 bg-zinc-800/30">
+                        <div key={i} className="border border-amber-600/30 rounded-lg p-3 bg-gray-100/30 dark:bg-zinc-800/30">
                           <div className="flex items-center justify-between mb-2">
                             <span className="text-amber-400 font-medium text-sm">Customer Trunk {i + 1}</span>
                           </div>
@@ -3830,20 +3830,20 @@ export default function RequestsPage() {
                           {/* Two-column layout: Rating Plan | Routing Plan */}
                           <div className="grid grid-cols-2 gap-3">
                             {/* Rating Plan */}
-                            <div className="border border-zinc-700/50 rounded p-2 bg-zinc-800/20">
+                            <div className="border border-gray-200/50 dark:border-zinc-700/50 rounded p-2 bg-gray-100/20 dark:bg-zinc-800/20">
                               <div className="text-xs text-amber-300 font-medium mb-1">Rating Plan</div>
                               <div className="text-xs space-y-1">
-                                <div className="text-zinc-400">Trunk: <span className="text-white">{config.trunk || config.customer_trunk || "N/A"}</span></div>
+                                <div className="text-gray-500 dark:text-zinc-400">Trunk: <span className="text-gray-900 dark:text-white">{config.trunk || config.customer_trunk || "N/A"}</span></div>
                                 {isNewFormat && config.rating_pairs ? (
                                   config.rating_pairs.map((pair, pi) => (
-                                    <div key={pi} className="text-zinc-400">
-                                      Dest: <span className="text-white">{pair.destination || "N/A"}</span> → Rate: <span className="text-white">{pair.rate || "N/A"} EUR</span>
+                                    <div key={pi} className="text-gray-500 dark:text-zinc-400">
+                                      Dest: <span className="text-gray-900 dark:text-white">{pair.destination || "N/A"}</span> → Rate: <span className="text-gray-900 dark:text-white">{pair.rate || "N/A"} EUR</span>
                                     </div>
                                   ))
                                 ) : (
                                   <>
-                                    <div className="text-zinc-400">Destination: <span className="text-white">{config.destination || "N/A"}</span></div>
-                                    <div className="text-zinc-400">Rate: <span className="text-white">{config.rate || "N/A"} EUR</span></div>
+                                    <div className="text-gray-500 dark:text-zinc-400">Destination: <span className="text-gray-900 dark:text-white">{config.destination || "N/A"}</span></div>
+                                    <div className="text-gray-500 dark:text-zinc-400">Rate: <span className="text-gray-900 dark:text-white">{config.rate || "N/A"} EUR</span></div>
                                   </>
                                 )}
                               </div>
@@ -3851,13 +3851,13 @@ export default function RequestsPage() {
                             
                             {/* Routing Plan - only show if NOT using common routing */}
                             {!selectedRequest.use_common_routing && (
-                              <div className="border border-zinc-700/50 rounded p-2 bg-zinc-800/20">
+                              <div className="border border-gray-200/50 dark:border-zinc-700/50 rounded p-2 bg-gray-100/20 dark:bg-zinc-800/20">
                                 <div className="text-xs text-blue-300 font-medium mb-1">Routing Plan</div>
                                 <div className="text-xs space-y-1">
                                   {/* Route Rules (new format) */}
                                   {routeRules.length > 0 ? (
                                     routeRules.map((rule, rIdx) => (
-                                      <div key={rIdx} className="border border-blue-600/30 rounded p-1.5 bg-zinc-900/30 mb-1">
+                                      <div key={rIdx} className="border border-blue-600/30 rounded p-1.5 bg-white/30 dark:bg-zinc-900/30 mb-1">
                                         <div className="flex items-center gap-2 mb-1">
                                           <span className="text-blue-300 font-medium">Route Rule (Priority: {rule.priority})</span>
                                           {rule.destination && (
@@ -3865,9 +3865,9 @@ export default function RequestsPage() {
                                           )}
                                         </div>
                                         {(rule.vendors || []).map((vendor, vIdx) => (
-                                          <div key={vIdx} className="border border-zinc-700/30 rounded p-1 mb-1 last:mb-0">
-                                            <div className="text-zinc-300">{vendor.trunk || "N/A"}</div>
-                                            <div className="flex flex-wrap gap-2 text-zinc-400">
+                                          <div key={vIdx} className="border border-gray-200/30 dark:border-zinc-700/30 rounded p-1 mb-1 last:mb-0">
+                                            <div className="text-gray-700 dark:text-zinc-300">{vendor.trunk || "N/A"}</div>
+                                            <div className="flex flex-wrap gap-2 text-gray-500 dark:text-zinc-400">
                                               {rule.vendors.length > 1 && vendor.percentage && <span>%:{vendor.percentage}%</span>}
                                               {vendor.cost_type && <span>{vendor.cost_type === "fixed" ? "Fixed" : "Range"}</span>}
                                               {vendor.cost_min && <span>{vendor.cost_type === "fixed" ? `Cost:${vendor.cost_min}` : `${vendor.cost_min}-${vendor.cost_max}`}</span>}
@@ -3889,9 +3889,9 @@ export default function RequestsPage() {
                                     /* Legacy format - flat vendor list */
                                     legacyVendors.length > 0 ? (
                                       legacyVendors.map((vendor, vIdx) => (
-                                        <div key={vIdx} className="border border-zinc-700/30 rounded p-1.5 bg-zinc-900/30 mb-1">
-                                          <div className="text-zinc-300 font-medium">{vendor.trunk || "N/A"}</div>
-                                          <div className="flex flex-wrap gap-2 text-zinc-400">
+                                        <div key={vIdx} className="border border-gray-200/30 dark:border-zinc-700/30 rounded p-1.5 bg-white/30 dark:bg-zinc-900/30 mb-1">
+                                          <div className="text-gray-700 dark:text-zinc-300 font-medium">{vendor.trunk || "N/A"}</div>
+                                          <div className="flex flex-wrap gap-2 text-gray-500 dark:text-zinc-400">
                                             {vendor.position && <span>Pos:{vendor.position}</span>}
                                             {vendor.percentage && <span>%:{vendor.percentage}%</span>}
                                             {vendor.cost_type && <span>{vendor.cost_type === "fixed" ? "Fixed" : "Range"}</span>}
@@ -3915,14 +3915,14 @@ export default function RequestsPage() {
 
                     {/* Show common routing plan when enabled */}
                     {selectedRequest.use_common_routing && (
-                      <div className="border border-blue-600/30 rounded-lg p-4 bg-zinc-800/30">
+                      <div className="border border-blue-600/30 rounded-lg p-4 bg-gray-100/30 dark:bg-zinc-800/30">
                         <div className="flex items-center gap-2 mb-3">
                           <div className="w-1 h-4 bg-blue-500 rounded"></div>
                           <span className="text-blue-300 font-medium text-sm">Common Routing Plan</span>
                         </div>
                         <div className="space-y-3">
                           {(selectedRequest.common_route_rules || []).map((rule, rIdx) => (
-                            <div key={rIdx} className="border border-blue-600/30 rounded p-2 bg-zinc-900/30">
+                            <div key={rIdx} className="border border-blue-600/30 rounded p-2 bg-white/30 dark:bg-zinc-900/30">
                               <div className="flex items-center gap-2 mb-1">
                                 <span className="text-blue-300 font-medium">Route Rule (Priority: {rule.priority})</span>
                                 {rule.destination && (
@@ -3930,9 +3930,9 @@ export default function RequestsPage() {
                                 )}
                               </div>
                               {(rule.vendors || []).map((vendor, vIdx) => (
-                                <div key={vIdx} className="border border-zinc-700/30 rounded p-1.5 mb-1 last:mb-0">
-                                  <div className="text-zinc-300">{vendor.trunk || "N/A"}</div>
-                                  <div className="flex flex-wrap gap-2 text-zinc-400 text-xs">
+                                <div key={vIdx} className="border border-gray-200/30 dark:border-zinc-700/30 rounded p-1.5 mb-1 last:mb-0">
+                                  <div className="text-gray-700 dark:text-zinc-300">{vendor.trunk || "N/A"}</div>
+                                  <div className="flex flex-wrap gap-2 text-gray-500 dark:text-zinc-400 text-xs">
                                     {rule.vendors.length > 1 && vendor.percentage && <span>%:{vendor.percentage}%</span>}
                                     {vendor.cost_type && <span>{vendor.cost_type === "fixed" ? "Fixed" : "Range"}</span>}
                                     {vendor.cost_min && <span>{vendor.cost_type === "fixed" ? `Cost:${vendor.cost_min}` : `${vendor.cost_min}-${vendor.cost_max}`}</span>}
@@ -3959,8 +3959,8 @@ export default function RequestsPage() {
 
                     {/* Legacy vendor trunks section (for backward compatibility) */}
                     {!selectedRequest.customer_trunk_configs && (selectedRequest.rating_vendor_trunks || []).length > 0 && (
-                      <div className="border border-zinc-700 rounded-lg p-4 mt-3 bg-zinc-800/30">
-                        <Label className="text-zinc-300 font-semibold block mb-3">Vendor Trunks (Position-based)</Label>
+                      <div className="border border-gray-200 dark:border-zinc-700 rounded-lg p-4 mt-3 bg-gray-100/30 dark:bg-zinc-800/30">
+                        <Label className="text-gray-700 dark:text-zinc-300 font-semibold block mb-3">Vendor Trunks (Position-based)</Label>
                         {(() => {
                           const grouped = {};
                           (selectedRequest.rating_vendor_trunks || []).forEach(trunk => {
@@ -3970,16 +3970,16 @@ export default function RequestsPage() {
                           });
                           return Object.entries(grouped).sort((a, b) => parseInt(a[0]) - parseInt(b[0])).map(([position, trunks]) => (
                             <div key={position} className="mb-3 last:mb-0">
-                              <div className="bg-zinc-700/50 rounded p-2 mb-2">
-                                <p className="text-white font-medium text-sm">{position === "1" ? "Position 1 (First)" : `Position ${position}`}</p>
+                              <div className="bg-gray-200/50 dark:bg-zinc-700/50 rounded p-2 mb-2">
+                                <p className="text-gray-900 dark:text-white font-medium text-sm">{position === "1" ? "Position 1 (First)" : `Position ${position}`}</p>
                               </div>
                               {trunks.map((trunk, i) => (
-                                <div key={i} className="ml-2 p-2 bg-zinc-800/50 rounded border border-zinc-700">
-                                  <p className="text-white text-sm">{trunk.trunk}</p>
+                                <div key={i} className="ml-2 p-2 bg-gray-100/50 dark:bg-zinc-800/50 rounded border border-gray-200 dark:border-zinc-700">
+                                  <p className="text-gray-900 dark:text-white text-sm">{trunk.trunk}</p>
                                   <div className="flex flex-wrap gap-2 text-xs mt-1">
-                                    {trunk.percentage && <span className="text-zinc-400">%:{trunk.percentage}%</span>}
-                                    {trunk.cost_type && <span className="text-zinc-400">{trunk.cost_type === "fixed" ? "Fixed" : "Range"}</span>}
-                                    {trunk.cost_min && <span className="text-zinc-400">{trunk.cost_type === "fixed" ? `Cost:${trunk.cost_min}` : `${trunk.cost_min}-${trunk.cost_max}`}</span>}
+                                    {trunk.percentage && <span className="text-gray-500 dark:text-zinc-400">%:{trunk.percentage}%</span>}
+                                    {trunk.cost_type && <span className="text-gray-500 dark:text-zinc-400">{trunk.cost_type === "fixed" ? "Fixed" : "Range"}</span>}
+                                    {trunk.cost_min && <span className="text-gray-500 dark:text-zinc-400">{trunk.cost_type === "fixed" ? `Cost:${trunk.cost_min}` : `${trunk.cost_min}-${trunk.cost_max}`}</span>}
                                   </div>
                                 </div>
                               ))}
@@ -3993,29 +3993,29 @@ export default function RequestsPage() {
               )}
 
               {(selectedRequest.request_type === "testing" || selectedRequest.request_type_label?.includes("Testing")) && (
-                <div className="border-t border-zinc-700 pt-4">
-                  <Label className="text-zinc-400">Testing Details</Label>
+                <div className="border-t border-gray-200 dark:border-zinc-700 pt-4">
+                  <Label className="text-gray-500 dark:text-zinc-400">Testing Details</Label>
                   <div className="mt-2 space-y-2">
-                    {selectedRequest.destination && <p className="text-white">Destination: {selectedRequest.destination}</p>}
+                    {selectedRequest.destination && <p className="text-gray-900 dark:text-white">Destination: {selectedRequest.destination}</p>}
                     {(selectedRequest.test_type || selectedRequest.test_description) && (
                       <>
-                        {selectedRequest.test_type && <p className="text-white">Test Type: {selectedRequest.test_type === "tool_test" ? "Tool Test" : selectedRequest.test_type === "manual_test" ? "Manual Test" : selectedRequest.test_type}</p>}
-                        {selectedRequest.test_description && <p className="text-white">Test Description: {selectedRequest.test_description}</p>}
+                        {selectedRequest.test_type && <p className="text-gray-900 dark:text-white">Test Type: {selectedRequest.test_type === "tool_test" ? "Tool Test" : selectedRequest.test_type === "manual_test" ? "Manual Test" : selectedRequest.test_type}</p>}
+                        {selectedRequest.test_description && <p className="text-gray-900 dark:text-white">Test Description: {selectedRequest.test_description}</p>}
                       </>
                     )}
                     <div>
-                      <Label className="text-zinc-400">Vendor Trunks:</Label>
+                      <Label className="text-gray-500 dark:text-zinc-400">Vendor Trunks:</Label>
                       {(selectedRequest.vendor_trunks || []).map((trunk, i) => (
-                        <div key={i} className="text-white ml-2">
+                        <div key={i} className="text-gray-900 dark:text-white ml-2">
                           - {trunk.trunk}
                           {/* Show SID/Content only for SMS requests (Voice uses ANI/A-Numbers) */}
                           {selectedRequest.department === "sms" && (trunk.sid_content_pairs || []).length > 0 && (
-                            <div className="ml-2 text-zinc-400">
+                            <div className="ml-2 text-gray-500 dark:text-zinc-400">
                               SID/Content: {trunk.sid_content_pairs.map(p => `${p.sid}: ${p.content}`).join(", ")}
                             </div>
                           )}
                           {(trunk.ani_numbers || []).length > 0 && (
-                            <div className="ml-2 text-zinc-400">
+                            <div className="ml-2 text-gray-500 dark:text-zinc-400">
                               ANI/A-Numbers: {trunk.ani_numbers.join(", ")}
                             </div>
                           )}
@@ -4027,18 +4027,18 @@ export default function RequestsPage() {
               )}
 
               {selectedRequest.request_type === "translation" && (
-                <div className="border-t border-zinc-700 pt-4">
-                  <Label className="text-zinc-400">Translation Details</Label>
+                <div className="border-t border-gray-200 dark:border-zinc-700 pt-4">
+                  <Label className="text-gray-500 dark:text-zinc-400">Translation Details</Label>
                   <div className="mt-2 space-y-2">
-                    <p className="text-white">Translation Type: {selectedRequest.translation_type === "sid_change" ? "SID Change" : selectedRequest.translation_type === "content_change" ? "Content Change" : selectedRequest.translation_type === "sid_content_change" ? "SID & Content Change" : selectedRequest.translation_type === "remove" ? "Remove from Content" : selectedRequest.translation_type}</p>
-                    <p className="text-white">Trunk Type: {selectedRequest.trunk_type}</p>
-                    <p className="text-white">Trunk Name: {selectedRequest.trunk_name}</p>
+                    <p className="text-gray-900 dark:text-white">Translation Type: {selectedRequest.translation_type === "sid_change" ? "SID Change" : selectedRequest.translation_type === "content_change" ? "Content Change" : selectedRequest.translation_type === "sid_content_change" ? "SID & Content Change" : selectedRequest.translation_type === "remove" ? "Remove from Content" : selectedRequest.translation_type}</p>
+                    <p className="text-gray-900 dark:text-white">Trunk Type: {selectedRequest.trunk_type}</p>
+                    <p className="text-gray-900 dark:text-white">Trunk Name: {selectedRequest.trunk_name}</p>
                     {selectedRequest.translation_type === "remove" ? (
-                      selectedRequest.word_to_remove && <p className="text-white">Word Removed: {selectedRequest.word_to_remove}</p>
+                      selectedRequest.word_to_remove && <p className="text-gray-900 dark:text-white">Word Removed: {selectedRequest.word_to_remove}</p>
                     ) : (
                       <>
-                        {selectedRequest.old_value && <p className="text-white">Old Value: {selectedRequest.old_value}</p>}
-                        {selectedRequest.new_value && <p className="text-white">New Value: {selectedRequest.new_value}</p>}
+                        {selectedRequest.old_value && <p className="text-gray-900 dark:text-white">Old Value: {selectedRequest.old_value}</p>}
+                        {selectedRequest.new_value && <p className="text-gray-900 dark:text-white">New Value: {selectedRequest.new_value}</p>}
                       </>
                     )}
                   </div>
@@ -4046,33 +4046,33 @@ export default function RequestsPage() {
               )}
 
               {selectedRequest.request_type === "investigation" && (
-                <div className="border-t border-zinc-700 pt-4">
-                  <Label className="text-zinc-400">Investigation Details</Label>
+                <div className="border-t border-gray-200 dark:border-zinc-700 pt-4">
+                  <Label className="text-gray-500 dark:text-zinc-400">Investigation Details</Label>
                   <div className="mt-2 space-y-2">
                     {(selectedRequest.issue_types && selectedRequest.issue_types.length > 0) && (
-                      <p className="text-white">Issue Type: {selectedRequest.issue_types.join(", ")}</p>
+                      <p className="text-gray-900 dark:text-white">Issue Type: {selectedRequest.issue_types.join(", ")}</p>
                     )}
                     {(selectedRequest.issue_other) && (
-                      <p className="text-white">Other: {selectedRequest.issue_other}</p>
+                      <p className="text-gray-900 dark:text-white">Other: {selectedRequest.issue_other}</p>
                     )}
-                    <p className="text-white">Customer Trunk: {selectedRequest.customer_trunk}</p>
-                    <p className="text-white">Destination: {selectedRequest.investigation_destination}</p>
-                    {selectedRequest.issue_description && <p className="text-white">Description: {selectedRequest.issue_description}</p>}
+                    <p className="text-gray-900 dark:text-white">Customer Trunk: {selectedRequest.customer_trunk}</p>
+                    <p className="text-gray-900 dark:text-white">Destination: {selectedRequest.investigation_destination}</p>
+                    {selectedRequest.issue_description && <p className="text-gray-900 dark:text-white">Description: {selectedRequest.issue_description}</p>}
                   </div>
                 </div>
               )}
 
               {selectedRequest.request_type === "lcr" && (
-                <div className="border-t border-zinc-700 pt-4">
-                  <Label className="text-zinc-400">LCR Details</Label>
+                <div className="border-t border-gray-200 dark:border-zinc-700 pt-4">
+                  <Label className="text-gray-500 dark:text-zinc-400">LCR Details</Label>
                   <div className="mt-2 space-y-2">
-                    {selectedRequest.lcr_type && <p className="text-white">LCR Type: {selectedRequest.lcr_type}</p>}
-                    {selectedRequest.lcr_change && <p className="text-white">Change: {selectedRequest.lcr_change === "add" ? "Add" : selectedRequest.lcr_change === "drop" ? "Drop" : selectedRequest.lcr_change}</p>}
-                    {selectedRequest.destination && <p className="text-white">Destination: {selectedRequest.destination}</p>}
+                    {selectedRequest.lcr_type && <p className="text-gray-900 dark:text-white">LCR Type: {selectedRequest.lcr_type}</p>}
+                    {selectedRequest.lcr_change && <p className="text-gray-900 dark:text-white">Change: {selectedRequest.lcr_change === "add" ? "Add" : selectedRequest.lcr_change === "drop" ? "Drop" : selectedRequest.lcr_change}</p>}
+                    {selectedRequest.destination && <p className="text-gray-900 dark:text-white">Destination: {selectedRequest.destination}</p>}
                     <div>
-                      <Label className="text-zinc-400">Vendor Trunks:</Label>
+                      <Label className="text-gray-500 dark:text-zinc-400">Vendor Trunks:</Label>
                       {(selectedRequest.vendor_trunks || []).map((trunk, i) => (
-                        <p key={i} className="text-white ml-2">- {trunk.trunk}</p>
+                        <p key={i} className="text-gray-900 dark:text-white ml-2">- {trunk.trunk}</p>
                       ))}
                     </div>
                   </div>
@@ -4080,40 +4080,40 @@ export default function RequestsPage() {
               )}
 
               {(selectedRequest.request_type === "trunk_request_sms" || selectedRequest.request_type === "trunk_request_voice") && (
-                <div className="border-t border-zinc-700 pt-4">
-                  <Label className="text-zinc-400">New Trunk Request Details</Label>
+                <div className="border-t border-gray-200 dark:border-zinc-700 pt-4">
+                  <Label className="text-gray-500 dark:text-zinc-400">New Trunk Request Details</Label>
                   <div className="mt-2 space-y-2">
-                    {selectedRequest.customer && <p className="text-white">Customer(s): {selectedRequest.customer}</p>}
-                    {selectedRequest.trunk_type && <p className="text-white">Trunk Type: {selectedRequest.trunk_type}</p>}
-                    <p className="text-white">Direction: {selectedRequest.direction || "Not specified"}</p>
-                    <p className="text-white">With LCR: {selectedRequest.with_lcr ? "Yes" : "No"}</p>
+                    {selectedRequest.customer && <p className="text-gray-900 dark:text-white">Customer(s): {selectedRequest.customer}</p>}
+                    {selectedRequest.trunk_type && <p className="text-gray-900 dark:text-white">Trunk Type: {selectedRequest.trunk_type}</p>}
+                    <p className="text-gray-900 dark:text-white">Direction: {selectedRequest.direction || "Not specified"}</p>
+                    <p className="text-gray-900 dark:text-white">With LCR: {selectedRequest.with_lcr ? "Yes" : "No"}</p>
                   </div>
                 </div>
               )}
 
               {selectedRequest.request_type === "open_tt" && (
-                <div className="border-t border-zinc-700 pt-4">
-                  <Label className="text-zinc-400">Open TT Details</Label>
+                <div className="border-t border-gray-200 dark:border-zinc-700 pt-4">
+                  <Label className="text-gray-500 dark:text-zinc-400">Open TT Details</Label>
                   <div className="mt-2 space-y-2">
-                    {selectedRequest.destination && <p className="text-white">Destination: {selectedRequest.destination}</p>}
+                    {selectedRequest.destination && <p className="text-gray-900 dark:text-white">Destination: {selectedRequest.destination}</p>}
                     {selectedRequest.vendor_trunks && selectedRequest.vendor_trunks.length > 0 && (
                       <div>
-                        <Label className="text-zinc-400">Vendor Trunk(s):</Label>
+                        <Label className="text-gray-500 dark:text-zinc-400">Vendor Trunk(s):</Label>
                         {selectedRequest.vendor_trunks.map((trunk, i) => (
-                          <p key={i} className="text-white ml-2">- {trunk.trunk}</p>
+                          <p key={i} className="text-gray-900 dark:text-white ml-2">- {trunk.trunk}</p>
                         ))}
                       </div>
                     )}
-                    {selectedRequest.open_by && <p className="text-white">Open By: {selectedRequest.open_by}</p>}
-                    {selectedRequest.open_tt_notes && <p className="text-white">Notes: {selectedRequest.open_tt_notes}</p>}
+                    {selectedRequest.open_by && <p className="text-gray-900 dark:text-white">Open By: {selectedRequest.open_by}</p>}
+                    {selectedRequest.open_tt_notes && <p className="text-gray-900 dark:text-white">Notes: {selectedRequest.open_tt_notes}</p>}
                   </div>
                 </div>
               )}
 
               {selectedRequest.response && (
-                <div className="border-t border-zinc-700 pt-4">
-                  <Label className="text-zinc-400">Response</Label>
-                  <p className="text-white mt-2">{selectedRequest.response}</p>
+                <div className="border-t border-gray-200 dark:border-zinc-700 pt-4">
+                  <Label className="text-gray-500 dark:text-zinc-400">Response</Label>
+                  <p className="text-gray-900 dark:text-white mt-2">{selectedRequest.response}</p>
                 </div>
               )}
 
@@ -4139,20 +4139,20 @@ export default function RequestsPage() {
 
       {/* Claim Dialog */}
       <Dialog open={claimDialogOpen} onOpenChange={setClaimDialogOpen}>
-        <DialogContent disableOutsideClick className="bg-zinc-900 border-white/10 text-white">
+        <DialogContent disableOutsideClick className="bg-white dark:bg-zinc-900 border-black/10 dark:border-white/10 text-gray-900 dark:text-white">
           <DialogHeader>
             <DialogTitle>Claim Request</DialogTitle>
           </DialogHeader>
-          <p className="text-zinc-400">
+          <p className="text-gray-500 dark:text-zinc-400">
             Are you sure you want to claim this request? Once claimed, only you can complete or reject it.
           </p>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setClaimDialogOpen(false)} className="bg-zinc-800 border-zinc-700 text-white hover:bg-zinc-700">
+            <Button variant="outline" onClick={() => setClaimDialogOpen(false)} className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white hover:bg-gray-200 dark:hover:bg-zinc-700">
               Cancel
             </Button>
             <Button 
               onClick={submitClaim} 
-              className="bg-blue-600 text-white hover:bg-blue-700"
+              className="bg-blue-600 text-gray-900 dark:text-white hover:bg-blue-700"
             >
               Claim
             </Button>
@@ -4162,7 +4162,7 @@ export default function RequestsPage() {
 
       {/* Response Dialog */}
       <Dialog open={responseDialogOpen} onOpenChange={setResponseDialogOpen}>
-        <DialogContent disableOutsideClick className="bg-zinc-900 border-white/10 text-white">
+        <DialogContent disableOutsideClick className="bg-white dark:bg-zinc-900 border-black/10 dark:border-white/10 text-gray-900 dark:text-white">
           <DialogHeader>
             <DialogTitle>{responseType === "complete" ? "Complete" : "Reject"} Request</DialogTitle>
           </DialogHeader>
@@ -4170,9 +4170,9 @@ export default function RequestsPage() {
             {/* Image upload for Testing requests when completing */}
             {selectedRequest?.request_type === "testing" && responseType === "complete" && (
               <div>
-                <Label className="text-zinc-400">Attach Test Result Images (Optional)</Label>
+                <Label className="text-gray-500 dark:text-zinc-400">Attach Test Result Images (Optional)</Label>
                 <div 
-                  className="mt-2 border-2 border-dashed border-zinc-600 rounded-lg p-4 text-center cursor-pointer hover:border-zinc-400 transition-colors"
+                  className="mt-2 border-2 border-dashed border-gray-300 dark:border-zinc-600 rounded-lg p-4 text-center cursor-pointer hover:border-gray-400 dark:hover:border-zinc-400 transition-colors"
                   onClick={() => document.getElementById('responseImageInput').click()}
                   onPaste={(e) => {
                     const items = e.clipboardData?.items;
@@ -4189,10 +4189,10 @@ export default function RequestsPage() {
                   {responseImagePreviews.length > 0 ? (
                     <div className="space-y-2">
                       {responseImagePreviews.map((preview, index) => (
-                        <div key={index} className="flex items-center justify-between bg-zinc-800/50 rounded-lg p-2 border border-zinc-700">
+                        <div key={index} className="flex items-center justify-between bg-gray-100/50 dark:bg-zinc-800/50 rounded-lg p-2 border border-gray-200 dark:border-zinc-700">
                           <div className="flex items-center gap-2">
                             <img src={preview} alt={`Test result ${index + 1}`} className="w-10 h-10 rounded object-cover" />
-                            <span className="text-sm text-white">image_{index + 1}</span>
+                            <span className="text-sm text-gray-900 dark:text-white">image_{index + 1}</span>
                           </div>
                           <button 
                             type="button"
@@ -4201,7 +4201,7 @@ export default function RequestsPage() {
                               setResponseImages(prev => prev.filter((_, i) => i !== index));
                               setResponseImagePreviews(prev => prev.filter((_, i) => i !== index));
                             }}
-                            className="bg-red-600 text-white rounded-full p-1 w-6 h-6 flex items-center justify-center hover:bg-red-700"
+                            className="bg-red-600 text-gray-900 dark:text-white rounded-full p-1 w-6 h-6 flex items-center justify-center hover:bg-red-700"
                           >
                             ✕
                           </button>
@@ -4209,7 +4209,7 @@ export default function RequestsPage() {
                       ))}
                     </div>
                   ) : (
-                    <div className="text-zinc-400">
+                    <div className="text-gray-500 dark:text-zinc-400">
                       <p>Click to upload or paste from clipboard</p>
                       <p className="text-xs text-zinc-500 mt-1">Supports: JPG, PNG, GIF (Multiple images allowed)</p>
                     </div>
@@ -4235,22 +4235,22 @@ export default function RequestsPage() {
               </div>
             )}
             <div>
-              <Label className="text-zinc-400">Comment (Optional)</Label>
+              <Label className="text-gray-500 dark:text-zinc-400">Comment (Optional)</Label>
               <Textarea
                 value={responseComment}
                 onChange={(e) => setResponseComment(e.target.value)}
                 placeholder={responseType === "complete" ? "Add completion notes..." : "Reason for rejection..."}
-                className="bg-zinc-800 border-zinc-700 mt-2"
+                className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 mt-2"
               />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setResponseDialogOpen(false)} className="bg-zinc-800 border-zinc-700 text-white hover:bg-zinc-700">
+            <Button variant="outline" onClick={() => setResponseDialogOpen(false)} className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white hover:bg-gray-200 dark:hover:bg-zinc-700">
               Cancel
             </Button>
             <Button 
               onClick={submitResponse} 
-              className={responseType === "complete" ? "bg-green-600 text-white hover:bg-green-700" : "bg-red-600 text-white hover:bg-red-700"}
+              className={responseType === "complete" ? "bg-green-600 text-gray-900 dark:text-white hover:bg-green-700" : "bg-red-600 text-gray-900 dark:text-white hover:bg-red-700"}
             >
               {responseType === "complete" ? "Complete" : "Reject"}
             </Button>

@@ -31,6 +31,8 @@ import {
   FileText,
   Database,
   Calendar,
+  Sun,
+  Moon,
 } from "lucide-react";
 import {
   Popover,
@@ -39,8 +41,10 @@ import {
 } from "@/components/ui/popover";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
+import { useTheme } from "@/contexts/ThemeContext";
 
 export default function DashboardLayout({ user, setUser }) {
+  const { theme, toggleTheme } = useTheme();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [alerts, setAlerts] = useState([]);
   const [ticketModificationNotifications, setTicketModificationNotifications] = useState([]);
@@ -936,7 +940,7 @@ export default function DashboardLayout({ user, setUser }) {
 
   return (
     <TooltipProvider>
-      <div className="flex h-screen bg-zinc-950" data-testid="dashboard-layout">
+      <div className="flex h-screen bg-gray-50 dark:bg-zinc-950" data-testid="dashboard-layout">
       {/* Unassigned Tickets Alert - Top Left Notification */}
       {showAlerts && activeAlerts.length > 0 && (
         <div className="fixed top-4 left-4 z-50 max-w-md">
@@ -959,7 +963,7 @@ export default function DashboardLayout({ user, setUser }) {
                   localStorage.setItem("dismissedAlerts", JSON.stringify(newDismissed));
                   setShowAlerts(false);
                 }}
-                className="ml-2 text-red-400 hover:text-white"
+                className="ml-2 text-red-400 hover:text-gray-900 dark:hover:text-white"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -968,14 +972,14 @@ export default function DashboardLayout({ user, setUser }) {
               {alerts.slice(0, 5).map((alert) => (
                 <div
                   key={`${alert.type}-${alert.id}`}
-                  className="flex items-center gap-2 bg-zinc-900/50 px-3 py-2 rounded text-sm"
+                  className="flex items-center gap-2 bg-white/50 dark:bg-zinc-900/50 px-3 py-2 rounded text-sm"
                 >
                   <div className={`h-2 w-2 rounded-full flex-shrink-0 ${
                     alert.priority === "Urgent" ? "bg-red-500" :
                     alert.priority === "High" ? "bg-orange-500" :
                     alert.priority === "Medium" ? "bg-yellow-500" : "bg-blue-500"
                   }`} />
-                  <span className="text-white font-medium">{alert.ticket_number}</span>
+                  <span className="text-gray-900 dark:text-white font-medium">{alert.ticket_number}</span>
                   <span className={`text-xs px-1.5 py-0.5 rounded ${
                     alert.priority === "Urgent" ? "bg-red-500/20 text-red-400" :
                     alert.priority === "High" ? "bg-orange-500/20 text-orange-400" :
@@ -983,11 +987,11 @@ export default function DashboardLayout({ user, setUser }) {
                   }`}>
                     {alert.priority}
                   </span>
-                  <span className="text-zinc-400 text-xs ml-auto">{alert.type.toUpperCase()}</span>
+                  <span className="text-gray-500 dark:text-zinc-400 text-xs ml-auto">{alert.type.toUpperCase()}</span>
                 </div>
               ))}
               {alerts.length > 5 && (
-                <p className="text-zinc-400 text-xs text-center pt-2">
+                <p className="text-gray-500 dark:text-zinc-400 text-xs text-center pt-2">
                   +{alerts.length - 5} more tickets
                 </p>
               )}
@@ -1018,7 +1022,7 @@ export default function DashboardLayout({ user, setUser }) {
                   localStorage.setItem("dismissedReminders", JSON.stringify(newDismissed));
                   setShowReminders(false);
                 }}
-                className="ml-2 text-emerald-400 hover:text-white"
+                className="ml-2 text-emerald-400 hover:text-gray-900 dark:hover:text-white"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -1027,14 +1031,14 @@ export default function DashboardLayout({ user, setUser }) {
               {activeReminders.slice(0, 5).map((reminder) => (
                 <div
                   key={`${reminder.type}-${reminder.id}`}
-                  className="flex items-center gap-2 bg-zinc-900/50 px-3 py-2 rounded text-sm"
+                  className="flex items-center gap-2 bg-white/50 dark:bg-zinc-900/50 px-3 py-2 rounded text-sm"
                 >
                   <div className={`h-2 w-2 rounded-full flex-shrink-0 ${
                     reminder.priority === "Urgent" ? "bg-red-500" :
                     reminder.priority === "High" ? "bg-orange-500" :
                     reminder.priority === "Medium" ? "bg-yellow-500" : "bg-blue-500"
                   }`} />
-                  <span className="text-white font-medium">{reminder.ticket_number}</span>
+                  <span className="text-gray-900 dark:text-white font-medium">{reminder.ticket_number}</span>
                   <span className={`text-xs px-1.5 py-0.5 rounded ${
                     reminder.priority === "Urgent" ? "bg-red-500/20 text-red-400" :
                     reminder.priority === "High" ? "bg-orange-500/20 text-orange-400" :
@@ -1042,11 +1046,11 @@ export default function DashboardLayout({ user, setUser }) {
                   }`}>
                     {reminder.priority}
                   </span>
-                  <span className="text-zinc-400 text-xs ml-auto">{reminder.type.toUpperCase()}</span>
+                  <span className="text-gray-500 dark:text-zinc-400 text-xs ml-auto">{reminder.type.toUpperCase()}</span>
                 </div>
               ))}
               {activeReminders.length > 5 && (
-                <p className="text-zinc-400 text-xs text-center pt-2">
+                <p className="text-gray-500 dark:text-zinc-400 text-xs text-center pt-2">
                   +{activeReminders.length - 5} more tickets
                 </p>
               )}
@@ -1062,12 +1066,12 @@ export default function DashboardLayout({ user, setUser }) {
       <aside
         className={`${
           sidebarOpen ? "w-64" : "w-0 lg:w-20"
-        } bg-zinc-900 border-r border-white/5 transition-all duration-300 flex-shrink-0`}
+        } bg-white dark:bg-zinc-900 border-r border-black/5 dark:border-white/5 transition-all duration-300 flex-shrink-0`}
         data-testid="sidebar"
       >
         <div className="flex flex-col h-full">
           {/* Logo */}
-          <div className="h-16 flex items-center justify-between px-4 border-b border-white/5">
+          <div className="h-16 flex items-center justify-between px-4 border-b border-black/5 dark:border-white/5">
             {sidebarOpen && (
               <div className="flex items-center gap-3">
   <img
@@ -1075,14 +1079,14 @@ export default function DashboardLayout({ user, setUser }) {
     alt="Wii Telecom"
     className="h-9 w-auto object-contain"
   />
-                <span className="font-bold text-white text-lg">Wii NOC</span>
+                <span className="font-bold text-gray-900 dark:text-white text-lg">Wii NOC</span>
               </div>
             )}
             <Button
               variant="ghost"
               size="icon"
               onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="text-zinc-400 hover:text-white hover:bg-zinc-800 dark:text-zinc-400 dark:hover:text-white dark:hover:bg-zinc-800 text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100"
+              className="text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-zinc-800"
               data-testid="sidebar-toggle"
             >
               {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
@@ -1104,7 +1108,7 @@ export default function DashboardLayout({ user, setUser }) {
                     className={`w-full justify-start h-11 ${
                       isActive
                         ? "bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20"
-                        : "text-zinc-400 hover:text-white hover:bg-zinc-800"
+                        : "text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-zinc-800"
                     } transition-colors`}
                   >
                     <Icon className="h-5 w-5" />
@@ -1171,18 +1175,18 @@ export default function DashboardLayout({ user, setUser }) {
           </div>
 
           {/* User Info */}
-          <div className="p-4 border-t border-white/5">
+          <div className="p-4 border-t border-black/5 dark:border-white/5">
             {sidebarOpen ? (
               <div className="space-y-3 animate-fade-in">
                 <div className="text-sm">
-                  <p className="text-white font-medium">{user.username}</p>
+                  <p className="text-gray-900 dark:text-white font-medium">{user.username}</p>
                   <p className="text-zinc-500 capitalize">{user.role}</p>
                 </div>
                 <Button
                   variant="ghost"
                   onClick={handleLogout}
                   data-testid="logout-button"
-                  className="w-full justify-start text-zinc-400 hover:text-white hover:bg-zinc-800"
+                  className="w-full justify-start text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-zinc-800"
                 >
                   <LogOut className="h-5 w-5 mr-3" />
                   Logout
@@ -1193,7 +1197,7 @@ export default function DashboardLayout({ user, setUser }) {
                 variant="ghost"
                 size="icon"
                 onClick={handleLogout}
-                className="w-full text-zinc-400 hover:text-white hover:bg-zinc-800"
+                className="w-full text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-zinc-800"
               >
                 <LogOut className="h-5 w-5" />
               </Button>
@@ -1205,14 +1209,14 @@ export default function DashboardLayout({ user, setUser }) {
       {/* Main Content */}
       <main className="flex-1 flex flex-col overflow-auto">
         {/* Top Header Bar with Notifications */}
-        <header className="h-14 bg-zinc-900 border-b border-white/5 flex items-center justify-between px-4 gap-4">
+        <header className="h-14 bg-white dark:bg-zinc-900 border-b border-black/5 dark:border-white/5 flex items-center justify-between px-4 gap-4">
           {/* Mobile Sidebar Expand Button - Only shows on mobile when sidebar is collapsed */}
           {!sidebarOpen ? (
             <Button
               variant="ghost"
               size="icon"
               onClick={() => setSidebarOpen(true)}
-              className="lg:hidden text-zinc-400 hover:text-white hover:bg-zinc-800"
+              className="lg:hidden text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-zinc-800"
             >
               <Menu className="h-5 w-5" />
             </Button>
@@ -1221,22 +1225,39 @@ export default function DashboardLayout({ user, setUser }) {
               variant="ghost"
               size="icon"
               onClick={() => setSidebarOpen(false)}
-              className="lg:hidden text-zinc-400 hover:text-white hover:bg-zinc-800"
+              className="lg:hidden text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-zinc-800"
             >
               <X className="h-5 w-5" />
             </Button>
           )}
           {/* Spacer to push items to the right */}
           <div className="flex-1" />
-          {/* Right side - Bell Icon and Date/Time */}
+          {/* Right side - Theme Toggle, Bell Icon and Date/Time */}
           <div className="flex items-center gap-4">
+            {/* Theme Toggle Button */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={toggleTheme}
+                  data-testid="theme-toggle"
+                  className="text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-zinc-800"
+                >
+                  {theme === "dark" ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                Switch to {theme === "dark" ? "light" : "dark"} mode
+              </TooltipContent>
+            </Tooltip>
             {/* Combined Notifications Bell Icon - Shows both Alert and Ticket notifications */}
             <Popover open={showAlertNotifications} onOpenChange={(open) => {
               setShowAlertNotifications(open);
               if (!open) setNotificationFilter(null);
             }}>
               <PopoverTrigger asChild>
-                <Button variant="ghost" size="icon" className="relative text-zinc-400 hover:text-white">
+                <Button variant="ghost" size="icon" className="relative text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white">
                   <Bell className="h-5 w-5" />
                   {getUnreadCount() > 0 && (
                     <span className={`absolute -top-1 -right-1 h-4 w-4 rounded-full text-[10px] font-bold text-black flex items-center justify-center ${getHighestPriorityNotificationType() === 'alert' ? 'bg-red-500' : getHighestPriorityNotificationType() === 'ticket' ? 'bg-blue-500' : 'bg-green-500'}`}>
@@ -1245,9 +1266,9 @@ export default function DashboardLayout({ user, setUser }) {
                   )}
                 </Button>
               </PopoverTrigger>
-              <PopoverContent className="w-80 bg-zinc-900 border-zinc-700 text-white" align="end">
+              <PopoverContent className="w-80 bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white" align="end">
                 <div className="space-y-2">
-                  <div className="flex items-center justify-between pb-2 border-b border-zinc-700">
+                  <div className="flex items-center justify-between pb-2 border-b border-gray-200 dark:border-zinc-700">
                     <h3 className="font-semibold flex items-center gap-2">
                       <Bell className="h-4 w-4" />
                       Notifications
@@ -1255,16 +1276,16 @@ export default function DashboardLayout({ user, setUser }) {
                         <span className="text-xs text-zinc-500 ml-1">(filtered)</span>
                       )}
                     </h3>
-                    <span className="text-xs text-zinc-400">{getUnreadCount()} unread</span>
+                    <span className="text-xs text-gray-500 dark:text-zinc-400">{getUnreadCount()} unread</span>
                   </div>
                   {/* Action buttons row */}
                   {getAllNotificationsSorted().length > 0 && (
-                    <div className="flex gap-2 pb-2 border-b border-zinc-700">
+                    <div className="flex gap-2 pb-2 border-b border-gray-200 dark:border-zinc-700">
                       <Button
                         variant="outline"
                         size="sm"
                         onClick={handleMarkAllAsRead}
-                        className="flex-1 text-xs bg-zinc-800 border-zinc-600 text-zinc-300 hover:bg-zinc-700 hover:text-white"
+                        className="flex-1 text-xs bg-gray-100 dark:bg-zinc-800 border-gray-300 dark:border-zinc-600 text-gray-700 dark:text-zinc-300 hover:bg-gray-200 dark:hover:bg-zinc-700 hover:text-gray-900 dark:hover:text-white"
                       >
                         Mark all as read
                       </Button>
@@ -1272,29 +1293,29 @@ export default function DashboardLayout({ user, setUser }) {
                         variant="outline"
                         size="sm"
                         onClick={handleClearAll}
-                        className="flex-1 text-xs bg-red-900/30 border-red-700/50 text-red-300 hover:bg-red-900/50 hover:text-white"
+                        className="flex-1 text-xs bg-red-900/30 border-red-700/50 text-red-300 hover:bg-red-900/50 hover:text-gray-900 dark:hover:text-white"
                       >
                         Clear all
                       </Button>
                     </div>
                   )}
                   {/* Notification type legend - clickable filters */}
-                  <div className="flex gap-3 text-xs pb-2 border-b border-zinc-700">
+                  <div className="flex gap-3 text-xs pb-2 border-b border-gray-200 dark:border-zinc-700">
                     <button 
                       onClick={() => setNotificationFilter(notificationFilter === 'alert' ? null : 'alert')}
-                      className={`flex items-center gap-1 cursor-pointer hover:text-white transition-colors ${notificationFilter === 'alert' ? 'text-red-400 font-semibold' : 'text-zinc-400'}`}
+                      className={`flex items-center gap-1 cursor-pointer hover:text-gray-900 dark:hover:text-white transition-colors ${notificationFilter === 'alert' ? 'text-red-400 font-semibold' : 'text-gray-500 dark:text-zinc-400'}`}
                     >
                       <span className="h-2 w-2 rounded-full bg-red-500" /> Alerts
                     </button>
                     <button 
                       onClick={() => setNotificationFilter(notificationFilter === 'ticket' ? null : 'ticket')}
-                      className={`flex items-center gap-1 cursor-pointer hover:text-white transition-colors ${notificationFilter === 'ticket' ? 'text-blue-400 font-semibold' : 'text-zinc-400'}`}
+                      className={`flex items-center gap-1 cursor-pointer hover:text-gray-900 dark:hover:text-white transition-colors ${notificationFilter === 'ticket' ? 'text-blue-400 font-semibold' : 'text-gray-500 dark:text-zinc-400'}`}
                     >
                       <span className="h-2 w-2 rounded-full bg-blue-500" /> Tickets
                     </button>
                     <button 
                       onClick={() => setNotificationFilter(notificationFilter === 'request' ? null : 'request')}
-                      className={`flex items-center gap-1 cursor-pointer hover:text-white transition-colors ${notificationFilter === 'request' ? 'text-green-400 font-semibold' : 'text-zinc-400'}`}
+                      className={`flex items-center gap-1 cursor-pointer hover:text-gray-900 dark:hover:text-white transition-colors ${notificationFilter === 'request' ? 'text-green-400 font-semibold' : 'text-gray-500 dark:text-zinc-400'}`}
                     >
                       <span className="h-2 w-2 rounded-full bg-green-500" /> Requests
                     </button>
@@ -1314,7 +1335,7 @@ export default function DashboardLayout({ user, setUser }) {
                     return (
                       <div 
                         key={notification.id} 
-                        className={`flex items-start justify-between gap-2 p-2 rounded border-l-2 w-full ${readNotificationIds.has(notification.id) ? 'border-zinc-600 bg-zinc-800/30 opacity-60' : `${borderColor} ${bgColor}`}`}
+                        className={`flex items-start justify-between gap-2 p-2 rounded border-l-2 w-full ${readNotificationIds.has(notification.id) ? 'border-gray-300 dark:border-zinc-600 bg-gray-100/30 dark:bg-zinc-800/30 opacity-60' : `${borderColor} ${bgColor}`}`}
                         onClick={() => isRequest ? handleRequestNotificationClick(notification) : isAlert ? handleAlertNotificationClick(notification) : handleTicketNotificationClick(notification)}
                       >
                         <div className="flex items-center gap-2">
@@ -1338,7 +1359,7 @@ export default function DashboardLayout({ user, setUser }) {
                             )}
                             {/* For request notifications, show the full message */}
                             {isRequest ? (
-                              <div className={`text-xs whitespace-pre-wrap ${readNotificationIds.has(notification.id) ? 'text-zinc-600' : 'text-zinc-300'}`}>
+                              <div className={`text-xs whitespace-pre-wrap ${readNotificationIds.has(notification.id) ? 'text-zinc-600' : 'text-gray-700 dark:text-zinc-300'}`}>
                                 {notification.message}
                                 <div className="mt-1 text-zinc-500">
                                   {formatNotificationTime(notification.created_at)}
@@ -1347,14 +1368,14 @@ export default function DashboardLayout({ user, setUser }) {
                               </div>
                             ) : (
                             /* Structured details for ticket/alert notifications */
-                            <div className={`space-y-0.5 text-xs ${readNotificationIds.has(notification.id) ? 'text-zinc-600' : 'text-zinc-300'}`}>
+                            <div className={`space-y-0.5 text-xs ${readNotificationIds.has(notification.id) ? 'text-zinc-600' : 'text-gray-700 dark:text-zinc-300'}`}>
                               {notification.priority && (
                                 <div className="flex gap-1">
                                   <span className="text-zinc-500 shrink-0">Priority:</span>
                                   <span className={`font-medium ${
                                     notification.priority === 'Urgent' ? 'text-red-400' :
                                     notification.priority === 'High' ? 'text-orange-400' :
-                                    notification.priority === 'Medium' ? 'text-blue-400' : 'text-zinc-400'
+                                    notification.priority === 'Medium' ? 'text-blue-400' : 'text-gray-500 dark:text-zinc-400'
                                   }`}>{notification.priority}</span>
                                 </div>
                               )}
@@ -1382,10 +1403,10 @@ export default function DashboardLayout({ user, setUser }) {
                               )}
                               {/* Show changes for ticket_modification notifications */}
                               {notification.event_type === 'ticket_modification' && notification.changes && (
-                                <div className="mt-1 p-1 bg-zinc-700/50 rounded text-xs">
-                                  <span className="text-zinc-400 font-medium">Changed:</span>
+                                <div className="mt-1 p-1 bg-gray-200/50 dark:bg-zinc-700/50 rounded text-xs">
+                                  <span className="text-gray-500 dark:text-zinc-400 font-medium">Changed:</span>
                                   {Object.entries(notification.changes).slice(0, 3).map(([field, [oldVal, newVal]], idx) => (
-                                    <div key={idx} className="flex gap-1 text-zinc-300">
+                                    <div key={idx} className="flex gap-1 text-gray-700 dark:text-zinc-300">
                                       <span className="text-zinc-500 shrink-0">{field}:</span>
                                       <span className="line-through opacity-60">{String(oldVal) || '-'}</span>
                                       <span>→</span>
@@ -1424,7 +1445,7 @@ export default function DashboardLayout({ user, setUser }) {
                               handleRemoveTicketNotification(notification.id);
                             }
                           }}
-                          className="text-zinc-400 hover:text-white hover:bg-zinc-700 shrink-0"
+                          className="text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-zinc-700 shrink-0"
                         >
                           <X className="h-3 w-3" />
                         </Button>
@@ -1441,9 +1462,9 @@ export default function DashboardLayout({ user, setUser }) {
             </PopoverContent>
           </Popover>
           {/* Date and Time Clock - Shows in user's local timezone */}
-          <div className="text-sm text-zinc-400 flex items-center gap-2">
+          <div className="text-sm text-gray-500 dark:text-zinc-400 flex items-center gap-2">
             <span>{currentTime.toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}</span>
-            <span className="text-white font-medium">{currentTime.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}</span>
+            <span className="text-gray-900 dark:text-white font-medium">{currentTime.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}</span>
           </div>
           </div>
         </header>
@@ -1475,9 +1496,9 @@ export default function DashboardLayout({ user, setUser }) {
             <AlertDialogDescription className="text-base">
               {selectedNotification && (
                 <>
-                  <div className="mt-2 p-3 bg-zinc-800 rounded-lg">
-                    <p className="text-white font-medium">{selectedNotification.message}</p>
-                    <div className="mt-2 text-sm text-zinc-400">
+                  <div className="mt-2 p-3 bg-gray-100 dark:bg-zinc-800 rounded-lg">
+                    <p className="text-gray-900 dark:text-white font-medium">{selectedNotification.message}</p>
+                    <div className="mt-2 text-sm text-gray-500 dark:text-zinc-400">
                       {selectedNotification.ticket_number && (
                         <p>Ticket: {selectedNotification.ticket_number}</p>
                       )}

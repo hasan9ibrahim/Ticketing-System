@@ -812,10 +812,10 @@ export default function ReferencesPage() {
     
     if (alerts.length === 0) {
       return (
-        <Card className="bg-zinc-900 border-zinc-800">
+        <Card className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-800">
           <CardContent className="flex flex-col items-center justify-center py-12">
             <Bell className="h-12 w-12 text-zinc-600 mb-4" />
-            <p className="text-zinc-400">No alerts yet</p>
+            <p className="text-gray-500 dark:text-zinc-400">No alerts yet</p>
             <p className="text-zinc-500 text-sm mt-2">Send alerts from ticket pages to see them here</p>
           </CardContent>
         </Card>
@@ -827,23 +827,23 @@ export default function ReferencesPage() {
         {alerts.map((alert) => (
           <Card 
             key={alert.id} 
-            className={`bg-zinc-900 border-zinc-800 cursor-pointer hover:border-zinc-600 ${selectedAlert?.id === alert.id ? 'border-emerald-500' : ''} ${alert.resolved ? 'opacity-60' : ''}`}
+            className={`bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-800 cursor-pointer hover:border-gray-300 dark:hover:border-zinc-600 ${selectedAlert?.id === alert.id ? 'border-emerald-500' : ''} ${alert.resolved ? 'opacity-60' : ''}`}
             onClick={() => setSelectedAlert(alert)}
           >
             <CardHeader className="pb-3">
               <div className="flex items-start justify-between">
                 <div>
-                  <CardTitle className="text-lg text-white">
+                  <CardTitle className="text-lg text-gray-900 dark:text-white">
                     {alert.ticket_number}
                     {alert.resolved && <Badge variant="outline" className="ml-2 bg-emerald-500/20 text-emerald-400 border-emerald-500">Resolved</Badge>}
                   </CardTitle>
                   <CardDescription className="mt-1">
-                    <Badge variant="outline" className="mr-2 bg-zinc-800 text-zinc-300 border-zinc-600">
+                    <Badge variant="outline" className="mr-2 bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-zinc-300 border-gray-300 dark:border-zinc-600">
                       {alert.customer}
                     </Badge>
                     {/* Enterprise Destination */}
                     {(alert.customer_trunk || alert.destination) && (
-                      <Badge variant="secondary" className="bg-zinc-700 text-zinc-300 mr-2">
+                      <Badge variant="secondary" className="bg-gray-200 dark:bg-zinc-700 text-gray-700 dark:text-zinc-300 mr-2">
                         {alert.customer_trunk || alert.destination}
                       </Badge>
                     )}
@@ -866,9 +866,9 @@ export default function ReferencesPage() {
         
         {/* Alert Details Sidebar */}
         {selectedAlert && (
-          <div className="fixed inset-y-0 right-0 w-[600px] max-w-[90vw] bg-zinc-900 border-l border-zinc-800 p-4 overflow-y-auto shadow-lg z-50">
+          <div className="fixed inset-y-0 right-0 w-[600px] max-w-[90vw] bg-white dark:bg-zinc-900 border-l border-gray-200 dark:border-zinc-800 p-4 overflow-y-auto shadow-lg z-50">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-semibold text-white">Alert Details</h3>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Alert Details</h3>
               <Button variant="ghost" size="icon" onClick={() => setSelectedAlert(null)}>
                 <X className="h-4 w-4" />
               </Button>
@@ -876,63 +876,63 @@ export default function ReferencesPage() {
             
             <div className="space-y-4">
               {/* Ticket Info */}
-              <div className="bg-zinc-800 rounded-lg p-3">
-                <h4 className="text-sm font-medium text-zinc-400 mb-2">Ticket Information</h4>
+              <div className="bg-gray-100 dark:bg-zinc-800 rounded-lg p-3">
+                <h4 className="text-sm font-medium text-gray-500 dark:text-zinc-400 mb-2">Ticket Information</h4>
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
                     <span className="text-zinc-500">Ticket:</span>
-                    <span className="text-white">{selectedAlert.ticket_number}</span>
+                    <span className="text-gray-900 dark:text-white">{selectedAlert.ticket_number}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-zinc-500">Customer:</span>
-                    <span className="text-white">{selectedAlert.customer}</span>
+                    <span className="text-gray-900 dark:text-white">{selectedAlert.customer}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-zinc-500">Destination:</span>
-                    <span className="text-white">{selectedAlert.destination || "-"}</span>
+                    <span className="text-gray-900 dark:text-white">{selectedAlert.destination || "-"}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-zinc-500">Issue Types:</span>
-                    <span className="text-white">{selectedAlert.issue_types?.join(", ") || "-"}</span>
+                    <span className="text-gray-900 dark:text-white">{selectedAlert.issue_types?.join(", ") || "-"}</span>
                   </div>
                 </div>
               </div>
               
               {/* Vendor Info */}
-              <div className="bg-zinc-800 rounded-lg p-3">
-                <h4 className="text-sm font-medium text-zinc-400 mb-2">Vendor Information</h4>
+              <div className="bg-gray-100 dark:bg-zinc-800 rounded-lg p-3">
+                <h4 className="text-sm font-medium text-gray-500 dark:text-zinc-400 mb-2">Vendor Information</h4>
                 <div className="space-y-2 text-sm">
                   {/* Get vendor info from vendor_trunks array */}
                   {(selectedAlert.vendor_trunks && selectedAlert.vendor_trunks.length > 0) ? (
                     <div className="space-y-3">
                       {selectedAlert.vendor_trunks.map((vendor, idx) => (
-                        <div key={idx} className="border border-zinc-600 rounded-md p-2 bg-zinc-700/30">
+                        <div key={idx} className="border border-gray-300 dark:border-zinc-600 rounded-md p-2 bg-gray-200/30 dark:bg-zinc-700/30">
                           <div className="flex flex-col gap-1">
                             <div className="flex flex-col">
                               <span className="text-zinc-500 text-xs mb-1">Vendor Trunk:</span>
-                              <span className="text-white font-medium break-all" title={vendor.trunk}>{vendor.trunk || "-"}</span>
+                              <span className="text-gray-900 dark:text-white font-medium break-all" title={vendor.trunk}>{vendor.trunk || "-"}</span>
                             </div>
                             <div className="flex flex-col mt-2">
                               <span className="text-zinc-500 text-xs mb-1">Cost:</span>
-                              <span className="text-white">{vendor.cost || "-"}</span>
+                              <span className="text-gray-900 dark:text-white">{vendor.cost || "-"}</span>
                             </div>
                             {/* Show position instead of percentage when position is available */}
                             {vendor.position ? (
                               <div className="flex flex-col mt-2">
                                 <span className="text-zinc-500 text-xs mb-1">Position:</span>
-                                <span className="text-white">{vendor.position}</span>
+                                <span className="text-gray-900 dark:text-white">{vendor.position}</span>
                               </div>
                             ) : vendor.percentage ? (
                               <div className="flex flex-col mt-2">
                                 <span className="text-zinc-500 text-xs mb-1">Percentage:</span>
-                                <span className="text-white">{vendor.percentage}%</span>
+                                <span className="text-gray-900 dark:text-white">{vendor.percentage}%</span>
                               </div>
                             ) : null}
                             {/* Show pair_number for SMS alerts */}
                             {vendor.pair_number ? (
                               <div className="flex flex-col mt-2">
                                 <span className="text-zinc-500 text-xs mb-1">Pair #:</span>
-                                <span className="text-white">{vendor.pair_number}</span>
+                                <span className="text-gray-900 dark:text-white">{vendor.pair_number}</span>
                               </div>
                             ) : null}
                             {/* Show network for all alerts */}
@@ -951,37 +951,37 @@ export default function ReferencesPage() {
                     <>
                       <div className="flex flex-col">
                         <span className="text-zinc-500 text-xs mb-1">Vendor Trunk:</span>
-                        <span className="text-white break-all" title={selectedAlert.vendor_trunk}>{selectedAlert.vendor_trunk || "-"}</span>
+                        <span className="text-gray-900 dark:text-white break-all" title={selectedAlert.vendor_trunk}>{selectedAlert.vendor_trunk || "-"}</span>
                       </div>
                       <div className="flex flex-col mt-2">
                         <span className="text-zinc-500 text-xs mb-1">Cost:</span>
-                        <span className="text-white">{selectedAlert.cost || "-"}</span>
+                        <span className="text-gray-900 dark:text-white">{selectedAlert.cost || "-"}</span>
                       </div>
                     </>
                   )}
                   {/* Always show Rate */}
-                  <div className="flex flex-col mt-2 pt-2 border-t border-zinc-700">
+                  <div className="flex flex-col mt-2 pt-2 border-t border-gray-200 dark:border-zinc-700">
                     <span className="text-zinc-500 text-xs mb-1">Rate:</span>
-                    <span className="text-white">{selectedAlert.rate || "-"}</span>
+                    <span className="text-gray-900 dark:text-white">{selectedAlert.rate || "-"}</span>
                   </div>
                 </div>
               </div>
               
               {/* SMS Details for SMS alerts */}
               {selectedAlert.ticket_type === "sms" && selectedAlert.sms_details?.length > 0 && (
-                <div className="bg-zinc-800 rounded-lg p-3">
-                  <h4 className="text-sm font-medium text-zinc-400 mb-2">SMS Details (SID/Content Pairs)</h4>
+                <div className="bg-gray-100 dark:bg-zinc-800 rounded-lg p-3">
+                  <h4 className="text-sm font-medium text-gray-500 dark:text-zinc-400 mb-2">SMS Details (SID/Content Pairs)</h4>
                   <div className="space-y-3 max-h-60 overflow-y-auto">
                     {selectedAlert.sms_details.map((sms, idx) => (
-                      <div key={idx} className="border border-zinc-600 rounded-md p-2 bg-zinc-700/30">
+                      <div key={idx} className="border border-gray-300 dark:border-zinc-600 rounded-md p-2 bg-gray-200/30 dark:bg-zinc-700/30">
                         <div className="flex flex-col gap-1">
                           <div className="flex flex-col">
                             <span className="text-zinc-500 text-xs mb-1">SID:</span>
-                            <span className="text-white font-mono text-xs break-all" title={sms.sid}>{sms.sid || "-"}</span>
+                            <span className="text-gray-900 dark:text-white font-mono text-xs break-all" title={sms.sid}>{sms.sid || "-"}</span>
                           </div>
                           <div className="flex flex-col mt-2">
                             <span className="text-zinc-500 text-xs mb-1">Content:</span>
-                            <span className="text-white text-sm break-words" title={sms.content}>{sms.content || "-"}</span>
+                            <span className="text-gray-900 dark:text-white text-sm break-words" title={sms.content}>{sms.content || "-"}</span>
                           </div>
                         </div>
                       </div>
@@ -991,14 +991,14 @@ export default function ReferencesPage() {
               )}
               
               {/* Comments */}
-              <div className="bg-zinc-800 rounded-lg p-3">
-                <h4 className="text-sm font-medium text-zinc-400 mb-2">Comments ({selectedAlert.comments?.length || 0})</h4>
+              <div className="bg-gray-100 dark:bg-zinc-800 rounded-lg p-3">
+                <h4 className="text-sm font-medium text-gray-500 dark:text-zinc-400 mb-2">Comments ({selectedAlert.comments?.length || 0})</h4>
                 <div className="space-y-2 max-h-48 overflow-y-auto">
                   {selectedAlert.comments?.length === 0 ? (
                     <p className="text-zinc-500 text-sm">No comments yet</p>
                   ) : (
                     selectedAlert.comments?.map((comment, idx) => (
-                      <div key={idx} className="border border-zinc-600 rounded-md p-2 bg-zinc-700/30">
+                      <div key={idx} className="border border-gray-300 dark:border-zinc-600 rounded-md p-2 bg-gray-200/30 dark:bg-zinc-700/30">
                         <div className="flex flex-col gap-1">
                           <div className="flex items-center justify-between">
                             <span className="text-emerald-500 text-sm font-medium">{comment.created_by}</span>
@@ -1008,7 +1008,7 @@ export default function ReferencesPage() {
                           </div>
                           {/* Show either comment text OR alternative vendor, not both */}
                           {comment.text && comment.text.trim() ? (
-                            <p className="text-white text-sm mt-2 break-words">{comment.text}</p>
+                            <p className="text-gray-900 dark:text-white text-sm mt-2 break-words">{comment.text}</p>
                           ) : comment.alternative_vendor ? (
                             <div className="text-emerald-500 text-sm mt-2">
                               Alternative Vendor: <span className="font-medium">{comment.alternative_vendor}</span>
@@ -1023,13 +1023,13 @@ export default function ReferencesPage() {
               
               {/* Add Comment Form - Only show if alert is not resolved */}
               {!selectedAlert.resolved && (
-                <div className="bg-zinc-800 rounded-lg p-3">
-                  <h4 className="text-sm font-medium text-zinc-400 mb-2">Add Comment</h4>
+                <div className="bg-gray-100 dark:bg-zinc-800 rounded-lg p-3">
+                  <h4 className="text-sm font-medium text-gray-500 dark:text-zinc-400 mb-2">Add Comment</h4>
                   <Textarea
                     value={commentText}
                     onChange={(e) => setCommentText(e.target.value)}
                     placeholder="Add a comment..."
-                    className="bg-zinc-700 border-zinc-600 text-white placeholder:text-zinc-500 mb-2"
+                    className="bg-gray-200 dark:bg-zinc-700 border-gray-300 dark:border-zinc-600 text-gray-900 dark:text-white placeholder:text-zinc-500 mb-2"
                     rows={3}
                   />
                   {/* Alternative vendor trunk - Only for NOC and Admin, not for AMs */}
@@ -1038,7 +1038,7 @@ export default function ReferencesPage() {
                       value={alternativeVendor}
                       onChange={(e) => setAlternativeVendor(e.target.value)}
                       placeholder="Alternative vendor trunk (optional)"
-                      className="bg-zinc-700 border-zinc-600 text-white placeholder:text-zinc-500 mb-2"
+                      className="bg-gray-200 dark:bg-zinc-700 border-gray-300 dark:border-zinc-600 text-gray-900 dark:text-white placeholder:text-zinc-500 mb-2"
                     />
                   )}
                   <Button 
@@ -1053,8 +1053,8 @@ export default function ReferencesPage() {
               
               {/* Show resolved message if alert is resolved */}
               {selectedAlert.resolved && (
-                <div className="bg-zinc-800 rounded-lg p-3">
-                  <p className="text-zinc-400 text-sm">This alert has been resolved and archived.</p>
+                <div className="bg-gray-100 dark:bg-zinc-800 rounded-lg p-3">
+                  <p className="text-gray-500 dark:text-zinc-400 text-sm">This alert has been resolved and archived.</p>
                 </div>
               )}
               
@@ -1098,24 +1098,24 @@ export default function ReferencesPage() {
   const renderReferenceTable = (list) => (
     <Table>
       <TableHeader>
-        <TableRow className="hover:bg-zinc-800 border-zinc-700">
-          <TableHead className="w-16 text-zinc-300">Order</TableHead>
-          <TableHead className="text-zinc-300">Vendor Trunk</TableHead>
-          <TableHead className="text-zinc-300">Cost</TableHead>
-          <TableHead className="text-zinc-300">Notes</TableHead>
+        <TableRow className="hover:bg-gray-100 dark:hover:bg-zinc-800 border-gray-200 dark:border-zinc-700">
+          <TableHead className="w-16 text-gray-700 dark:text-zinc-300">Order</TableHead>
+          <TableHead className="text-gray-700 dark:text-zinc-300">Vendor Trunk</TableHead>
+          <TableHead className="text-gray-700 dark:text-zinc-300">Cost</TableHead>
+          <TableHead className="text-gray-700 dark:text-zinc-300">Notes</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
         {(list.vendor_entries || []).map((vendor, idx) => (
-          <TableRow key={idx} className="border-zinc-700">
+          <TableRow key={idx} className="border-gray-200 dark:border-zinc-700">
             <TableCell className="w-16">
-              <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-zinc-700 text-xs font-medium text-white">
+              <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-gray-200 dark:bg-zinc-700 text-xs font-medium text-gray-900 dark:text-white">
                 {idx + 1}
               </span>
             </TableCell>
-            <TableCell className="font-medium text-white">{vendor.trunk}</TableCell>
-            <TableCell className="text-zinc-300">{vendor.cost || "-"}</TableCell>
-            <TableCell className="text-zinc-300">{vendor.notes || "-"}</TableCell>
+            <TableCell className="font-medium text-gray-900 dark:text-white">{vendor.trunk}</TableCell>
+            <TableCell className="text-gray-700 dark:text-zinc-300">{vendor.cost || "-"}</TableCell>
+            <TableCell className="text-gray-700 dark:text-zinc-300">{vendor.notes || "-"}</TableCell>
           </TableRow>
         ))}
         {(list.vendor_entries || []).length === 0 && (
@@ -1131,20 +1131,20 @@ export default function ReferencesPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-zinc-950">
+      <div className="flex items-center justify-center min-h-screen bg-gray-50 dark:bg-zinc-950">
         <div className="text-emerald-500">Loading references & Alerts...</div>
       </div>
     );
   }
 
   return (
-    <div className="container mx-auto py-6 bg-zinc-950 min-h-screen">
+    <div className="container mx-auto py-6 bg-gray-50 dark:bg-zinc-950 min-h-screen">
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
           <Database className="h-8 w-8 text-emerald-500" />
           <div>
-            <h1 className="text-2xl font-bold text-white">References & Alerts</h1>
-            <p className="text-zinc-400">Manage backup vendor references by destination and traffic type</p>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">References & Alerts</h1>
+            <p className="text-gray-500 dark:text-zinc-400">Manage backup vendor references by destination and traffic type</p>
           </div>
         </div>
       </div>
@@ -1156,7 +1156,7 @@ export default function ReferencesPage() {
             placeholder="Search lists by name, destination, or traffic type..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-10 bg-zinc-800 border-zinc-700 text-white placeholder:text-zinc-500"
+            className="pl-10 bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white placeholder:text-zinc-500"
           />
         </div>
         <div className="w-[300px]">
@@ -1173,13 +1173,13 @@ export default function ReferencesPage() {
       </div>
 
       {/* Main Tabs: References vs Alerts */}
-      <Tabs defaultValue={mainTab} onValueChange={setMainTab} className="bg-zinc-900">
-        <TabsList className="mb-4 bg-zinc-800">
-          <TabsTrigger value="references" className="gap-2 text-zinc-300 data-[state=active]:bg-zinc-700 data-[state=active]:text-white">
+      <Tabs defaultValue={mainTab} onValueChange={setMainTab} className="bg-white dark:bg-zinc-900">
+        <TabsList className="mb-4 bg-gray-100 dark:bg-zinc-800">
+          <TabsTrigger value="references" className="gap-2 text-gray-700 dark:text-zinc-300 data-[state=active]:bg-gray-200 dark:data-[state=active]:bg-zinc-700 data-[state=active]:text-gray-900 dark:data-[state=active]:text-white">
             <Database className="h-4 w-4" />
             References
           </TabsTrigger>
-          <TabsTrigger value="alerts" className="gap-2 text-zinc-300 data-[state=active]:bg-zinc-700 data-[state=active]:text-white">
+          <TabsTrigger value="alerts" className="gap-2 text-gray-700 dark:text-zinc-300 data-[state=active]:bg-gray-200 dark:data-[state=active]:bg-zinc-700 data-[state=active]:text-gray-900 dark:data-[state=active]:text-white">
             <Bell className="h-4 w-4" />
             Alerts
             {(totalUnresolvedAlerts) > 0 && (
@@ -1193,16 +1193,16 @@ export default function ReferencesPage() {
         {/* References Tab */}
         {mainTab === "references" && (
           <>
-          <Tabs defaultValue={activeSection} onValueChange={setActiveSection} className="bg-zinc-900">
-            <TabsList className="mb-4 bg-zinc-800">
+          <Tabs defaultValue={activeSection} onValueChange={setActiveSection} className="bg-white dark:bg-zinc-900">
+            <TabsList className="mb-4 bg-gray-100 dark:bg-zinc-800">
           {(departmentType === "all" || departmentType === "sms") && (
-            <TabsTrigger value="sms" className="gap-2 text-zinc-300 data-[state=active]:bg-zinc-700 data-[state=active]:text-white">
+            <TabsTrigger value="sms" className="gap-2 text-gray-700 dark:text-zinc-300 data-[state=active]:bg-gray-200 dark:data-[state=active]:bg-zinc-700 data-[state=active]:text-gray-900 dark:data-[state=active]:text-white">
               <MessageSquare className="h-4 w-4" />
               SMS
             </TabsTrigger>
           )}
           {(departmentType === "all" || departmentType === "voice") && (
-            <TabsTrigger value="voice" className="gap-2 text-zinc-300 data-[state=active]:bg-zinc-700 data-[state=active]:text-white">
+            <TabsTrigger value="voice" className="gap-2 text-gray-700 dark:text-zinc-300 data-[state=active]:bg-gray-200 dark:data-[state=active]:bg-zinc-700 data-[state=active]:text-gray-900 dark:data-[state=active]:text-white">
               <Phone className="h-4 w-4" />
               Voice
             </TabsTrigger>
@@ -1210,7 +1210,7 @@ export default function ReferencesPage() {
         </TabsList>
 
         {(departmentType === "all" || departmentType === "sms") && (
-          <TabsContent value="sms" className="bg-zinc-900 p-4 rounded-md">
+          <TabsContent value="sms" className="bg-white dark:bg-zinc-900 p-4 rounded-md">
             <div className="flex justify-end mb-4">
               <Button onClick={() => handleOpenDialog("sms")} className="gap-2">
                 <Plus className="h-4 w-4" />
@@ -1219,13 +1219,13 @@ export default function ReferencesPage() {
             </div>
             
             {filterLists(smsLists).length === 0 ? (
-              <Card className="bg-zinc-900 border-zinc-800">
+              <Card className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-800">
                 <CardContent className="flex flex-col items-center justify-center py-12">
                   <MessageSquare className="h-12 w-12 text-zinc-600 mb-4" />
-                  <p className="text-zinc-400">No SMS reference lists yet</p>
+                  <p className="text-gray-500 dark:text-zinc-400">No SMS reference lists yet</p>
                   <Button 
                     variant="outline" 
-                    className="mt-4 text-white border-zinc-600 hover:bg-zinc-800"
+                    className="mt-4 text-gray-900 dark:text-white border-gray-300 dark:border-zinc-600 hover:bg-gray-100 dark:hover:bg-zinc-800"
                     onClick={() => handleOpenDialog("sms")}
                   >
                     Create your first SMS reference list
@@ -1237,16 +1237,16 @@ export default function ReferencesPage() {
                 {filterLists(smsLists).map((list) => (
                   <Card 
                     key={list.id || list._id} 
-                    className="bg-zinc-900 border-zinc-800 cursor-pointer hover:border-zinc-600"
+                    className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-800 cursor-pointer hover:border-gray-300 dark:hover:border-zinc-600"
                     onClick={() => handleViewList(list, "sms")}
                   >
                     <CardHeader className="pb-3">
                       <div className="flex items-start justify-between">
                         <div>
-                          <CardTitle className="text-lg text-white">{list.name}</CardTitle>
+                          <CardTitle className="text-lg text-gray-900 dark:text-white">{list.name}</CardTitle>
                           <CardDescription className="mt-1">
-                            <Badge variant="outline" className="mr-2 bg-zinc-800 text-zinc-300 border-zinc-600">{list.destination}</Badge>
-                            <Badge variant="secondary" className="bg-zinc-700 text-zinc-300">{list.traffic_type}</Badge>
+                            <Badge variant="outline" className="mr-2 bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-zinc-300 border-gray-300 dark:border-zinc-600">{list.destination}</Badge>
+                            <Badge variant="secondary" className="bg-gray-200 dark:bg-zinc-700 text-gray-700 dark:text-zinc-300">{list.traffic_type}</Badge>
                             {list.vendor_entries?.length > 0 && (
                               <span className="ml-2 text-xs text-zinc-500">
                                 ({list.vendor_entries.length} vendor{list.vendor_entries.length !== 1 ? 's' : ''})
@@ -1260,7 +1260,7 @@ export default function ReferencesPage() {
                             size="icon"
                             onClick={() => handleOpenDialog("sms", list)}
                           >
-                            <Edit className="h-4 w-4 text-white" />
+                            <Edit className="h-4 w-4 text-gray-900 dark:text-white" />
                           </Button>
                           <Button
                             variant="ghost"
@@ -1280,7 +1280,7 @@ export default function ReferencesPage() {
         )}
 
         {(departmentType === "all" || departmentType === "voice") && (
-          <TabsContent value="voice" className="bg-zinc-900 p-4 rounded-md">
+          <TabsContent value="voice" className="bg-white dark:bg-zinc-900 p-4 rounded-md">
             <div className="flex justify-end mb-4">
               <Button onClick={() => handleOpenDialog("voice")} className="gap-2">
                 <Plus className="h-4 w-4" />
@@ -1289,13 +1289,13 @@ export default function ReferencesPage() {
             </div>
             
             {filterLists(voiceLists).length === 0 ? (
-              <Card className="bg-zinc-900 border-zinc-800">
+              <Card className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-800">
                 <CardContent className="flex flex-col items-center justify-center py-12">
                   <Phone className="h-12 w-12 text-zinc-600 mb-4" />
-                  <p className="text-zinc-400">No Voice reference lists yet</p>
+                  <p className="text-gray-500 dark:text-zinc-400">No Voice reference lists yet</p>
                   <Button 
                     variant="outline" 
-                    className="mt-4 text-white border-zinc-600 hover:bg-zinc-800"
+                    className="mt-4 text-gray-900 dark:text-white border-gray-300 dark:border-zinc-600 hover:bg-gray-100 dark:hover:bg-zinc-800"
                     onClick={() => handleOpenDialog("voice")}
                   >
                     Create your first Voice reference list
@@ -1307,16 +1307,16 @@ export default function ReferencesPage() {
                 {filterLists(voiceLists).map((list) => (
                   <Card 
                     key={list.id || list._id} 
-                    className="bg-zinc-900 border-zinc-800 cursor-pointer hover:border-zinc-600"
+                    className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-800 cursor-pointer hover:border-gray-300 dark:hover:border-zinc-600"
                     onClick={() => handleViewList(list, "voice")}
                   >
                     <CardHeader className="pb-3">
                       <div className="flex items-start justify-between">
                         <div>
-                          <CardTitle className="text-lg text-white">{list.name}</CardTitle>
+                          <CardTitle className="text-lg text-gray-900 dark:text-white">{list.name}</CardTitle>
                           <CardDescription className="mt-1">
-                            <Badge variant="outline" className="mr-2 bg-zinc-800 text-zinc-300 border-zinc-600">{list.destination}</Badge>
-                            <Badge variant="secondary" className="bg-zinc-700 text-zinc-300">{list.traffic_type}</Badge>
+                            <Badge variant="outline" className="mr-2 bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-zinc-300 border-gray-300 dark:border-zinc-600">{list.destination}</Badge>
+                            <Badge variant="secondary" className="bg-gray-200 dark:bg-zinc-700 text-gray-700 dark:text-zinc-300">{list.traffic_type}</Badge>
                             {list.vendor_entries?.length > 0 && (
                               <span className="ml-2 text-xs text-zinc-500">
                                 ({list.vendor_entries.length} vendor{list.vendor_entries.length !== 1 ? 's' : ''})
@@ -1330,7 +1330,7 @@ export default function ReferencesPage() {
                             size="icon"
                             onClick={() => handleOpenDialog("voice", list)}
                           >
-                            <Edit className="h-4 w-4 text-white" />
+                            <Edit className="h-4 w-4 text-gray-900 dark:text-white" />
                           </Button>
                           <Button
                             variant="ghost"
@@ -1355,10 +1355,10 @@ export default function ReferencesPage() {
       {/* Alerts Tab Content */}
       {mainTab === "alerts" && (
         <>
-        <Tabs defaultValue={activeSection} onValueChange={setActiveSection} className="bg-zinc-900">
-          <TabsList className="mb-4 bg-zinc-800">
+        <Tabs defaultValue={activeSection} onValueChange={setActiveSection} className="bg-white dark:bg-zinc-900">
+          <TabsList className="mb-4 bg-gray-100 dark:bg-zinc-800">
             {(departmentType === "all" || departmentType === "sms") && (
-              <TabsTrigger value="sms" className="gap-2 text-zinc-300 data-[state=active]:bg-zinc-700 data-[state=active]:text-white">
+              <TabsTrigger value="sms" className="gap-2 text-gray-700 dark:text-zinc-300 data-[state=active]:bg-gray-200 dark:data-[state=active]:bg-zinc-700 data-[state=active]:text-gray-900 dark:data-[state=active]:text-white">
                 <MessageSquare className="h-4 w-4" />
                 SMS Alerts
                 {unresolvedSmsAlerts.length > 0 && (
@@ -1367,7 +1367,7 @@ export default function ReferencesPage() {
               </TabsTrigger>
             )}
             {(departmentType === "all" || departmentType === "voice") && (
-              <TabsTrigger value="voice" className="gap-2 text-zinc-300 data-[state=active]:bg-zinc-700 data-[state=active]:text-white">
+              <TabsTrigger value="voice" className="gap-2 text-gray-700 dark:text-zinc-300 data-[state=active]:bg-gray-200 dark:data-[state=active]:bg-zinc-700 data-[state=active]:text-gray-900 dark:data-[state=active]:text-white">
                 <Phone className="h-4 w-4" />
                 Voice Alerts
                 {unresolvedVoiceAlerts.length > 0 && (
@@ -1378,13 +1378,13 @@ export default function ReferencesPage() {
           </TabsList>
           
           {(departmentType === "all" || departmentType === "sms") && (
-            <TabsContent value="sms" className="bg-zinc-900 p-4 rounded-md">
+            <TabsContent value="sms" className="bg-white dark:bg-zinc-900 p-4 rounded-md">
               {renderAlertsTab("sms")}
             </TabsContent>
           )}
           
           {(departmentType === "all" || departmentType === "voice") && (
-            <TabsContent value="voice" className="bg-zinc-900 p-4 rounded-md">
+            <TabsContent value="voice" className="bg-white dark:bg-zinc-900 p-4 rounded-md">
               {renderAlertsTab("voice")}
             </TabsContent>
           )}
@@ -1393,9 +1393,9 @@ export default function ReferencesPage() {
 
       {/* View Panel Sidebar */}
       {selectedListForView && (
-        <div className="fixed inset-y-0 right-0 w-[600px] max-w-[90vw] bg-zinc-900 border-l border-zinc-800 p-4 overflow-y-auto shadow-lg z-50">
+        <div className="fixed inset-y-0 right-0 w-[600px] max-w-[90vw] bg-white dark:bg-zinc-900 border-l border-gray-200 dark:border-zinc-800 p-4 overflow-y-auto shadow-lg z-50">
           <div className="flex justify-between items-center mb-6">
-            <h3 className="text-lg font-semibold text-white">Reference List Details</h3>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Reference List Details</h3>
             <Button variant="ghost" size="icon" onClick={() => setSelectedListForView(null)}>
               <X className="h-4 w-4" />
             </Button>
@@ -1403,20 +1403,20 @@ export default function ReferencesPage() {
           
           <div className="space-y-6">
             {/* Basic Info */}
-            <div className="bg-zinc-800 rounded-lg p-4">
-              <h4 className="text-sm font-medium text-zinc-400 mb-3">Basic Information</h4>
+            <div className="bg-gray-100 dark:bg-zinc-800 rounded-lg p-4">
+              <h4 className="text-sm font-medium text-gray-500 dark:text-zinc-400 mb-3">Basic Information</h4>
               <div className="space-y-3">
                 <div>
                   <span className="text-xs text-zinc-500">List Name</span>
-                  <p className="text-white font-medium">{selectedListForView.name}</p>
+                  <p className="text-gray-900 dark:text-white font-medium">{selectedListForView.name}</p>
                 </div>
                 <div>
                   <span className="text-xs text-zinc-500">Destination</span>
-                  <p className="text-white">{selectedListForView.destination}</p>
+                  <p className="text-gray-900 dark:text-white">{selectedListForView.destination}</p>
                 </div>
                 <div>
                   <span className="text-xs text-zinc-500">Traffic Type</span>
-                  <Badge variant="secondary" className="bg-zinc-700 text-zinc-300 mt-1">
+                  <Badge variant="secondary" className="bg-gray-200 dark:bg-zinc-700 text-gray-700 dark:text-zinc-300 mt-1">
                     {selectedListForView.traffic_type}
                   </Badge>
                 </div>
@@ -1424,28 +1424,28 @@ export default function ReferencesPage() {
             </div>
 
             {/* Vendor Entries */}
-            <div className="bg-zinc-800 rounded-lg p-4">
-              <h4 className="text-sm font-medium text-zinc-400 mb-3">
+            <div className="bg-gray-100 dark:bg-zinc-800 rounded-lg p-4">
+              <h4 className="text-sm font-medium text-gray-500 dark:text-zinc-400 mb-3">
                 Vendor Entries ({selectedListForView.vendor_entries?.length || 0})
               </h4>
               {(selectedListForView.vendor_entries && selectedListForView.vendor_entries.length > 0) ? (
                 <div className="space-y-3 max-h-[400px] overflow-y-auto">
                   {selectedListForView.vendor_entries.map((vendor, idx) => (
-                    <div key={idx} className="border border-zinc-600 rounded-md p-3 bg-zinc-700/30">
+                    <div key={idx} className="border border-gray-300 dark:border-zinc-600 rounded-md p-3 bg-gray-200/30 dark:bg-zinc-700/30">
                       <div className="flex items-center gap-2 mb-2">
-                        <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-zinc-600 text-xs font-medium text-white">
+                        <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-gray-300 dark:bg-zinc-600 text-xs font-medium text-gray-900 dark:text-white">
                           {idx + 1}
                         </span>
-                        <span className="text-sm font-medium text-white truncate" title={vendor.trunk}>{vendor.trunk}</span>
+                        <span className="text-sm font-medium text-gray-900 dark:text-white truncate" title={vendor.trunk}>{vendor.trunk}</span>
                       </div>
                       <div className="grid grid-cols-2 gap-2 text-sm">
                         <div>
                           <span className="text-zinc-500">Cost:</span>
-                          <span className="text-white ml-1">{vendor.cost || '-'}</span>
+                          <span className="text-gray-900 dark:text-white ml-1">{vendor.cost || '-'}</span>
                         </div>
                         <div className="col-span-2">
                           <span className="text-zinc-500">Notes:</span>
-                          <span className="text-white ml-1 break-words" title={vendor.notes}>{vendor.notes || '-'}</span>
+                          <span className="text-gray-900 dark:text-white ml-1 break-words" title={vendor.notes}>{vendor.notes || '-'}</span>
                         </div>
                       </div>
                     </div>
@@ -1483,12 +1483,12 @@ export default function ReferencesPage() {
 
       {/* Create/Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen} onInteractOutside={(e) => e.preventDefault()}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto bg-zinc-950 border-zinc-800 text-white">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto bg-gray-50 dark:bg-zinc-950 border-gray-200 dark:border-zinc-800 text-gray-900 dark:text-white">
           <DialogHeader>
-            <DialogTitle className="text-white">
+            <DialogTitle className="text-gray-900 dark:text-white">
               {editingList ? "Edit Reference List" : "Create Reference List"}
             </DialogTitle>
-            <DialogDescription className="text-zinc-400">
+            <DialogDescription className="text-gray-500 dark:text-zinc-400">
               {activeSection === "sms" ? "SMS" : "Voice"} reference list for backup vendors
             </DialogDescription>
           </DialogHeader>
@@ -1497,27 +1497,27 @@ export default function ReferencesPage() {
             {/* Basic Info */}
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="name" className="text-white">List Name *</Label>
+                <Label htmlFor="name" className="text-gray-900 dark:text-white">List Name *</Label>
                 <Input
                   id="name"
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                   placeholder="e.g., Backup Vendors USA OTP"
-                  className="bg-zinc-800 border-zinc-700 text-white placeholder:text-zinc-500"
+                  className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white placeholder:text-zinc-500"
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="traffic_type" className="text-white">Traffic Type *</Label>
+                <Label htmlFor="traffic_type" className="text-gray-900 dark:text-white">Traffic Type *</Label>
                 <Select
                   value={formData.traffic_type}
                   onValueChange={(value) => setFormData({ ...formData, traffic_type: value })}
                 >
-                  <SelectTrigger className="bg-zinc-800 border-zinc-700 text-white">
-                    <SelectValue placeholder="Select traffic type" className="text-zinc-400" />
+                  <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white">
+                    <SelectValue placeholder="Select traffic type" className="text-gray-500 dark:text-zinc-400" />
                   </SelectTrigger>
-                  <SelectContent className="bg-zinc-800 border-zinc-700">
+                  <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
                     {getTrafficTypes(activeSection).map((type) => (
-                      <SelectItem key={type} value={type} className="text-white focus:bg-zinc-700 focus:text-white">{type}</SelectItem>
+                      <SelectItem key={type} value={type} className="text-gray-900 dark:text-white focus:bg-gray-200 dark:focus:bg-zinc-700 focus:text-gray-900 dark:focus:text-white">{type}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -1526,37 +1526,37 @@ export default function ReferencesPage() {
                     value={formData.custom_traffic_type || ""}
                     onChange={(e) => setFormData({ ...formData, custom_traffic_type: e.target.value })}
                     placeholder="Enter custom traffic type"
-                    className="bg-zinc-800 border-zinc-700 text-white placeholder:text-zinc-500 mt-2"
+                    className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white placeholder:text-zinc-500 mt-2"
                   />
                 )}
               </div>
             </div>
             
             <div className="space-y-2">
-              <Label htmlFor="destination" className="text-white">Destination *</Label>
+              <Label htmlFor="destination" className="text-gray-900 dark:text-white">Destination *</Label>
               <Input
                 id="destination"
                 value={formData.destination}
                 onChange={(e) => setFormData({ ...formData, destination: e.target.value })}
                 placeholder="Country - Network (e.g., USA - Verizon, UK - Vodafone)"
-                className="bg-zinc-800 border-zinc-700 text-white placeholder:text-zinc-500"
+                className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white placeholder:text-zinc-500"
               />
             </div>
 
             {/* Vendor Selection */}
             <div className="space-y-2">
-              <Label className="text-white">Select Vendor Trunks *</Label>
+              <Label className="text-gray-900 dark:text-white">Select Vendor Trunks *</Label>
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-zinc-500" />
                 <Input
                   placeholder="Search vendor trunks..."
                   value={vendorSearchQuery}
                   onChange={(e) => setVendorSearchQuery(e.target.value)}
-                  className="pl-10 bg-zinc-800 border-zinc-700 text-white placeholder:text-zinc-500"
+                  className="pl-10 bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white placeholder:text-zinc-500"
                 />
               </div>
               
-              <div className="border border-zinc-700 rounded-md max-h-48 overflow-y-auto mt-2 bg-zinc-900">
+              <div className="border border-gray-200 dark:border-zinc-700 rounded-md max-h-48 overflow-y-auto mt-2 bg-white dark:bg-zinc-900">
                 {filteredVendorTrunks.length === 0 ? (
                   <div className="p-4 text-center text-zinc-500">
                     No vendor trunks available
@@ -1568,15 +1568,15 @@ export default function ReferencesPage() {
                       return (
                         <div
                           key={trunk}
-                          className="flex items-center space-x-2 p-3 hover:bg-zinc-800 cursor-pointer"
+                          className="flex items-center space-x-2 p-3 hover:bg-gray-100 dark:hover:bg-zinc-800 cursor-pointer"
                           onClick={() => handleVendorToggle(trunk)}
                         >
                           <Checkbox
                             checked={isSelected}
                             onCheckedChange={() => {}}
-                            className="border-zinc-600"
+                            className="border-gray-300 dark:border-zinc-600"
                           />
-                          <span className="text-sm text-white">{trunk}</span>
+                          <span className="text-sm text-gray-900 dark:text-white">{trunk}</span>
                         </div>
                       );
                     })}
@@ -1584,7 +1584,7 @@ export default function ReferencesPage() {
                 )}
               </div>
               {formData.vendor_entries.length > 0 && (
-                <p className="text-xs text-zinc-400">
+                <p className="text-xs text-gray-500 dark:text-zinc-400">
                   {formData.vendor_entries.length} vendor(s) selected
                 </p>
               )}
@@ -1593,13 +1593,13 @@ export default function ReferencesPage() {
             {/* Selected Vendors with Cost and Custom Field */}
             {formData.vendor_entries.length > 0 && (
               <div className="space-y-2">
-                <Label className="text-white">Vendor Details</Label>
-                <div className="border border-zinc-700 rounded-md divide-y divide-zinc-800 bg-zinc-900">
+                <Label className="text-gray-900 dark:text-white">Vendor Details</Label>
+                <div className="border border-gray-200 dark:border-zinc-700 rounded-md divide-y divide-zinc-800 bg-white dark:bg-zinc-900">
                   {formData.vendor_entries.map((vendor, idx) => (
-                    <div key={idx} className="p-3 bg-zinc-800/50">
+                    <div key={idx} className="p-3 bg-gray-100/50 dark:bg-zinc-800/50">
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium text-white">{vendor.trunk}</span>
+                          <span className="text-sm font-medium text-gray-900 dark:text-white">{vendor.trunk}</span>
                           {formData.vendor_entries.length > 1 && (
                             <span className="text-xs text-zinc-500">#{idx + 1}</span>
                           )}
@@ -1610,7 +1610,7 @@ export default function ReferencesPage() {
                             size="sm"
                             onClick={() => moveVendorUp(idx)}
                             disabled={idx === 0}
-                            className="text-zinc-400 hover:text-white h-6 px-2 disabled:opacity-30"
+                            className="text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white h-6 px-2 disabled:opacity-30"
                             title="Move up"
                           >
                             <ArrowUp className="h-3 w-3" />
@@ -1620,7 +1620,7 @@ export default function ReferencesPage() {
                             size="sm"
                             onClick={() => moveVendorDown(idx)}
                             disabled={idx === formData.vendor_entries.length - 1}
-                            className="text-zinc-400 hover:text-white h-6 px-2 disabled:opacity-30"
+                            className="text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white h-6 px-2 disabled:opacity-30"
                             title="Move down"
                           >
                             <ArrowDown className="h-3 w-3" />
@@ -1637,21 +1637,21 @@ export default function ReferencesPage() {
                       </div>
                       <div className="grid grid-cols-2 gap-2">
                         <div>
-                          <Label className="text-xs text-zinc-400">Cost</Label>
+                          <Label className="text-xs text-gray-500 dark:text-zinc-400">Cost</Label>
                           <Input
                             value={vendor.cost || ""}
                             onChange={(e) => handleVendorFieldChange(vendor.trunk, "cost", e.target.value)}
                             placeholder="e.g., 0.005"
-                            className="bg-zinc-700 border-zinc-600 text-white placeholder:text-zinc-500 h-8 text-sm"
+                            className="bg-gray-200 dark:bg-zinc-700 border-gray-300 dark:border-zinc-600 text-gray-900 dark:text-white placeholder:text-zinc-500 h-8 text-sm"
                           />
                         </div>
                         <div>
-                          <Label className="text-xs text-zinc-400">Note</Label>
+                          <Label className="text-xs text-gray-500 dark:text-zinc-400">Note</Label>
                           <Input
                             value={vendor.notes || ""}
                             onChange={(e) => handleVendorFieldChange(vendor.trunk, "notes", e.target.value)}
                             placeholder="Notes..."
-                            className="bg-zinc-700 border-zinc-600 text-white placeholder:text-zinc-500 h-8 text-sm"
+                            className="bg-gray-200 dark:bg-zinc-700 border-gray-300 dark:border-zinc-600 text-gray-900 dark:text-white placeholder:text-zinc-500 h-8 text-sm"
                           />
                         </div>
                       </div>
@@ -1663,10 +1663,10 @@ export default function ReferencesPage() {
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setDialogOpen(false); setVendorSearchQuery(""); }} className="bg-zinc-800 border-zinc-700 text-white hover:bg-zinc-700">
+            <Button variant="outline" onClick={() => { setDialogOpen(false); setVendorSearchQuery(""); }} className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white hover:bg-gray-200 dark:hover:bg-zinc-700">
               Cancel
             </Button>
-            <Button onClick={handleSave} className="bg-emerald-600 hover:bg-emerald-700 text-white">
+            <Button onClick={handleSave} className="bg-emerald-600 hover:bg-emerald-700 text-gray-900 dark:text-white">
               {editingList ? "Update" : "Create"}
             </Button>
           </DialogFooter>
@@ -1675,16 +1675,16 @@ export default function ReferencesPage() {
       
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <AlertDialogContent className="bg-zinc-950 border-zinc-800 text-white max-w-md">
+        <AlertDialogContent className="bg-gray-50 dark:bg-zinc-950 border-gray-200 dark:border-zinc-800 text-gray-900 dark:text-white max-w-md">
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Reference List</AlertDialogTitle>
-            <AlertDialogDescription className="text-zinc-400">
+            <AlertDialogDescription className="text-gray-500 dark:text-zinc-400">
               Are you sure you want to delete "{listToDelete?.name}"? This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel className="bg-zinc-800 text-white hover:bg-zinc-700">Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmDelete} className="bg-red-600 text-white hover:bg-red-700">
+            <AlertDialogCancel className="bg-gray-100 dark:bg-zinc-800 text-gray-900 dark:text-white hover:bg-gray-200 dark:hover:bg-zinc-700">Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete} className="bg-red-600 text-gray-900 dark:text-white hover:bg-red-700">
               Delete
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -1693,16 +1693,16 @@ export default function ReferencesPage() {
       
       {/* Resolve Alert Confirmation Dialog */}
       <AlertDialog open={!!alertToResolve} onOpenChange={() => setAlertToResolve(null)}>
-        <AlertDialogContent className="bg-zinc-950 border-zinc-800 text-white max-w-md">
+        <AlertDialogContent className="bg-gray-50 dark:bg-zinc-950 border-gray-200 dark:border-zinc-800 text-gray-900 dark:text-white max-w-md">
           <AlertDialogHeader>
             <AlertDialogTitle>Resolve Alert</AlertDialogTitle>
-            <AlertDialogDescription className="text-zinc-400">
+            <AlertDialogDescription className="text-gray-500 dark:text-zinc-400">
               Are you sure you want to resolve this alert? It will be archived.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel className="bg-zinc-800 text-white hover:bg-zinc-700">Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleResolveAlert} className="bg-emerald-600 text-white hover:bg-emerald-700">
+            <AlertDialogCancel className="bg-gray-100 dark:bg-zinc-800 text-gray-900 dark:text-white hover:bg-gray-200 dark:hover:bg-zinc-700">Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleResolveAlert} className="bg-emerald-600 text-gray-900 dark:text-white hover:bg-emerald-700">
               Resolve
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -1711,16 +1711,16 @@ export default function ReferencesPage() {
       
       {/* Delete Alert Confirmation Dialog */}
       <AlertDialog open={!!alertToDelete} onOpenChange={() => setAlertToDelete(null)}>
-        <AlertDialogContent className="bg-zinc-950 border-zinc-800 text-white max-w-md">
+        <AlertDialogContent className="bg-gray-50 dark:bg-zinc-950 border-gray-200 dark:border-zinc-800 text-gray-900 dark:text-white max-w-md">
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Alert</AlertDialogTitle>
-            <AlertDialogDescription className="text-zinc-400">
+            <AlertDialogDescription className="text-gray-500 dark:text-zinc-400">
               Are you sure you want to delete this alert? This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel className="bg-zinc-800 text-white hover:bg-zinc-700">Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDeleteAlert} className="bg-red-600 text-white hover:bg-red-700">
+            <AlertDialogCancel className="bg-gray-100 dark:bg-zinc-800 text-gray-900 dark:text-white hover:bg-gray-200 dark:hover:bg-zinc-700">Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteAlert} className="bg-red-600 text-gray-900 dark:text-white hover:bg-red-700">
               Delete
             </AlertDialogAction>
           </AlertDialogFooter>

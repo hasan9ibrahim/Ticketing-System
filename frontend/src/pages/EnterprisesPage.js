@@ -334,31 +334,31 @@ export default function EnterprisesPage() {
 
   const renderEnterpriseTable = (enterprisesList, title, emptyMessage) => (
     <div className="space-y-4">
-      <h2 className="text-2xl font-bold text-white">{title}</h2>
-      <div className="bg-zinc-900/50 border border-white/10 rounded-lg overflow-hidden">
+      <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{title}</h2>
+      <div className="bg-white/50 dark:bg-zinc-900/50 border border-black/10 dark:border-white/10 rounded-lg overflow-hidden">
         <Table>
           <TableHeader>
-            <TableRow className="border-white/5 hover:bg-transparent">
-              <TableHead className="text-zinc-400">Enterprise Name</TableHead>
-              <TableHead className="text-zinc-400">Tier</TableHead>
-              <TableHead className="text-zinc-400">Contact Person</TableHead>
-              <TableHead className="text-zinc-400">Email</TableHead>
-              <TableHead className="text-zinc-400">Phone</TableHead>
-              <TableHead className="text-zinc-400">Assigned AM</TableHead>
-              <TableHead className="text-zinc-400">Actions</TableHead>
+            <TableRow className="border-black/5 dark:border-white/5 hover:bg-transparent">
+              <TableHead className="text-gray-500 dark:text-zinc-400">Enterprise Name</TableHead>
+              <TableHead className="text-gray-500 dark:text-zinc-400">Tier</TableHead>
+              <TableHead className="text-gray-500 dark:text-zinc-400">Contact Person</TableHead>
+              <TableHead className="text-gray-500 dark:text-zinc-400">Email</TableHead>
+              <TableHead className="text-gray-500 dark:text-zinc-400">Phone</TableHead>
+              <TableHead className="text-gray-500 dark:text-zinc-400">Assigned AM</TableHead>
+              <TableHead className="text-gray-500 dark:text-zinc-400">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {enterprisesList.length > 0 ? enterprisesList.map((ent) => {
               const assignedAM = users.find((u) => u.id === ent.assigned_am_id);
               return (
-                <TableRow key={ent.id} className="border-white/5 hover:bg-zinc-800/50" data-testid="enterprise-row">
-                  <TableCell className="text-white font-medium">{ent.name}</TableCell>
-                  <TableCell className="text-zinc-300">{ent.tier || "-"}</TableCell>
-                  <TableCell className="text-zinc-300">{ent.contact_person || "-"}</TableCell>
-                  <TableCell className="text-zinc-300">{ent.contact_email || "-"}</TableCell>
-                  <TableCell className="text-zinc-300">{ent.contact_phone || "-"}</TableCell>
-                  <TableCell className="text-zinc-300">{assignedAM?.username || "Unassigned"}</TableCell>
+                <TableRow key={ent.id} className="border-black/5 dark:border-white/5 hover:bg-gray-100/50 dark:hover:bg-zinc-800/50" data-testid="enterprise-row">
+                  <TableCell className="text-gray-900 dark:text-white font-medium">{ent.name}</TableCell>
+                  <TableCell className="text-gray-700 dark:text-zinc-300">{ent.tier || "-"}</TableCell>
+                  <TableCell className="text-gray-700 dark:text-zinc-300">{ent.contact_person || "-"}</TableCell>
+                  <TableCell className="text-gray-700 dark:text-zinc-300">{ent.contact_email || "-"}</TableCell>
+                  <TableCell className="text-gray-700 dark:text-zinc-300">{ent.contact_phone || "-"}</TableCell>
+                  <TableCell className="text-gray-700 dark:text-zinc-300">{assignedAM?.username || "Unassigned"}</TableCell>
                   <TableCell>
                     <div className="flex space-x-2">
                       <Button size="sm" variant="ghost" onClick={() => openEditSheet(ent)} className="text-emerald-500 hover:text-emerald-400 hover:bg-emerald-500/10">Edit</Button>
@@ -376,26 +376,26 @@ export default function EnterprisesPage() {
 
   const renderTrunksTable = (trunks, onRemove, title, newValue, setNewValue, onAdd) => (
     <div className="space-y-2">
-      <Label className="text-zinc-300">{title}</Label>
+      <Label className="text-gray-700 dark:text-zinc-300">{title}</Label>
       <div className="flex space-x-2">
         <Input 
           value={newValue} 
           onChange={(e) => setNewValue(e.target.value)} 
           onKeyPress={(e) => e.key === 'Enter' && onAdd()}
           placeholder={`Add ${title.toLowerCase().replace(' ', '')}`}
-          className="bg-zinc-800 border-zinc-700 text-white" 
+          className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white" 
         />
         <Button type="button" onClick={onAdd} size="sm" className="bg-emerald-500 text-black hover:bg-emerald-400">
           <Plus className="h-4 w-4" />
         </Button>
       </div>
       {trunks.length > 0 ? (
-        <div className="bg-zinc-800/50 border border-zinc-700 rounded-md max-h-40 overflow-y-auto">
+        <div className="bg-gray-100/50 dark:bg-zinc-800/50 border border-gray-200 dark:border-zinc-700 rounded-md max-h-40 overflow-y-auto">
           <Table>
             <TableBody>
               {trunks.map((trunk, index) => (
-                <TableRow key={index} className="border-zinc-700">
-                  <TableCell className="text-white">{trunk}</TableCell>
+                <TableRow key={index} className="border-gray-200 dark:border-zinc-700">
+                  <TableCell className="text-gray-900 dark:text-white">{trunk}</TableCell>
                   <TableCell className="text-right">
                     <Button size="sm" variant="ghost" onClick={() => onRemove(index)} className="text-red-500 hover:text-red-400 h-6 w-6 p-0">
                       <X className="h-4 w-4" />
@@ -417,14 +417,14 @@ export default function EnterprisesPage() {
   return (
     <div className="p-6 lg:p-8 space-y-6 max-w-[1920px] mx-auto" data-testid="enterprises-page">
       <div className="flex items-center justify-between">
-        <div><h1 className="text-4xl font-bold text-white">Enterprises</h1><p className="text-zinc-400 mt-1">Manage enterprise accounts and assignments</p></div>
+        <div><h1 className="text-4xl font-bold text-gray-900 dark:text-white">Enterprises</h1><p className="text-gray-500 dark:text-zinc-400 mt-1">Manage enterprise accounts and assignments</p></div>
         <div className="flex gap-2">
           {canCreate && (
             <>
-              <Button onClick={downloadTemplate} variant="outline" className="border-zinc-700 text-white hover:bg-zinc-800">
+              <Button onClick={downloadTemplate} variant="outline" className="border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-zinc-800">
                 <FileDown className="h-4 w-4 mr-2" />Template
               </Button>
-              <Button onClick={() => setImportDialogOpen(true)} variant="outline" className="border-zinc-700 text-white hover:bg-zinc-800">
+              <Button onClick={() => setImportDialogOpen(true)} variant="outline" className="border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-zinc-800">
                 <FileUp className="h-4 w-4 mr-2" />Import
               </Button>
               <Button onClick={openCreateSheet} data-testid="create-enterprise-button" className="bg-emerald-500 text-black hover:bg-emerald-400 h-9"><Plus className="h-4 w-4 mr-2" />New Enterprise</Button>
@@ -440,7 +440,7 @@ export default function EnterprisesPage() {
       <div className="flex gap-4 items-start">
         <div className="flex-1 relative">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-zinc-500" />
-          <Input placeholder="Search enterprises..." data-testid="search-enterprises-input" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-10 bg-zinc-900 border-zinc-700 text-white placeholder:text-zinc-500" />
+          <Input placeholder="Search enterprises..." data-testid="search-enterprises-input" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-10 bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white placeholder:text-zinc-500" />
         </div>
         <div className="w-[300px]">
           <MultiFilter
@@ -460,18 +460,18 @@ export default function EnterprisesPage() {
       {renderEnterpriseTable(voiceEnterprises, "Voice Enterprises", "No Voice enterprises found")}
 
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-        <SheetContent className="bg-zinc-900 border-white/10 text-white sm:max-w-2xl overflow-y-auto" data-testid="enterprise-sheet">
-          <SheetHeader><SheetTitle className="text-white">{editingEnterprise ? "Edit Enterprise" : "Create Enterprise"}</SheetTitle></SheetHeader>
+        <SheetContent className="bg-white dark:bg-zinc-900 border-black/10 dark:border-white/10 text-gray-900 dark:text-white sm:max-w-2xl overflow-y-auto" data-testid="enterprise-sheet">
+          <SheetHeader><SheetTitle className="text-gray-900 dark:text-white">{editingEnterprise ? "Edit Enterprise" : "Create Enterprise"}</SheetTitle></SheetHeader>
           <form onSubmit={handleSubmit} className="space-y-4 mt-6">
-            <div className="space-y-2"><Label>Enterprise Name *</Label><Input value={formData.name || ""} onChange={(e) => setFormData({ ...formData, name: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" data-testid="enterprise-name-input" required /></div>
-            <div className="space-y-2"><Label>SMS/Voice *</Label><Select value={formData.enterprise_type || ""} onValueChange={(value) => setFormData({ ...formData, enterprise_type: value })} required><SelectTrigger className="bg-zinc-800 border-zinc-700" data-testid="enterprise-type-select"><SelectValue placeholder="Select type" /></SelectTrigger><SelectContent className="bg-zinc-800 border-zinc-700"><SelectItem value="sms">SMS</SelectItem><SelectItem value="voice">Voice</SelectItem></SelectContent></Select></div>
-            <div className="space-y-2"><Label>Tier</Label><Select value={formData.tier} onValueChange={(value) => setFormData({ ...formData, tier: value })}><SelectTrigger className="bg-zinc-800 border-zinc-700" data-testid="tier-select"><SelectValue placeholder="Select tier" /></SelectTrigger><SelectContent className="bg-zinc-800 border-zinc-700"><SelectItem value="Tier 1">Tier 1</SelectItem><SelectItem value="Tier 2">Tier 2</SelectItem><SelectItem value="Tier 3">Tier 3</SelectItem><SelectItem value="Tier 4">Tier 4</SelectItem></SelectContent></Select></div>
-            <div className="space-y-2"><Label>Contact Person</Label><Input value={formData.contact_person || ""} onChange={(e) => setFormData({ ...formData, contact_person: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" /></div>
-            <div className="space-y-2"><Label>Contact Email</Label><Input type="email" value={formData.contact_email || ""} onChange={(e) => setFormData({ ...formData, contact_email: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" /></div>
-            <div className="space-y-2"><Label>Contact Phone</Label><Input value={formData.contact_phone || ""} onChange={(e) => setFormData({ ...formData, contact_phone: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" /></div>
-            <div className="space-y-2"><Label>Assigned Account Manager</Label><Select value={formData.assigned_am_id} onValueChange={(value) => setFormData({ ...formData, assigned_am_id: value })}><SelectTrigger className="bg-zinc-800 border-zinc-700" data-testid="assigned-am-select"><SelectValue placeholder="Select AM" /></SelectTrigger><SelectContent className="bg-zinc-800 border-zinc-700">{users.map((user) => <SelectItem key={user.id} value={user.id}>{user.username}</SelectItem>)}</SelectContent></Select></div>
-            <div className="space-y-2"><Label>NOC Emails</Label><Textarea value={formData.noc_emails || ""} onChange={(e) => setFormData({ ...formData, noc_emails: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" placeholder="email1@example.com, email2@example.com" /></div>
-            <div className="space-y-2"><Label>Notes</Label><Textarea value={formData.notes || ""} onChange={(e) => setFormData({ ...formData, notes: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" /></div>
+            <div className="space-y-2"><Label>Enterprise Name *</Label><Input value={formData.name || ""} onChange={(e) => setFormData({ ...formData, name: e.target.value })} className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white" data-testid="enterprise-name-input" required /></div>
+            <div className="space-y-2"><Label>SMS/Voice *</Label><Select value={formData.enterprise_type || ""} onValueChange={(value) => setFormData({ ...formData, enterprise_type: value })} required><SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700" data-testid="enterprise-type-select"><SelectValue placeholder="Select type" /></SelectTrigger><SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700"><SelectItem value="sms">SMS</SelectItem><SelectItem value="voice">Voice</SelectItem></SelectContent></Select></div>
+            <div className="space-y-2"><Label>Tier</Label><Select value={formData.tier} onValueChange={(value) => setFormData({ ...formData, tier: value })}><SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700" data-testid="tier-select"><SelectValue placeholder="Select tier" /></SelectTrigger><SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700"><SelectItem value="Tier 1">Tier 1</SelectItem><SelectItem value="Tier 2">Tier 2</SelectItem><SelectItem value="Tier 3">Tier 3</SelectItem><SelectItem value="Tier 4">Tier 4</SelectItem></SelectContent></Select></div>
+            <div className="space-y-2"><Label>Contact Person</Label><Input value={formData.contact_person || ""} onChange={(e) => setFormData({ ...formData, contact_person: e.target.value })} className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white" /></div>
+            <div className="space-y-2"><Label>Contact Email</Label><Input type="email" value={formData.contact_email || ""} onChange={(e) => setFormData({ ...formData, contact_email: e.target.value })} className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white" /></div>
+            <div className="space-y-2"><Label>Contact Phone</Label><Input value={formData.contact_phone || ""} onChange={(e) => setFormData({ ...formData, contact_phone: e.target.value })} className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white" /></div>
+            <div className="space-y-2"><Label>Assigned Account Manager</Label><Select value={formData.assigned_am_id} onValueChange={(value) => setFormData({ ...formData, assigned_am_id: value })}><SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700" data-testid="assigned-am-select"><SelectValue placeholder="Select AM" /></SelectTrigger><SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">{users.map((user) => <SelectItem key={user.id} value={user.id}>{user.username}</SelectItem>)}</SelectContent></Select></div>
+            <div className="space-y-2"><Label>NOC Emails</Label><Textarea value={formData.noc_emails || ""} onChange={(e) => setFormData({ ...formData, noc_emails: e.target.value })} className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white" placeholder="email1@example.com, email2@example.com" /></div>
+            <div className="space-y-2"><Label>Notes</Label><Textarea value={formData.notes || ""} onChange={(e) => setFormData({ ...formData, notes: e.target.value })} className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white" /></div>
             
             {/* Customer Trunks and Vendor Trunks in adjacent columns */}
             <div className="grid grid-cols-2 gap-4">
@@ -495,45 +495,45 @@ export default function EnterprisesPage() {
             
             <div className="flex space-x-3 pt-4">
               <Button type="submit" className="bg-emerald-500 text-black hover:bg-emerald-400" data-testid="save-enterprise-button">{editingEnterprise ? "Update Enterprise" : "Create Enterprise"}</Button>
-              <Button type="button" variant="outline" onClick={() => setSheetOpen(false)} className="border-zinc-700 text-white hover:bg-zinc-800">Cancel</Button>
+              <Button type="button" variant="outline" onClick={() => setSheetOpen(false)} className="border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-zinc-800">Cancel</Button>
             </div>
           </form>
         </SheetContent>
       </Sheet>
 
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <AlertDialogContent className="bg-zinc-900 border-white/10">
-          <AlertDialogHeader><AlertDialogTitle className="text-white">Delete Enterprise</AlertDialogTitle><AlertDialogDescription className="text-zinc-400">Are you sure you want to delete {enterpriseToDelete?.name}? This action cannot be undone.</AlertDialogDescription></AlertDialogHeader>
+        <AlertDialogContent className="bg-white dark:bg-zinc-900 border-black/10 dark:border-white/10">
+          <AlertDialogHeader><AlertDialogTitle className="text-gray-900 dark:text-white">Delete Enterprise</AlertDialogTitle><AlertDialogDescription className="text-gray-500 dark:text-zinc-400">Are you sure you want to delete {enterpriseToDelete?.name}? This action cannot be undone.</AlertDialogDescription></AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel className="border-zinc-700 text-white hover:bg-zinc-800">Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} className="bg-red-500 text-white hover:bg-red-600">Delete</AlertDialogAction>
+            <AlertDialogCancel className="border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-zinc-800">Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete} className="bg-red-500 text-gray-900 dark:text-white hover:bg-red-600">Delete</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
       <AlertDialog open={deleteAllDialogOpen} onOpenChange={setDeleteAllDialogOpen}>
-        <AlertDialogContent className="bg-zinc-900 border-white/10">
+        <AlertDialogContent className="bg-white dark:bg-zinc-900 border-black/10 dark:border-white/10">
           <AlertDialogHeader>
-            <AlertDialogTitle className="text-white">Delete All Enterprises</AlertDialogTitle>
-            <AlertDialogDescription className="text-zinc-400">
+            <AlertDialogTitle className="text-gray-900 dark:text-white">Delete All Enterprises</AlertDialogTitle>
+            <AlertDialogDescription className="text-gray-500 dark:text-zinc-400">
               Are you sure you want to delete ALL enterprises? This action cannot be undone and will remove all {enterprises.length} enterprises from the system.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel className="border-zinc-700 text-white hover:bg-zinc-800">Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDeleteAll} className="bg-red-500 text-white hover:bg-red-600">Delete All</AlertDialogAction>
+            <AlertDialogCancel className="border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-zinc-800">Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteAll} className="bg-red-500 text-gray-900 dark:text-white hover:bg-red-600">Delete All</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
       <Dialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>
-        <DialogContent className="bg-zinc-900 border-white/10 text-white sm:max-w-md">
+        <DialogContent className="bg-white dark:bg-zinc-900 border-black/10 dark:border-white/10 text-gray-900 dark:text-white sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Import Enterprises</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label className="text-zinc-300">Select CSV File</Label>
+              <Label className="text-gray-700 dark:text-zinc-300">Select CSV File</Label>
               <p className="text-sm text-zinc-500">
                 Upload a CSV file with the following columns: name, enterprise_type, tier, contact_person, contact_email, contact_phone, noc_emails, notes, customer_trunks, vendor_trunks, assigned_am.
                 Use the Template button to download a sample file.
@@ -543,11 +543,11 @@ export default function EnterprisesPage() {
                 type="file"
                 accept=".csv"
                 onChange={handleImport}
-                className="bg-zinc-800 border-zinc-700 text-white cursor-pointer"
+                className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white cursor-pointer"
               />
             </div>
             {importing && (
-              <div className="text-center text-zinc-400">Importing enterprises...</div>
+              <div className="text-center text-gray-500 dark:text-zinc-400">Importing enterprises...</div>
             )}
           </div>
         </DialogContent>

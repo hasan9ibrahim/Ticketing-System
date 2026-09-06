@@ -183,10 +183,10 @@ export default function NotificationSettingsPage() {
   const NotificationToggle = ({ id, title, description, checked, onChange }) => (
     <div className="flex items-center justify-between">
       <div className="space-y-1">
-        <Label htmlFor={id} className="text-white">
+        <Label htmlFor={id} className="text-gray-900 dark:text-white">
           {title}
         </Label>
-        <p className="text-sm text-zinc-400">
+        <p className="text-sm text-gray-500 dark:text-zinc-400">
           {description}
         </p>
       </div>
@@ -214,14 +214,14 @@ export default function NotificationSettingsPage() {
     return (
       <div className="p-6 lg:p-8 space-y-6 max-w-[1920px] mx-auto">
         <div>
-          <h1 className="text-4xl font-bold text-white">Notification Settings</h1>
-          <p className="text-zinc-400 mt-1">Manage notification preferences for Account Managers and NOC users</p>
+          <h1 className="text-4xl font-bold text-gray-900 dark:text-white">Notification Settings</h1>
+          <p className="text-gray-500 dark:text-zinc-400 mt-1">Manage notification preferences for Account Managers and NOC users</p>
         </div>
 
         {/* User Type Selector */}
-        <Card className="bg-zinc-900/50 border-white/10">
+        <Card className="bg-white/50 dark:bg-zinc-900/50 border-black/10 dark:border-white/10">
           <CardHeader>
-            <CardTitle className="text-white flex items-center gap-2">
+            <CardTitle className="text-gray-900 dark:text-white flex items-center gap-2">
               <User className="h-5 w-5" />
               Select User Type
             </CardTitle>
@@ -232,8 +232,8 @@ export default function NotificationSettingsPage() {
                 onClick={() => handleUserTypeChange('am')}
                 className={`px-6 py-3 rounded-lg font-medium transition-colors ${
                   userType === 'am'
-                    ? "bg-emerald-600 text-white"
-                    : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+                    ? "bg-emerald-600 text-gray-900 dark:text-white"
+                    : "bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-zinc-300 hover:bg-gray-200 dark:hover:bg-zinc-700"
                 }`}
               >
                 Account Managers ({amUsers.length})
@@ -242,8 +242,8 @@ export default function NotificationSettingsPage() {
                 onClick={() => handleUserTypeChange('noc')}
                 className={`px-6 py-3 rounded-lg font-medium transition-colors ${
                   userType === 'noc'
-                    ? "bg-emerald-600 text-white"
-                    : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+                    ? "bg-emerald-600 text-gray-900 dark:text-white"
+                    : "bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-zinc-300 hover:bg-gray-200 dark:hover:bg-zinc-700"
                 }`}
               >
                 NOC Users ({nocUsers.length})
@@ -253,9 +253,9 @@ export default function NotificationSettingsPage() {
         </Card>
 
         {/* User Selector */}
-        <Card className="bg-zinc-900/50 border-white/10">
+        <Card className="bg-white/50 dark:bg-zinc-900/50 border-black/10 dark:border-white/10">
           <CardHeader>
-            <CardTitle className="text-white flex items-center gap-2">
+            <CardTitle className="text-gray-900 dark:text-white flex items-center gap-2">
               <User className="h-5 w-5" />
               Select {userType === 'am' ? 'Account Manager' : 'NOC User'}
             </CardTitle>
@@ -269,8 +269,8 @@ export default function NotificationSettingsPage() {
                     onClick={() => userType === 'am' ? handleSelectAm(user) : handleSelectNoc(user)}
                     className={`p-3 rounded-lg text-left transition-colors ${
                       currentSelected?.id === user.id
-                        ? "bg-emerald-600 text-white"
-                        : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+                        ? "bg-emerald-600 text-gray-900 dark:text-white"
+                        : "bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-zinc-300 hover:bg-gray-200 dark:hover:bg-zinc-700"
                     }`}
                   >
                     <div className="font-medium">{user.username}</div>
@@ -279,20 +279,20 @@ export default function NotificationSettingsPage() {
                 ))}
               </div>
             ) : (
-              <p className="text-zinc-400">No {userType === 'am' ? 'Account Managers' : 'NOC Users'} found.</p>
+              <p className="text-gray-500 dark:text-zinc-400">No {userType === 'am' ? 'Account Managers' : 'NOC Users'} found.</p>
             )}
           </CardContent>
         </Card>
 
         {/* Selected User's Notification Settings */}
         {currentSelected && (
-          <Card className="bg-zinc-900/50 border-white/10">
+          <Card className="bg-white/50 dark:bg-zinc-900/50 border-black/10 dark:border-white/10">
             <CardHeader>
-              <CardTitle className="text-white flex items-center gap-2">
+              <CardTitle className="text-gray-900 dark:text-white flex items-center gap-2">
                 <Bell className="h-5 w-5" />
                 Notifications for {currentSelected.username}
               </CardTitle>
-              <CardDescription className="text-zinc-400">
+              <CardDescription className="text-gray-500 dark:text-zinc-400">
                 Configure which notifications {currentSelected.username} will receive
               </CardDescription>
             </CardHeader>
@@ -384,8 +384,8 @@ export default function NotificationSettingsPage() {
 
               {/* NOC Notifications Section */}
               <div className="mt-6 mb-2">
-                <h3 className="text-lg font-semibold text-white mb-2">NOC Notifications</h3>
-                <p className="text-sm text-zinc-400 mb-4">Notifications about AM activities</p>
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">NOC Notifications</h3>
+                <p className="text-sm text-gray-500 dark:text-zinc-400 mb-4">Notifications about AM activities</p>
               </div>
               <NotificationToggle
                 id="notify_on_am_action"
@@ -412,17 +412,17 @@ export default function NotificationSettingsPage() {
   return (
     <div className="p-6 lg:p-8 space-y-6 max-w-[1920px] mx-auto">
       <div>
-        <h1 className="text-4xl font-bold text-white">Notification Settings</h1>
-        <p className="text-zinc-400 mt-1">Configure your notification preferences</p>
+        <h1 className="text-4xl font-bold text-gray-900 dark:text-white">Notification Settings</h1>
+        <p className="text-gray-500 dark:text-zinc-400 mt-1">Configure your notification preferences</p>
       </div>
 
-      <Card className="bg-zinc-900/50 border-white/10">
+      <Card className="bg-white/50 dark:bg-zinc-900/50 border-black/10 dark:border-white/10">
         <CardHeader>
-          <CardTitle className="text-white flex items-center gap-2">
+          <CardTitle className="text-gray-900 dark:text-white flex items-center gap-2">
             <Bell className="h-5 w-5" />
             Notifications
           </CardTitle>
-          <CardDescription className="text-zinc-400">
+          <CardDescription className="text-gray-500 dark:text-zinc-400">
             Choose which notifications you want to receive for your assigned enterprises
           </CardDescription>
         </CardHeader>
@@ -506,8 +506,8 @@ export default function NotificationSettingsPage() {
           />
           {/* NOC Notifications Section */}
           <div className="mt-6 mb-2">
-            <h3 className="text-lg font-semibold text-white mb-2">NOC Notifications</h3>
-            <p className="text-sm text-zinc-400 mb-4">Notifications for NOC users about ticket activity</p>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">NOC Notifications</h3>
+            <p className="text-sm text-gray-500 dark:text-zinc-400 mb-4">Notifications for NOC users about ticket activity</p>
           </div>
           <NotificationToggle
             id="notify_on_am_action"
