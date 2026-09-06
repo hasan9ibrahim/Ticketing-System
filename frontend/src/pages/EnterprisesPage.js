@@ -306,7 +306,12 @@ export default function EnterprisesPage() {
         }
       });
       
-      toast.success(`Successfully imported ${response.data.imported_count} enterprises`);
+      const { imported_count, skipped_count } = response.data;
+      toast.success(
+        skipped_count
+          ? `Imported ${imported_count} enterprises, skipped ${skipped_count} duplicate(s)`
+          : `Successfully imported ${imported_count} enterprises`
+      );
       setImportDialogOpen(false);
       // Import adds an unknown set of new records (the response only carries
       // a count) - drop the shared cache entry so the next fetch is fresh
