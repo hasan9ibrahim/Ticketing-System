@@ -5411,19 +5411,51 @@ async def get_assigned_ticket_reminders(current_user: dict = Depends(get_current
     return reminders
 
 
+async def build_am_assigned_ticket_query(current_user: dict, enterprise_type: str) -> dict:
+    """Build the same 'tickets from this AM's assigned enterprises' query used
+    by the SMS/Voice ticket list endpoints in their 'assigned' view: a match
+    on customer_id, OR a match via any of the AM's assigned enterprises'
+    customer/vendor trunks (tickets are often linked to an enterprise only
+    through a trunk, not customer_id)."""
+    assigned_clients = await db.clients.find(
+        {"assigned_am_id": current_user["id"], "enterprise_type": enterprise_type},
+        {"_id": 0, "id": 1, "customer_trunks": 1, "vendor_trunks": 1}
+    ).to_list(1000)
+    client_ids = [c["id"] for c in assigned_clients]
+
+    am_customer_trunks = []
+    am_vendor_trunks = []
+    for client in assigned_clients:
+        if client.get("customer_trunks"):
+            am_customer_trunks.extend(client["customer_trunks"])
+        if client.get("vendor_trunks"):
+            am_vendor_trunks.extend(client["vendor_trunks"])
+
+    or_conditions = [{"customer_id": {"$in": client_ids}}]
+    if am_customer_trunks:
+        or_conditions.append({"customer_trunk": {"$in": am_customer_trunks}})
+    if am_vendor_trunks:
+        or_conditions.append({"vendor_trunk": {"$in": am_vendor_trunks}})
+        or_conditions.append({"vendor_trunks.trunk": {"$in": am_vendor_trunks}})
+
+    if len(or_conditions) > 1:
+        return {"$or": or_conditions}
+    return {"customer_id": {"$in": client_ids}}
+
+
 @api_router.get("/dashboard/stats", response_model=DashboardStats)
 async def get_dashboard_stats(
     current_user: dict = Depends(get_current_user),
     date_from: Optional[str] = None,
     date_to: Optional[str] = None
 ):
-    query = {}
-    
+    sms_query = {}
+    voice_query = {}
+
     if current_user["role"] == "am":
-        clients = await db.clients.find({"assigned_am_id": current_user["id"]}, {"_id": 0, "id": 1}).to_list(1000)
-        client_ids = [c["id"] for c in clients]
-        query["customer_id"] = {"$in": client_ids}
-    
+        sms_query = await build_am_assigned_ticket_query(current_user, "sms")
+        voice_query = await build_am_assigned_ticket_query(current_user, "voice")
+
     # Add date range filter if provided
     if date_from or date_to:
         date_query = {}
@@ -5432,15 +5464,16 @@ async def get_dashboard_stats(
         if date_to:
             # Add a day to include the entire end date
             date_query["$lte"] = date_to + "T23:59:59.999999"
-        query["date"] = date_query
-    
+        sms_query["date"] = date_query
+        voice_query["date"] = date_query
+
     # Use field projections for efficiency - only fetch fields needed for stats
     stats_projection = {"_id": 0, "status": 1, "priority": 1}
     recent_projection = {"_id": 0, "id": 1, "ticket_number": 1, "customer": 1, "priority": 1, "status": 1, "date": 1}
-    
+
     # Get SMS tickets for stats (only status and priority fields)
-    sms_tickets = await db.sms_tickets.find(query, stats_projection).to_list(10000)
-    voice_tickets = await db.voice_tickets.find(query, stats_projection).to_list(10000)
+    sms_tickets = await db.sms_tickets.find(sms_query, stats_projection).to_list(10000)
+    voice_tickets = await db.voice_tickets.find(voice_query, stats_projection).to_list(10000)
     
     # Count by status
     sms_by_status = {}
@@ -5468,8 +5501,8 @@ async def get_dashboard_stats(
             voice_pending += 1
     
     # Recent tickets - fetch only 10 most recent from each, sorted by date
-    recent_sms = await db.sms_tickets.find(query, recent_projection).sort("date", -1).limit(10).to_list(10)
-    recent_voice = await db.voice_tickets.find(query, recent_projection).sort("date", -1).limit(10).to_list(10)
+    recent_sms = await db.sms_tickets.find(sms_query, recent_projection).sort("date", -1).limit(10).to_list(10)
+    recent_voice = await db.voice_tickets.find(voice_query, recent_projection).sort("date", -1).limit(10).to_list(10)
     
     all_tickets = []
     for ticket in recent_sms:
