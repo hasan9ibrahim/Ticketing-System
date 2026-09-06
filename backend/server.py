@@ -1174,16 +1174,23 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         dept = await db.departments.find_one({"id": user["department_id"]}, {"_id": 0})
         if dept:
             user["department"] = dept
-            # Calculate role from department permissions
-            if dept.get("can_edit_users"):
-                user["role"] = "admin"
-            elif dept.get("can_create_tickets") and not dept.get("can_edit_enterprises"):
-                user["role"] = "am"
-            elif dept.get("can_edit_tickets"):
-                user["role"] = "noc"
-            else:
-                user["role"] = "unknown"
-    
+            # Calculate role from department permissions, but only as a
+            # fallback for an account with no explicit role of its own -
+            # departments don't always match the exact permission
+            # combinations this guesses from, and overriding an already-valid
+            # role (e.g. NOC or admin) with a wrong guess made every
+            # role-gated endpoint (dashboard stats included) misbehave for
+            # that account.
+            if user.get("role") not in ("admin", "am", "noc"):
+                if dept.get("can_edit_users"):
+                    user["role"] = "admin"
+                elif dept.get("can_create_tickets") and not dept.get("can_edit_enterprises"):
+                    user["role"] = "am"
+                elif dept.get("can_edit_tickets"):
+                    user["role"] = "noc"
+                else:
+                    user["role"] = "unknown"
+
     return user
 
 async def get_user_department(current_user: dict) -> Optional[dict]:

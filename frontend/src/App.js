@@ -68,17 +68,24 @@ function App() {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (response.data) {
-        // Calculate role from department permissions (same logic as backend)
-        let role = "unknown";
+        // Calculate role from department permissions (same logic as backend),
+        // but only as a fallback for an account with no role of its own -
+        // departments don't always match the exact permission combinations
+        // this guesses from, and overriding an already-valid role (e.g. NOC
+        // or admin) with a wrong guess hid every stat for that account.
         const dept = response.data;
-        if (dept.can_edit_users) {
-          role = "admin";
-        } else if (dept.can_create_tickets && !dept.can_edit_enterprises) {
-          role = "am";
-        } else if (dept.can_edit_tickets) {
-          role = "noc";
+        let role = currentUser.role;
+        if (!["admin", "noc", "am"].includes(role)) {
+          role = "unknown";
+          if (dept.can_edit_users) {
+            role = "admin";
+          } else if (dept.can_create_tickets && !dept.can_edit_enterprises) {
+            role = "am";
+          } else if (dept.can_edit_tickets) {
+            role = "noc";
+          }
         }
-        
+
         const updatedUser = {
           ...currentUser,
           department_id: response.data.id,
