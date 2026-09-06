@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -6,7 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { ChevronLeft, ChevronRight, Save, FileText } from "lucide-react";
+import { ChevronLeft, ChevronRight, Save, FileText, FileUp } from "lucide-react";
 import { toast } from "sonner";
 import { fetchCached } from "@/lib/dataCache";
 
@@ -50,6 +50,7 @@ const SHIFT_TYPES = [
   { id: "shift_c", label: "Shift C", time: "9 AM - 5 PM", color: "bg-emerald-600", textColor: "text-emerald-100" },
   { id: "shift_d", label: "Shift D", time: "4 PM - 12 AM", color: "bg-purple-600", textColor: "text-purple-100" },
   { id: "off", label: "Off", time: "", color: "bg-red-600", textColor: "text-red-100" },
+  { id: "leave", label: "Leave", time: "", color: "bg-amber-600", textColor: "text-amber-100" },
   { id: "holiday", label: "Holiday", time: "", color: "bg-zinc-600", textColor: "text-zinc-100" },
 ];
 
@@ -66,6 +67,8 @@ export default function NOCSchedulePage() {
   const [noteLoading, setNoteLoading] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editData, setEditData] = useState(null);
+  const [importing, setImporting] = useState(false);
+  const fileInputRef = useRef(null);
 
   const user = getCurrentUser();
   const isAdmin = user?.role === "admin";
@@ -145,6 +148,47 @@ export default function NOCSchedulePage() {
     } catch (error) {
       console.error("Error saving monthly note:", error);
       toast.error("Error saving note");
+    }
+  };
+
+  const handleImport = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setImporting(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const response = await axios.post(`${API}/noc-schedule/import`, formData, {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("token")}`,
+          "Content-Type": "multipart/form-data"
+        }
+      });
+
+      const { year: importedYear, month: importedMonth, created_count, updated_count, unmatched_columns, skipped } = response.data;
+      toast.success(`Imported ${getMonthName(importedMonth)} ${importedYear}: ${created_count} created, ${updated_count} updated`);
+      if (unmatched_columns?.length) {
+        toast.warning(`No matching NOC user for: ${unmatched_columns.join(", ")}`);
+      }
+      if (skipped?.length) {
+        toast.warning(`${skipped.length} cell(s) had an unrecognized shift code and were skipped`);
+      }
+
+      // Jump to the imported month so the result is immediately visible
+      if (importedYear === year && importedMonth === month) {
+        fetchSchedules();
+      } else {
+        setCurrentDate(new Date(importedYear, importedMonth - 1, 1));
+      }
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Failed to import schedule");
+    } finally {
+      setImporting(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
     }
   };
 
@@ -356,6 +400,26 @@ export default function NOCSchedulePage() {
           <Button variant="outline" size="sm" onClick={goToToday}>
             Today
           </Button>
+          {canEdit && (
+            <>
+              <input
+                type="file"
+                accept=".xlsx,.xls"
+                ref={fileInputRef}
+                onChange={handleImport}
+                className="hidden"
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={importing}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <FileUp className="w-4 h-4 mr-2" />
+                {importing ? "Importing..." : "Import Excel"}
+              </Button>
+            </>
+          )}
         </div>
       </div>
 
@@ -405,12 +469,13 @@ export default function NOCSchedulePage() {
         const dayShifts = todaySchedules.filter(s => s.shift && ['shift_a', 'shift_b', 'shift_c'].includes(s.shift.id));
         const nightShifts = todaySchedules.filter(s => s.shift && s.shift.id === 'shift_d');
         const offUsers = todaySchedules.filter(s => !s.shift || s.shift.id === 'off');
+        const onLeave = todaySchedules.filter(s => s.shift && s.shift.id === 'leave');
         const holidays = todaySchedules.filter(s => s.shift && s.shift.id === 'holiday');
-        
+
         return (
           <div className="mb-6 p-4 bg-zinc-900 rounded-lg border border-zinc-800">
             <h3 className="text-lg font-semibold text-white mb-4">Today's Schedule ({today.getDate()} {getMonthName(todayMonth)} {todayYear})</h3>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
               {/* Day Shifts */}
               <div className="p-3 bg-blue-900/20 rounded-lg border border-blue-800/50">
                 <div className="flex items-center gap-2 mb-2">
@@ -468,6 +533,25 @@ export default function NOCSchedulePage() {
                 )}
               </div>
               
+              {/* Leave */}
+              <div className="p-3 bg-amber-900/20 rounded-lg border border-amber-800/50">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-3 h-3 rounded-full bg-amber-600"></div>
+                  <span className="text-sm font-medium text-amber-400">Leave</span>
+                </div>
+                {onLeave.length > 0 ? (
+                  <div className="space-y-1">
+                    {onLeave.map(s => (
+                      <div key={s.user.id} className="text-sm text-zinc-300">
+                        {s.user.name || s.user.username}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-sm text-zinc-500">No one on leave</div>
+                )}
+              </div>
+
               {/* Holidays */}
               <div className="p-3 bg-zinc-700/30 rounded-lg border border-zinc-600/50">
                 <div className="flex items-center gap-2 mb-2">

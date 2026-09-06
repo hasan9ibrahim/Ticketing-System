@@ -234,7 +234,7 @@ class NOCSchedule(BaseModel):
     noc_user_id: str  # Reference to the NOC user
     noc_user_name: str  # Cached name for display
     date: str  # Date in YYYY-MM-DD format
-    shift_type: str = "off"  # "shift_a", "shift_b", "shift_c", "shift_d", "off", "holiday"
+    shift_type: str = "off"  # "shift_a", "shift_b", "shift_c", "shift_d", "off", "leave", "holiday"
     notes: Optional[str] = None
     created_by: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -245,7 +245,7 @@ class NOCScheduleCreate(BaseModel):
     """Model for creating NOC schedule entries"""
     noc_user_id: str
     date: str  # YYYY-MM-DD
-    shift_type: str = "off"  # "shift_a", "shift_b", "shift_c", "shift_d", "off", "holiday"
+    shift_type: str = "off"  # "shift_a", "shift_b", "shift_c", "shift_d", "off", "leave", "holiday"
     notes: Optional[str] = None
 
 
@@ -6524,8 +6524,137 @@ async def bulk_create_noc_schedule(
         # Convert to dict and add to results
         result = schedule_obj.model_dump()
         created_schedules.append(result)
-    
+
     return created_schedules
+
+
+# Maps the shift codes used in the "Member View" export sheet to our internal shift_type values
+NOC_SCHEDULE_IMPORT_CODE_MAP = {
+    "A": "shift_a",
+    "B": "shift_b",
+    "C": "shift_c",
+    "D": "shift_d",
+    "OFF": "off",
+    "LV": "leave",
+    "LEAVE": "leave",
+    "HOL": "holiday",
+    "HOLIDAY": "holiday",
+}
+
+
+@api_router.post("/noc-schedule/import")
+async def import_noc_schedule(
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Bulk-import a month of NOC schedules from the "Member View" export sheet.
+    Column A is the date, and every other column header is matched (case-insensitively)
+    against a NOC user's full name; each cell holds a shift code (A/B/C/D/OFF/LV/HOL).
+    Existing entries for a given user/date are updated in place; new ones are created.
+    """
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can import schedules")
+
+    if not file.filename.endswith(('.xlsx', '.xls')):
+        raise HTTPException(status_code=400, detail="Only Excel files (.xlsx, .xls) are supported")
+
+    try:
+        contents = await file.read()
+        excel_file = pd.ExcelFile(io.BytesIO(contents))
+        sheet_name = "Member View" if "Member View" in excel_file.sheet_names else excel_file.sheet_names[0]
+        df = pd.read_excel(excel_file, sheet_name=sheet_name)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to parse Excel file: {str(e)}")
+
+    if df.empty or len(df.columns) < 2:
+        raise HTTPException(status_code=400, detail="No schedule data found in the sheet")
+
+    date_column = df.columns[0]
+
+    # Match sheet columns to active NOC users by full name (case-insensitive, trimmed)
+    noc_users = await db.users.find({"department_id": "dept_noc"}, {"_id": 0}).to_list(1000)
+    users_by_name = {u.get("name", "").strip().lower(): u for u in noc_users if u.get("name")}
+
+    matched_columns = []
+    unmatched_columns = []
+    for col in df.columns[1:]:
+        col_name = str(col).strip()
+        if col_name.lower().startswith("unnamed"):
+            continue
+        user = users_by_name.get(col_name.lower())
+        if user:
+            matched_columns.append((col, user))
+        else:
+            unmatched_columns.append(col_name)
+
+    if not matched_columns:
+        raise HTTPException(
+            status_code=400,
+            detail=f"None of the sheet's columns matched a NOC user by name. Columns found: {', '.join(str(c) for c in df.columns[1:])}"
+        )
+
+    created_count = 0
+    updated_count = 0
+    skipped = []
+    months_seen = set()
+    now = datetime.now(timezone.utc)
+
+    for _, row in df.iterrows():
+        raw_date = row[date_column]
+        if pd.isna(raw_date):
+            continue
+        try:
+            date_obj = pd.to_datetime(raw_date).date()
+        except Exception:
+            continue
+        date_str = date_obj.strftime("%Y-%m-%d")
+        months_seen.add((date_obj.year, date_obj.month))
+
+        for col, user in matched_columns:
+            cell_value = row[col]
+            if pd.isna(cell_value):
+                continue
+            code = str(cell_value).strip().upper()
+            shift_type = NOC_SCHEDULE_IMPORT_CODE_MAP.get(code)
+            if not shift_type:
+                skipped.append(f"{date_str} / {user.get('name')}: unrecognized code '{cell_value}'")
+                continue
+
+            existing = await db.noc_schedules.find_one({
+                "noc_user_id": user["id"],
+                "date": date_str
+            })
+            if existing:
+                await db.noc_schedules.update_one(
+                    {"id": existing["id"]},
+                    {"$set": {"shift_type": shift_type, "updated_at": now}}
+                )
+                updated_count += 1
+            else:
+                schedule_obj = NOCSchedule(
+                    noc_user_id=user["id"],
+                    noc_user_name=user.get("name", user.get("username", "Unknown")),
+                    date=date_str,
+                    shift_type=shift_type,
+                    created_by=current_user.get("id")
+                )
+                await db.noc_schedules.insert_one(schedule_obj.model_dump())
+                created_count += 1
+
+    if not months_seen:
+        raise HTTPException(status_code=400, detail="No valid dates found in the sheet")
+
+    year, month = sorted(months_seen)[0]
+
+    return {
+        "year": year,
+        "month": month,
+        "created_count": created_count,
+        "updated_count": updated_count,
+        "unmatched_columns": unmatched_columns if unmatched_columns else None,
+        "skipped": skipped if skipped else None,
+    }
 
 
 # =====================
