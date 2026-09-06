@@ -26,16 +26,21 @@ export default function DashboardPage() {
   const [onlineUsers, setOnlineUsers] = useState([]);
   const [currentUser, setCurrentUser] = useState(null);
 
+  // department_type is the reliable, always-populated source of truth for an
+  // AM's ticket type - am_type is a deprecated field kept only for backward
+  // compatibility with accounts that predate the department system.
+  const amType = currentUser?.department_type || currentUser?.am_type;
+
   // Determine what stats to show based on user role
-  const showSmsStats = !currentUser || 
-    (currentUser.role !== 'am') || 
-    (currentUser.am_type === 'sms');
-  const showVoiceStats = !currentUser || 
-    (currentUser.role !== 'am') || 
-    (currentUser.am_type === 'voice');
+  const showSmsStats = !currentUser ||
+    (currentUser.role !== 'am') ||
+    (amType === 'sms');
+  const showVoiceStats = !currentUser ||
+    (currentUser.role !== 'am') ||
+    (amType === 'voice');
 
   // Get user display type for filtering
-  const userType = currentUser?.role === 'am' ? currentUser.am_type : (currentUser?.role || 'unknown');
+  const userType = currentUser?.role === 'am' ? amType : (currentUser?.role || 'unknown');
 
   useEffect(() => {
     // Get current user
@@ -334,8 +339,8 @@ export default function DashboardPage() {
                 .filter(ticket => {
                   if (!currentUser) return true; // Show all if no user
                   if (currentUser.role !== 'am') return true; // NOC/Admin see all
-                  if (currentUser.am_type === 'sms') return ticket.type === 'SMS';
-                  if (currentUser.am_type === 'voice') return ticket.type === 'Voice';
+                  if (amType === 'sms') return ticket.type === 'SMS';
+                  if (amType === 'voice') return ticket.type === 'Voice';
                   return true;
                 })
                 .map((ticket) => (

@@ -1174,16 +1174,23 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         dept = await db.departments.find_one({"id": user["department_id"]}, {"_id": 0})
         if dept:
             user["department"] = dept
-            # Calculate role from department permissions
-            if dept.get("can_edit_users"):
-                user["role"] = "admin"
-            elif dept.get("can_create_tickets") and not dept.get("can_edit_enterprises"):
-                user["role"] = "am"
-            elif dept.get("can_edit_tickets"):
-                user["role"] = "noc"
-            else:
-                user["role"] = "unknown"
-    
+            # Calculate role from department permissions, but only as a
+            # fallback for an account with no explicit role of its own -
+            # departments don't always match the exact permission
+            # combinations this guesses from, and overriding an already-valid
+            # role (e.g. NOC or admin) with a wrong guess made every
+            # role-gated endpoint (dashboard stats included) misbehave for
+            # that account.
+            if user.get("role") not in ("admin", "am", "noc"):
+                if dept.get("can_edit_users"):
+                    user["role"] = "admin"
+                elif dept.get("can_create_tickets") and not dept.get("can_edit_enterprises"):
+                    user["role"] = "am"
+                elif dept.get("can_edit_tickets"):
+                    user["role"] = "noc"
+                else:
+                    user["role"] = "unknown"
+
     return user
 
 async def get_user_department(current_user: dict) -> Optional[dict]:
@@ -4996,23 +5003,36 @@ async def delete_voice_ticket_action(
 
 # ==================== DASHBOARD ROUTES ====================
 
-@api_router.get("/dashboard/online-users")
+@api_router.get("/dashboard/online-users", response_model=List[ChatUser])
 async def get_online_users(current_user: dict = Depends(get_current_user)):
-    """Get list of users who were active in the last 5 minutes"""
+    """Get list of active users who were active in the last 5 minutes"""
     from datetime import timedelta
-    
+
     # Consider users active in the last 5 minutes as online
     five_minutes_ago = datetime.now(timezone.utc) - timedelta(minutes=5)
-    
-    # Get users who have been active in the last 5 minutes
+
+    # Only project the fields this widget actually needs - the previous
+    # implementation returned full user documents (minus password_hash) to
+    # every authenticated caller, leaking email/phone/2FA secrets/etc. to
+    # anyone logged in.
     online_users = await db.users.find(
-        {"last_active": {"$gte": five_minutes_ago}},
-        {"_id": 0, "password_hash": 0}
+        {
+            "last_active": {"$gte": five_minutes_ago},
+            "$or": [{"is_active": True}, {"is_active": {"$exists": False}}]
+        },
+        {"_id": 0, "id": 1, "username": 1, "name": 1, "last_active": 1}
     ).to_list(100)
-    
-    # Also include users who logged in recently (last_active not set but logged in recently)
-    # For now, just return users with last_active
-    return online_users
+
+    return [
+        ChatUser(
+            id=u["id"],
+            username=u["username"],
+            name=u.get("name") or u["username"],
+            last_active=u.get("last_active"),
+            is_online=True
+        )
+        for u in online_users
+    ]
 
 
 @api_router.get("/dashboard/user-online-time")
@@ -5391,19 +5411,51 @@ async def get_assigned_ticket_reminders(current_user: dict = Depends(get_current
     return reminders
 
 
+async def build_am_assigned_ticket_query(current_user: dict, enterprise_type: str) -> dict:
+    """Build the same 'tickets from this AM's assigned enterprises' query used
+    by the SMS/Voice ticket list endpoints in their 'assigned' view: a match
+    on customer_id, OR a match via any of the AM's assigned enterprises'
+    customer/vendor trunks (tickets are often linked to an enterprise only
+    through a trunk, not customer_id)."""
+    assigned_clients = await db.clients.find(
+        {"assigned_am_id": current_user["id"], "enterprise_type": enterprise_type},
+        {"_id": 0, "id": 1, "customer_trunks": 1, "vendor_trunks": 1}
+    ).to_list(1000)
+    client_ids = [c["id"] for c in assigned_clients]
+
+    am_customer_trunks = []
+    am_vendor_trunks = []
+    for client in assigned_clients:
+        if client.get("customer_trunks"):
+            am_customer_trunks.extend(client["customer_trunks"])
+        if client.get("vendor_trunks"):
+            am_vendor_trunks.extend(client["vendor_trunks"])
+
+    or_conditions = [{"customer_id": {"$in": client_ids}}]
+    if am_customer_trunks:
+        or_conditions.append({"customer_trunk": {"$in": am_customer_trunks}})
+    if am_vendor_trunks:
+        or_conditions.append({"vendor_trunk": {"$in": am_vendor_trunks}})
+        or_conditions.append({"vendor_trunks.trunk": {"$in": am_vendor_trunks}})
+
+    if len(or_conditions) > 1:
+        return {"$or": or_conditions}
+    return {"customer_id": {"$in": client_ids}}
+
+
 @api_router.get("/dashboard/stats", response_model=DashboardStats)
 async def get_dashboard_stats(
     current_user: dict = Depends(get_current_user),
     date_from: Optional[str] = None,
     date_to: Optional[str] = None
 ):
-    query = {}
-    
+    sms_query = {}
+    voice_query = {}
+
     if current_user["role"] == "am":
-        clients = await db.clients.find({"assigned_am_id": current_user["id"]}, {"_id": 0, "id": 1}).to_list(1000)
-        client_ids = [c["id"] for c in clients]
-        query["customer_id"] = {"$in": client_ids}
-    
+        sms_query = await build_am_assigned_ticket_query(current_user, "sms")
+        voice_query = await build_am_assigned_ticket_query(current_user, "voice")
+
     # Add date range filter if provided
     if date_from or date_to:
         date_query = {}
@@ -5412,15 +5464,16 @@ async def get_dashboard_stats(
         if date_to:
             # Add a day to include the entire end date
             date_query["$lte"] = date_to + "T23:59:59.999999"
-        query["date"] = date_query
-    
+        sms_query["date"] = date_query
+        voice_query["date"] = date_query
+
     # Use field projections for efficiency - only fetch fields needed for stats
     stats_projection = {"_id": 0, "status": 1, "priority": 1}
     recent_projection = {"_id": 0, "id": 1, "ticket_number": 1, "customer": 1, "priority": 1, "status": 1, "date": 1}
-    
+
     # Get SMS tickets for stats (only status and priority fields)
-    sms_tickets = await db.sms_tickets.find(query, stats_projection).to_list(10000)
-    voice_tickets = await db.voice_tickets.find(query, stats_projection).to_list(10000)
+    sms_tickets = await db.sms_tickets.find(sms_query, stats_projection).to_list(10000)
+    voice_tickets = await db.voice_tickets.find(voice_query, stats_projection).to_list(10000)
     
     # Count by status
     sms_by_status = {}
@@ -5448,8 +5501,8 @@ async def get_dashboard_stats(
             voice_pending += 1
     
     # Recent tickets - fetch only 10 most recent from each, sorted by date
-    recent_sms = await db.sms_tickets.find(query, recent_projection).sort("date", -1).limit(10).to_list(10)
-    recent_voice = await db.voice_tickets.find(query, recent_projection).sort("date", -1).limit(10).to_list(10)
+    recent_sms = await db.sms_tickets.find(sms_query, recent_projection).sort("date", -1).limit(10).to_list(10)
+    recent_voice = await db.voice_tickets.find(voice_query, recent_projection).sort("date", -1).limit(10).to_list(10)
     
     all_tickets = []
     for ticket in recent_sms:

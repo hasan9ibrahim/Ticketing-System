@@ -13,6 +13,26 @@ const BACKEND_URL =
 
 const API = `${BACKEND_URL}/api`;
 
+const VALID_ROLES = ["admin", "noc", "am"];
+
+// Calculate role from department permissions - mirrors the backend's
+// get_current_user() logic so a user whose account never got an explicit
+// role (only a department) has the correct role immediately at login,
+// instead of the stale/legacy value on the user record (which only gets
+// corrected on a full page reload, via App.js). A role already set
+// explicitly on the account is trusted as-is and never overridden by this
+// heuristic - departments don't always match the exact permission
+// combinations this guesses from, and getting it wrong here hid every
+// stat for NOC/admin accounts whose department didn't match.
+const computeRoleFromDepartment = (dept, existingRole) => {
+  if (VALID_ROLES.includes(existingRole)) return existingRole;
+  if (!dept) return existingRole || "unknown";
+  if (dept.can_edit_users) return "admin";
+  if (dept.can_create_tickets && !dept.can_edit_enterprises) return "am";
+  if (dept.can_edit_tickets) return "noc";
+  return existingRole || "unknown";
+};
+
 export default function LoginPage({ setUser }) {
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
@@ -65,6 +85,7 @@ export default function LoginPage({ setUser }) {
             department_id: deptResponse.data.id,
             department_type: deptResponse.data.department_type,
             department: deptResponse.data,
+            role: computeRoleFromDepartment(deptResponse.data, user.role),
           };
         }
       } catch (deptError) {
@@ -106,6 +127,7 @@ export default function LoginPage({ setUser }) {
             department_id: deptResponse.data.id,
             department_type: deptResponse.data.department_type,
             department: deptResponse.data,
+            role: computeRoleFromDepartment(deptResponse.data, user.role),
           };
         }
       } catch (deptError) {
