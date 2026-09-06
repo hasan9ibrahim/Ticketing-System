@@ -1,19 +1,41 @@
 import Select from 'react-select';
+import { useTheme } from '@/contexts/ThemeContext';
 
-export const SearchableSelect = ({ 
-  options, 
-  value, 
-  onChange, 
+const PALETTES = {
+  dark: {
+    surface: '#27272a',
+    border: '#3f3f46',
+    hover: '#3f3f46',
+    active: '#52525b',
+    text: '#ffffff',
+    placeholder: '#71717a',
+  },
+  light: {
+    surface: '#f3f4f6',
+    border: '#e5e7eb',
+    hover: '#e5e7eb',
+    active: '#d1d5db',
+    text: '#111827',
+    placeholder: '#6b7280',
+  },
+};
+
+export const SearchableSelect = ({
+  options,
+  value,
+  onChange,
   placeholder = "Select...",
   isRequired = false,
   isDisabled = false,
   className = ""
 }) => {
+  const { theme } = useTheme();
+  const colors = PALETTES[theme];
   const customStyles = {
     control: (base, state) => ({
       ...base,
-      backgroundColor: '#27272a',
-      borderColor: state.isFocused ? '#10b981' : '#3f3f46',
+      backgroundColor: colors.surface,
+      borderColor: state.isFocused ? '#10b981' : colors.border,
       minHeight: '40px',
       boxShadow: state.isFocused ? '0 0 0 1px #10b981' : 'none',
       '&:hover': {
@@ -22,30 +44,30 @@ export const SearchableSelect = ({
     }),
     menu: (base) => ({
       ...base,
-      backgroundColor: '#27272a',
-      border: '1px solid #3f3f46',
+      backgroundColor: colors.surface,
+      border: `1px solid ${colors.border}`,
       zIndex: 100
     }),
     option: (base, state) => ({
       ...base,
-      backgroundColor: state.isFocused ? '#3f3f46' : '#27272a',
-      color: '#ffffff',
+      backgroundColor: state.isFocused ? colors.hover : colors.surface,
+      color: colors.text,
       cursor: 'pointer',
       '&:active': {
-        backgroundColor: '#52525b'
+        backgroundColor: colors.active
       }
     }),
     singleValue: (base) => ({
       ...base,
-      color: '#ffffff'
+      color: colors.text
     }),
     input: (base) => ({
       ...base,
-      color: '#ffffff'
+      color: colors.text
     }),
     placeholder: (base) => ({
       ...base,
-      color: '#71717a'
+      color: colors.placeholder
     }),
     menuList: (base) => ({
       ...base,
