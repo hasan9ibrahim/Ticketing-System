@@ -969,8 +969,8 @@ export default function VoiceTicketsPage() {
     <div className="p-6 lg:p-8 space-y-6 max-w-[1920px] mx-auto" data-testid="voice-tickets-page">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-4xl font-bold text-white">Voice Tickets</h1>
-          <p className="text-zinc-400 mt-1">Manage and track Voice trouble tickets</p>
+          <h1 className="text-4xl font-bold text-gray-900 dark:text-white">Voice Tickets</h1>
+          <p className="text-gray-500 dark:text-zinc-400 mt-1">Manage and track Voice trouble tickets</p>
         </div>
         {canModify && (
           <Button onClick={openCreateSheet} data-testid="create-voice-ticket-button" className="bg-emerald-500 text-black hover:bg-emerald-400 h-9">
@@ -983,7 +983,7 @@ export default function VoiceTicketsPage() {
         <div className="w-[280px] flex-shrink-0">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-zinc-500" />
-            <Input placeholder="Search tickets..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-10 bg-zinc-900 border-zinc-700 text-white placeholder:text-zinc-500 w-full" />
+            <Input placeholder="Search tickets..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-10 bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white placeholder:text-zinc-500 w-full" />
           </div>
         </div>
         <div className="flex-shrink-0">
@@ -1008,24 +1008,24 @@ export default function VoiceTicketsPage() {
 
       {/* AM View Mode Toggle */}
       {isVoiceAM && (
-        <div className="flex items-center gap-4 p-3 bg-zinc-900/50 rounded-lg border border-zinc-700">
+        <div className="flex items-center gap-4 p-3 bg-white/50 dark:bg-zinc-900/50 rounded-lg border border-gray-200 dark:border-zinc-700">
           <div className="flex items-center gap-2">
             <Switch
               id="am-view-mode"
               checked={amViewMode === "assigned"}
               onCheckedChange={(checked) => setAmViewMode(checked ? "assigned" : "all")}
             />
-            <label htmlFor="am-view-mode" className="text-sm text-zinc-300 cursor-pointer">
+            <label htmlFor="am-view-mode" className="text-sm text-gray-700 dark:text-zinc-300 cursor-pointer">
               Show only my assigned enterprises
             </label>
           </div>
           {amViewMode === "assigned" && (
             <div className="flex items-center gap-2">
-              <span className="text-sm text-zinc-400">Filter by trunk:</span>
+              <span className="text-sm text-gray-500 dark:text-zinc-400">Filter by trunk:</span>
               <select
                 value={amTrunkFilter}
                 onChange={(e) => setAmTrunkFilter(e.target.value)}
-                className="bg-zinc-800 border border-zinc-700 text-white text-sm rounded px-3 py-1.5"
+                className="bg-gray-100 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-sm rounded px-3 py-1.5"
               >
                 <option value="">All Trunks</option>
                 <option value="customer_trunk">Customer Trunks</option>
@@ -1045,17 +1045,17 @@ export default function VoiceTicketsPage() {
       {/*
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Select value={enterpriseFilter} onValueChange={setEnterpriseFilter}>
-          <SelectTrigger className="bg-zinc-900 border-zinc-700 text-white"><SelectValue placeholder="Enterprise" /></SelectTrigger>
-          <SelectContent className="bg-zinc-800 border-zinc-700">
-            <SelectItem value="all" className="text-white">All Customers</SelectItem>
-            {enterprises.map((e) => <SelectItem key={e.id} value={e.id} className="text-white">{e.name}</SelectItem>)}
+          <SelectTrigger className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white"><SelectValue placeholder="Enterprise" /></SelectTrigger>
+          <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
+            <SelectItem value="all" className="text-gray-900 dark:text-white">All Customers</SelectItem>
+            {enterprises.map((e) => <SelectItem key={e.id} value={e.id} className="text-gray-900 dark:text-white">{e.name}</SelectItem>)}
           </SelectContent>
         </Select>
         <Select value={issueTypeFilter} onValueChange={setIssueTypeFilter}>
-          <SelectTrigger className="bg-zinc-900 border-zinc-700 text-white"><SelectValue placeholder="Issue Type" /></SelectTrigger>
-          <SelectContent className="bg-zinc-800 border-zinc-700">
-            <SelectItem value="all" className="text-white">All Issue Types</SelectItem>
-            {VOICE_ISSUE_TYPES.map((type) => <SelectItem key={type} value={type} className="text-white">{type}</SelectItem>)}
+          <SelectTrigger className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white"><SelectValue placeholder="Issue Type" /></SelectTrigger>
+          <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
+            <SelectItem value="all" className="text-gray-900 dark:text-white">All Issue Types</SelectItem>
+            {VOICE_ISSUE_TYPES.map((type) => <SelectItem key={type} value={type} className="text-gray-900 dark:text-white">{type}</SelectItem>)}
           </SelectContent>
         </Select>
         <Input
@@ -1063,17 +1063,17 @@ export default function VoiceTicketsPage() {
           data-testid="filter-destination"
           value={destinationFilter}
           onChange={(e) => setDestinationFilter(e.target.value)}
-          className="bg-zinc-900 border-zinc-700 text-white placeholder:text-zinc-500"
+          className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white placeholder:text-zinc-500"
         />
         <Select value={assignedToFilter} onValueChange={setAssignedToFilter}>
-          <SelectTrigger className="bg-zinc-900 border-zinc-700 text-white" data-testid="filter-assigned-to">
+          <SelectTrigger className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white" data-testid="filter-assigned-to">
             <SelectValue placeholder="Filter by Assigned To" />
           </SelectTrigger>
-          <SelectContent className="bg-zinc-800 border-zinc-700">
-            <SelectItem value="all" className="text-white">All Assignees</SelectItem>
-            <SelectItem value="unassigned" className="text-white">Unassigned</SelectItem>
+          <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
+            <SelectItem value="all" className="text-gray-900 dark:text-white">All Assignees</SelectItem>
+            <SelectItem value="unassigned" className="text-gray-900 dark:text-white">Unassigned</SelectItem>
             {users.map((user) => (
-              <SelectItem key={user.id} value={user.id} className="text-white">{user.username}</SelectItem>
+              <SelectItem key={user.id} value={user.id} className="text-gray-900 dark:text-white">{user.username}</SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -1081,7 +1081,7 @@ export default function VoiceTicketsPage() {
       */}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="text-zinc-400 text-sm flex items-center">Sorted by: Date → Priority → Volume → Opened Via</div>
+        <div className="text-gray-500 dark:text-zinc-400 text-sm flex items-center">Sorted by: Date → Priority → Volume → Opened Via</div>
         <div className="flex gap-2 justify-end">
           <Button
             variant="outline"
@@ -1089,7 +1089,7 @@ export default function VoiceTicketsPage() {
               const today = new Date();
               setDateRange({ from: today, to: today });
             }}
-            className="border-zinc-700 text-zinc-400 hover:text-white hover:bg-zinc-800 h-7 px-2 text-xs"
+            className="border-gray-200 dark:border-zinc-700 text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-zinc-800 h-7 px-2 text-xs"
           >
             Show Today
           </Button>
@@ -1106,7 +1106,7 @@ export default function VoiceTicketsPage() {
               const today = new Date();
               setDateRange({ from: startOfWeek(today, { weekStartsOn: 1 }), to: endOfWeek(today, { weekStartsOn: 1 }) });
             }}
-            className="border-zinc-700 text-zinc-400 hover:text-white hover:bg-zinc-800 h-7 px-2 text-xs"
+            className="border-gray-200 dark:border-zinc-700 text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-zinc-800 h-7 px-2 text-xs"
           >
             Reset to This Week
           </Button>
@@ -1114,7 +1114,7 @@ export default function VoiceTicketsPage() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full max-w-lg grid-cols-4 bg-zinc-900 border border-white/10">
+        <TabsList className="grid w-full max-w-lg grid-cols-4 bg-white dark:bg-zinc-900 border border-black/10 dark:border-white/10">
           <TabsTrigger value="unassigned" className="data-[state=active]:bg-emerald-500 data-[state=active]:text-black">Unassigned ({unassignedCount})</TabsTrigger>
           <TabsTrigger value="assigned" className="data-[state=active]:bg-emerald-500 data-[state=active]:text-black">Assigned ({assignedCount})</TabsTrigger>
           <TabsTrigger value="pending" className="data-[state=active]:bg-emerald-500 data-[state=active]:text-black">Pending ({pendingCount})</TabsTrigger>
@@ -1122,14 +1122,14 @@ export default function VoiceTicketsPage() {
         </TabsList>
 
         <TabsContent value={activeTab} className="mt-4">
-          <div className="bg-zinc-900/50 border border-white/10 rounded-lg overflow-hidden">
+          <div className="bg-white/50 dark:bg-zinc-900/50 border border-black/10 dark:border-white/10 rounded-lg overflow-hidden">
             <Table>
               <TableBody>
                   {filteredTickets.length > 0 ? (() => {
                   const { entries: sortedEntries } = groupTicketsByDate();
                   return sortedEntries.map(([date, tickets]) => (
                   <React.Fragment key={date}>
-                    <TableRow className="bg-zinc-800/30 border-white/10">
+                    <TableRow className="bg-gray-100/30 dark:bg-zinc-800/30 border-black/10 dark:border-white/10">
                       <TableCell colSpan={11} className="py-2 px-4">
                         <div className="flex items-center space-x-3">
                           <Calendar className="h-4 w-4 text-emerald-500" />
@@ -1140,29 +1140,29 @@ export default function VoiceTicketsPage() {
                       </TableCell>
                     </TableRow>
                     {/* Table Header repeated for each date */}
-                    <TableRow className="border-white/5 hover:bg-transparent">
-                      <TableHead className="text-zinc-400">Priority</TableHead>
-                      <TableHead className="text-zinc-400">Volume</TableHead>
-                      <TableHead className="text-zinc-400">Ticket#</TableHead>
-                      <TableHead className="text-zinc-400">Customer Trunk</TableHead>
-                      <TableHead className="text-zinc-400">Destination</TableHead>
-                      <TableHead className="text-zinc-400">ANI/Origination</TableHead>
-                      <TableHead className="text-zinc-400">Issue</TableHead>
-                      <TableHead className="text-zinc-400">Opened Via</TableHead>
-                      <TableHead className="text-zinc-400">Status</TableHead>
-                      <TableHead className="text-zinc-400">Assigned To</TableHead>
-                      <TableHead className="text-zinc-400">Date Created</TableHead>
-                      <TableHead className="text-zinc-400">Date Modified</TableHead>
-                      <TableHead className="text-zinc-400">Actions</TableHead>
+                    <TableRow className="border-black/5 dark:border-white/5 hover:bg-transparent">
+                      <TableHead className="text-gray-500 dark:text-zinc-400">Priority</TableHead>
+                      <TableHead className="text-gray-500 dark:text-zinc-400">Volume</TableHead>
+                      <TableHead className="text-gray-500 dark:text-zinc-400">Ticket#</TableHead>
+                      <TableHead className="text-gray-500 dark:text-zinc-400">Customer Trunk</TableHead>
+                      <TableHead className="text-gray-500 dark:text-zinc-400">Destination</TableHead>
+                      <TableHead className="text-gray-500 dark:text-zinc-400">ANI/Origination</TableHead>
+                      <TableHead className="text-gray-500 dark:text-zinc-400">Issue</TableHead>
+                      <TableHead className="text-gray-500 dark:text-zinc-400">Opened Via</TableHead>
+                      <TableHead className="text-gray-500 dark:text-zinc-400">Status</TableHead>
+                      <TableHead className="text-gray-500 dark:text-zinc-400">Assigned To</TableHead>
+                      <TableHead className="text-gray-500 dark:text-zinc-400">Date Created</TableHead>
+                      <TableHead className="text-gray-500 dark:text-zinc-400">Date Modified</TableHead>
+                      <TableHead className="text-gray-500 dark:text-zinc-400">Actions</TableHead>
                     </TableRow>
                     {tickets.map((ticket) => {
                       const assignedUser = users.find((u) => u.id === ticket.assigned_to);
                       return (
-                        <TableRow key={ticket.id} onClick={() => openEditSheet(ticket)} className="border-white/5 hover:bg-zinc-800/50 cursor-pointer">
+                        <TableRow key={ticket.id} onClick={() => openEditSheet(ticket)} className="border-black/5 dark:border-white/5 hover:bg-gray-100/50 dark:hover:bg-zinc-800/50 cursor-pointer">
                           <TableCell className="p-3"><PriorityIndicator priority={ticket.priority} /></TableCell>
-                          <TableCell className="text-zinc-300 tabular-nums">{ticket.volume || "0"}</TableCell>
+                          <TableCell className="text-gray-700 dark:text-zinc-300 tabular-nums">{ticket.volume || "0"}</TableCell>
                           <TableCell 
-                            className="text-white font-medium tabular-nums cursor-pointer hover:text-blue-400 transition-colors"
+                            className="text-gray-900 dark:text-white font-medium tabular-nums cursor-pointer hover:text-blue-400 transition-colors"
                             onClick={(e) => {
                               e.stopPropagation();
                               copyAutoReplyTemplate(ticket.ticket_number);
@@ -1171,11 +1171,11 @@ export default function VoiceTicketsPage() {
                           >
                             {ticket.ticket_number}
                           </TableCell>
-                          <TableCell className="text-zinc-300">{ticket.customer_trunk || "-"}</TableCell>
-                          <TableCell className="text-zinc-300">{ticket.destination || "-"}</TableCell>
-                          <TableCell className="text-zinc-300">{ticket.ani ? ticket.ani : "Any"}</TableCell>
-                          <TableCell className="text-zinc-300">{getIssueDisplayText(ticket)}</TableCell>
-                          <TableCell className="text-zinc-300">{getOpenedViaDisplayText(ticket) || "-"}</TableCell>
+                          <TableCell className="text-gray-700 dark:text-zinc-300">{ticket.customer_trunk || "-"}</TableCell>
+                          <TableCell className="text-gray-700 dark:text-zinc-300">{ticket.destination || "-"}</TableCell>
+                          <TableCell className="text-gray-700 dark:text-zinc-300">{ticket.ani ? ticket.ani : "Any"}</TableCell>
+                          <TableCell className="text-gray-700 dark:text-zinc-300">{getIssueDisplayText(ticket)}</TableCell>
+                          <TableCell className="text-gray-700 dark:text-zinc-300">{getOpenedViaDisplayText(ticket) || "-"}</TableCell>
                           <TableCell>
                             {ticket.status === "Resolved" ? (
                               <span
@@ -1210,14 +1210,14 @@ export default function VoiceTicketsPage() {
                                     <StatusBadge status={ticket.status} />
                                   </span>
                                 </PopoverTrigger>
-                                <PopoverContent className="w-48 bg-zinc-800 border-zinc-700">
+                                <PopoverContent className="w-48 bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
                                   <div className="space-y-2">
                                     <button
                                       onClick={(e) => {
                                         e.stopPropagation();
                                         copyAwaitingVendorForClientTemplate();
                                       }}
-                                      className="w-full text-left text-sm text-white hover:bg-zinc-700 p-2 rounded"
+                                      className="w-full text-left text-sm text-gray-900 dark:text-white hover:bg-gray-200 dark:hover:bg-zinc-700 p-2 rounded"
                                     >
                                       <div className="font-medium">For Client</div>
                                     </button>
@@ -1226,7 +1226,7 @@ export default function VoiceTicketsPage() {
                                         e.stopPropagation();
                                         copyAwaitingVendorForVendorTemplate();
                                       }}
-                                      className="w-full text-left text-sm text-white hover:bg-zinc-700 p-2 rounded"
+                                      className="w-full text-left text-sm text-gray-900 dark:text-white hover:bg-gray-200 dark:hover:bg-zinc-700 p-2 rounded"
                                     >
                                       <div className="font-medium">For Vendor</div>
                                     </button>
@@ -1237,14 +1237,14 @@ export default function VoiceTicketsPage() {
                               <StatusBadge status={ticket.status} />
                             )}
                           </TableCell>
-                          <TableCell className="text-zinc-300">{assignedUser?.username || "Unassigned"}</TableCell>
-                          <TableCell className="text-zinc-400 tabular-nums">
+                          <TableCell className="text-gray-700 dark:text-zinc-300">{assignedUser?.username || "Unassigned"}</TableCell>
+                          <TableCell className="text-gray-500 dark:text-zinc-400 tabular-nums">
                             {new Date(ticket.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} {new Date(ticket.date).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
                           </TableCell>
-                          <TableCell className="text-zinc-400 tabular-nums">
+                          <TableCell className="text-gray-500 dark:text-zinc-400 tabular-nums">
                             {ticket.updated_at ? `${new Date(ticket.updated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} ${new Date(ticket.updated_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}` : "-"}
                           </TableCell>
-                            <TableCell className="text-zinc-400">
+                            <TableCell className="text-gray-500 dark:text-zinc-400">
                             <Button
                               variant="ghost"
                               size="sm"
@@ -1252,7 +1252,7 @@ export default function VoiceTicketsPage() {
                                 e.stopPropagation();
                                 openActionsDialog(ticket);
                               }}
-                              className="text-zinc-400 hover:text-white"
+                              className="text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white"
                             >
                               <MessageSquare className="h-4 w-4 mr-1" />
                               {ticket.actions?.length || 0}
@@ -1277,7 +1277,7 @@ export default function VoiceTicketsPage() {
                 size="sm"
                 onClick={handleLoadMoreTickets}
                 disabled={loadingMore}
-                className="border-white/10 text-white"
+                className="border-black/10 dark:border-white/10 text-gray-900 dark:text-white"
               >
                 {loadingMore ? "Loading..." : "Load more tickets"}
               </Button>
@@ -1287,19 +1287,19 @@ export default function VoiceTicketsPage() {
       </Tabs>
 
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-        <SheetContent className="bg-zinc-900 border-white/10 text-white sm:max-w-2xl overflow-y-auto">
-          <SheetHeader><SheetTitle className="text-white">{isAM ? "View Voice Ticket" : editingTicket ? "Edit Voice Ticket" : "Create Voice Ticket"}</SheetTitle></SheetHeader>
+        <SheetContent className="bg-white dark:bg-zinc-900 border-black/10 dark:border-white/10 text-gray-900 dark:text-white sm:max-w-2xl overflow-y-auto">
+          <SheetHeader><SheetTitle className="text-gray-900 dark:text-white">{isAM ? "View Voice Ticket" : editingTicket ? "Edit Voice Ticket" : "Create Voice Ticket"}</SheetTitle></SheetHeader>
           <form onSubmit={handleSubmit} className="space-y-4 mt-6">
             {/* Priority */}
             <div className="space-y-2">
               <Label>Priority *</Label>
               <Select value={formData.priority} onValueChange={(value) => setFormData({ ...formData, priority: value })} required disabled={isAM}>
-                <SelectTrigger className="bg-zinc-800 border-zinc-700 text-white"><SelectValue placeholder="Select priority" /></SelectTrigger>
-                <SelectContent className="bg-zinc-800 border-zinc-700">
-                  <SelectItem value="Low" className="text-white">Low</SelectItem>
-                  <SelectItem value="Medium" className="text-white">Medium</SelectItem>
-                  <SelectItem value="High" className="text-white">High</SelectItem>
-                  <SelectItem value="Urgent" className="text-white">Urgent</SelectItem>
+                <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white"><SelectValue placeholder="Select priority" /></SelectTrigger>
+                <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
+                  <SelectItem value="Low" className="text-gray-900 dark:text-white">Low</SelectItem>
+                  <SelectItem value="Medium" className="text-gray-900 dark:text-white">Medium</SelectItem>
+                  <SelectItem value="High" className="text-gray-900 dark:text-white">High</SelectItem>
+                  <SelectItem value="Urgent" className="text-gray-900 dark:text-white">Urgent</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -1307,7 +1307,7 @@ export default function VoiceTicketsPage() {
             {/* Volume */}
             <div className="space-y-2">
               <Label>Volume *</Label>
-              <Input value={formData.volume || ""} onChange={(e) => setFormData({ ...formData, volume: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" placeholder="Enter volume" required disabled={isAM} />
+              <Input value={formData.volume || ""} onChange={(e) => setFormData({ ...formData, volume: e.target.value })} className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white" placeholder="Enter volume" required disabled={isAM} />
             </div>
 
             {/* Customer */}
@@ -1333,8 +1333,8 @@ export default function VoiceTicketsPage() {
             <div className="space-y-2">
               <Label>Customer Trunk *</Label>
               <Select value={formData.customer_trunk || ""} onValueChange={(value) => setFormData({ ...formData, customer_trunk: value })} required disabled={isAM || !formData.customer_id}>
-                <SelectTrigger className="bg-zinc-800 border-zinc-700"><SelectValue placeholder={formData.customer_id ? "Select customer trunk" : "Select customer first"} /></SelectTrigger>
-                <SelectContent className="bg-zinc-800 border-zinc-700">
+                <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700"><SelectValue placeholder={formData.customer_id ? "Select customer trunk" : "Select customer first"} /></SelectTrigger>
+                <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
                   {(formData.customer_id 
                     ? enterprises.find(e => e.id === formData.customer_id)?.customer_trunks || []
                     : customerTrunkOptions
@@ -1348,11 +1348,11 @@ export default function VoiceTicketsPage() {
             {/* Destination */}
             <div className="space-y-2">
               <Label>Destination *</Label>
-              <Input value={formData.destination || ""} onChange={(e) => setFormData({ ...formData, destination: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" placeholder="Country - Network (e.g., USA - Verizon, UK - Vodafone)" required disabled={isAM} />
+              <Input value={formData.destination || ""} onChange={(e) => setFormData({ ...formData, destination: e.target.value })} className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white" placeholder="Country - Network (e.g., USA - Verizon, UK - Vodafone)" required disabled={isAM} />
             </div>
             <div className="space-y-2">
               <Label>ANI/Origination</Label>
-              <Input value={formData.ani || ""} onChange={(e) => setFormData({ ...formData, ani: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" placeholder="ANI or origination number" disabled={isAM} />
+              <Input value={formData.ani || ""} onChange={(e) => setFormData({ ...formData, ani: e.target.value })} className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white" placeholder="ANI or origination number" disabled={isAM} />
             </div>
 
             {/* Issue Types - Multi-select checklist */}
@@ -1382,27 +1382,27 @@ export default function VoiceTicketsPage() {
 
             {/* Status */}
             <div className="space-y-2">
-              <Label className="text-white">Status *</Label>
+              <Label className="text-gray-900 dark:text-white">Status *</Label>
               <Select value={formData.status} onValueChange={(value) => setFormData({ ...formData, status: value, assigned_to: value === "Unassigned" ? "" : formData.assigned_to })} required disabled={isAM}>
-                <SelectTrigger className="bg-zinc-800 border-zinc-700 text-white"><SelectValue /></SelectTrigger>
-                <SelectContent className="bg-zinc-800 border-zinc-700">
-                  <SelectItem value="Unassigned" className="text-white">Unassigned</SelectItem>
-                  <SelectItem value="Assigned" className="text-white">Assigned</SelectItem>
-                  <SelectItem value="Awaiting Vendor" className="text-white">Awaiting Vendor</SelectItem>
-                  <SelectItem value="Awaiting Client" className="text-white">Awaiting Client</SelectItem>
-                  <SelectItem value="Awaiting AM" className="text-white">Awaiting AM</SelectItem>
-                  <SelectItem value="Resolved" className="text-white">Resolved</SelectItem>
-                  <SelectItem value="Unresolved" className="text-white">Unresolved</SelectItem>
+                <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white"><SelectValue /></SelectTrigger>
+                <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
+                  <SelectItem value="Unassigned" className="text-gray-900 dark:text-white">Unassigned</SelectItem>
+                  <SelectItem value="Assigned" className="text-gray-900 dark:text-white">Assigned</SelectItem>
+                  <SelectItem value="Awaiting Vendor" className="text-gray-900 dark:text-white">Awaiting Vendor</SelectItem>
+                  <SelectItem value="Awaiting Client" className="text-gray-900 dark:text-white">Awaiting Client</SelectItem>
+                  <SelectItem value="Awaiting AM" className="text-gray-900 dark:text-white">Awaiting AM</SelectItem>
+                  <SelectItem value="Resolved" className="text-gray-900 dark:text-white">Resolved</SelectItem>
+                  <SelectItem value="Unresolved" className="text-gray-900 dark:text-white">Unresolved</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
-            <div className="border-t border-zinc-700 pt-4 mt-4">
-              <h3 className="text-sm font-medium text-zinc-400 mb-4">Vendor & Cost</h3>
+            <div className="border-t border-gray-200 dark:border-zinc-700 pt-4 mt-4">
+              <h3 className="text-sm font-medium text-gray-500 dark:text-zinc-400 mb-4">Vendor & Cost</h3>
               
               {/* Rate - Full width on its own row */}
               <div className="mb-4">
-                <div className="space-y-2"><Label className="text-white">Rate</Label><Input value={formData.rate || ""} onChange={(e) => setFormData({ ...formData, rate: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" placeholder="Rate per minute" disabled={isAM} /></div>
+                <div className="space-y-2"><Label className="text-gray-900 dark:text-white">Rate</Label><Input value={formData.rate || ""} onChange={(e) => setFormData({ ...formData, rate: e.target.value })} className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white" placeholder="Rate per minute" disabled={isAM} /></div>
               </div>
               
               {/* Vendor Trunks - Full row below Rate */}
@@ -1414,7 +1414,7 @@ export default function VoiceTicketsPage() {
                   <PopoverTrigger asChild>
                     <Button
                       variant="outline"
-                      className="bg-zinc-800 border-zinc-700 text-white w-full justify-start hover:bg-zinc-700"
+                      className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white w-full justify-start hover:bg-gray-200 dark:hover:bg-zinc-700"
                       disabled={isAM}
                     >
                       <ListChecks className="mr-2 h-4 w-4" />
@@ -1423,13 +1423,13 @@ export default function VoiceTicketsPage() {
                         : "Select vendor trunks..."}
                     </Button>
                   </PopoverTrigger>
-                  <PopoverContent className="w-80 p-0 bg-zinc-800 border-zinc-700" align="start">
-                    <div className="p-2 border-b border-zinc-700">
+                  <PopoverContent className="w-80 p-0 bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700" align="start">
+                    <div className="p-2 border-b border-gray-200 dark:border-zinc-700">
                       <Input
                         placeholder="Search vendor trunks..."
                         value={vendorTrunkSearch}
                         onChange={(e) => setVendorTrunkSearch(e.target.value)}
-                        className="bg-zinc-700 border-zinc-600 text-white text-sm"
+                        className="bg-gray-200 dark:bg-zinc-700 border-gray-300 dark:border-zinc-600 text-gray-900 dark:text-white text-sm"
                       />
                     </div>
                     <div
@@ -1453,7 +1453,7 @@ export default function VoiceTicketsPage() {
                             return (
                               <div
                                 key={trunk}
-                                className="flex items-center space-x-2 p-2 rounded hover:bg-zinc-700 cursor-pointer"
+                                className="flex items-center space-x-2 p-2 rounded hover:bg-gray-200 dark:hover:bg-zinc-700 cursor-pointer"
                                 onClick={() => {
                                   if (isSelected) {
                                     const updatedTrunks = (formData.vendor_trunks || []).filter(v => v.trunk !== trunk);
@@ -1468,10 +1468,10 @@ export default function VoiceTicketsPage() {
                               >
                                 <Checkbox
                                   checked={!!isSelected}
-                                  className="border-zinc-500"
+                                  className="border-gray-400 dark:border-zinc-500"
                                   onCheckedChange={() => {}}
                                 />
-                                <Label className="text-white text-sm cursor-pointer flex-1">{trunk}</Label>
+                                <Label className="text-gray-900 dark:text-white text-sm cursor-pointer flex-1">{trunk}</Label>
                               </div>
                             );
                           })
@@ -1483,17 +1483,17 @@ export default function VoiceTicketsPage() {
 
                 {/* Selected vendor trunks with % and position (when 2+) */}
                 {(formData.vendor_trunks || []).length > 0 && (
-                  <div className="bg-zinc-800/50 border border-zinc-700 rounded-md p-3 space-y-2">
+                  <div className="bg-gray-100/50 dark:bg-zinc-800/50 border border-gray-200 dark:border-zinc-700 rounded-md p-3 space-y-2">
                     <div className="space-y-2">
                       {(formData.vendor_trunks || []).map((vendorTrunk, index) => (
-                        <div key={`selected-${index}`} className="flex flex-wrap items-center gap-2 bg-zinc-700/50 p-3 rounded">
+                        <div key={`selected-${index}`} className="flex flex-wrap items-center gap-2 bg-gray-200/50 dark:bg-zinc-700/50 p-3 rounded">
                           <input
                             type="checkbox"
                             checked={true}
                             readOnly
-                            className="rounded border-zinc-500"
+                            className="rounded border-gray-400 dark:border-zinc-500"
                           />
-                          <Label className="text-white text-sm font-medium flex-1 min-w-[150px] cursor-pointer">{vendorTrunk.trunk}</Label>
+                          <Label className="text-gray-900 dark:text-white text-sm font-medium flex-1 min-w-[150px] cursor-pointer">{vendorTrunk.trunk}</Label>
                           {((formData.vendor_trunks || []).length >= 2) && (
                             <>
                               <Input
@@ -1505,7 +1505,7 @@ export default function VoiceTicketsPage() {
                                   );
                                   setFormData({ ...formData, vendor_trunks: updatedTrunks });
                                 }}
-                                className="bg-zinc-600 border-zinc-500 text-white text-sm w-24 h-9"
+                                className="bg-gray-300 dark:bg-zinc-600 border-gray-400 dark:border-zinc-500 text-gray-900 dark:text-white text-sm w-24 h-9"
                                 disabled={isAM}
                               />
                               <Select
@@ -1518,8 +1518,8 @@ export default function VoiceTicketsPage() {
                                 }}
                                 disabled={isAM}
                               >
-                                <SelectTrigger className="bg-zinc-600 border-zinc-500 h-9 w-28"><SelectValue placeholder="Position" /></SelectTrigger>
-                                <SelectContent className="bg-zinc-800 border-zinc-700">
+                                <SelectTrigger className="bg-gray-300 dark:bg-zinc-600 border-gray-400 dark:border-zinc-500 h-9 w-28"><SelectValue placeholder="Position" /></SelectTrigger>
+                                <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
                                   <SelectItem value="1">1st</SelectItem>
                                   <SelectItem value="2">2nd</SelectItem>
                                   <SelectItem value="3">3rd</SelectItem>
@@ -1537,7 +1537,7 @@ export default function VoiceTicketsPage() {
                                   );
                                   setFormData({ ...formData, vendor_trunks: updatedTrunks });
                                 }}
-                                className="bg-zinc-600 border-zinc-500 text-white text-sm w-32 h-9"
+                                className="bg-gray-300 dark:bg-zinc-600 border-gray-400 dark:border-zinc-500 text-gray-900 dark:text-white text-sm w-32 h-9"
                                 disabled={isAM}
                               />
                             </>
@@ -1553,8 +1553,8 @@ export default function VoiceTicketsPage() {
                             }}
                             disabled={isAM}
                           >
-                            <SelectTrigger className="bg-zinc-600 border-zinc-500 h-9 w-28"><SelectValue placeholder="Cost Type" /></SelectTrigger>
-                            <SelectContent className="bg-zinc-800 border-zinc-700">
+                            <SelectTrigger className="bg-gray-300 dark:bg-zinc-600 border-gray-400 dark:border-zinc-500 h-9 w-28"><SelectValue placeholder="Cost Type" /></SelectTrigger>
+                            <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
                               <SelectItem value="fixed">Fixed</SelectItem>
                               <SelectItem value="range">Range</SelectItem>
                             </SelectContent>
@@ -1571,7 +1571,7 @@ export default function VoiceTicketsPage() {
                                   );
                                   setFormData({ ...formData, vendor_trunks: updatedTrunks });
                                 }}
-                                className="bg-zinc-600 border-zinc-500 text-white text-sm w-24 h-9"
+                                className="bg-gray-300 dark:bg-zinc-600 border-gray-400 dark:border-zinc-500 text-gray-900 dark:text-white text-sm w-24 h-9"
                                 disabled={isAM}
                               />
                               <Input
@@ -1583,7 +1583,7 @@ export default function VoiceTicketsPage() {
                                   );
                                   setFormData({ ...formData, vendor_trunks: updatedTrunks });
                                 }}
-                                className="bg-zinc-600 border-zinc-500 text-white text-sm w-24 h-9"
+                                className="bg-gray-300 dark:bg-zinc-600 border-gray-400 dark:border-zinc-500 text-gray-900 dark:text-white text-sm w-24 h-9"
                                 disabled={isAM}
                               />
                             </>
@@ -1597,7 +1597,7 @@ export default function VoiceTicketsPage() {
                                 );
                                 setFormData({ ...formData, vendor_trunks: updatedTrunks });
                               }}
-                              className="bg-zinc-600 border-zinc-500 text-white text-sm w-28 h-9"
+                              className="bg-gray-300 dark:bg-zinc-600 border-gray-400 dark:border-zinc-500 text-gray-900 dark:text-white text-sm w-28 h-9"
                               disabled={isAM}
                             />
                           )}
@@ -1618,7 +1618,7 @@ export default function VoiceTicketsPage() {
                       ))}
                       {/* Total percentage when 2+ selected - only validate if no positions or networks are used */}
                       {((formData.vendor_trunks || []).length >= 2) && (
-                        <div className="text-xs text-zinc-400 pt-1">
+                        <div className="text-xs text-gray-500 dark:text-zinc-400 pt-1">
                           {(() => {
                             const hasPositions = (formData.vendor_trunks || []).some(v => v.position);
                             const allHaveNetworks = (formData.vendor_trunks || []).every(v => v.network);
@@ -1651,8 +1651,8 @@ export default function VoiceTicketsPage() {
                 <div className="space-y-2">
                   <Label>Is LCR</Label>
                   <Select value={formData.is_lcr || "no"} onValueChange={(value) => setFormData({ ...formData, is_lcr: value })} disabled={isAM}>
-                    <SelectTrigger className="bg-zinc-800 border-zinc-700 w-32"><SelectValue /></SelectTrigger>
-                    <SelectContent className="bg-zinc-800 border-zinc-700">
+                    <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 w-32"><SelectValue /></SelectTrigger>
+                    <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
                       <SelectItem value="yes">Yes</SelectItem>
                       <SelectItem value="no">No</SelectItem>
                     </SelectContent>
@@ -1667,26 +1667,26 @@ export default function VoiceTicketsPage() {
                     onChange={(e) => setFormData({ ...formData, by_loss: e.target.checked })}
                     className="w-4 h-4 accent-blue-500"
                   />
-                  <label htmlFor="by_loss" className="text-white text-sm cursor-pointer">By Loss</label>
+                  <label htmlFor="by_loss" className="text-gray-900 dark:text-white text-sm cursor-pointer">By Loss</label>
                 </div>
               </div>
             </div>
 
             {/* Resolution Details */}
-            <div className="border-t border-zinc-700 pt-4 mt-4">
-              <h3 className="text-sm font-medium text-zinc-400 mb-4">Resolution</h3>
+            <div className="border-t border-gray-200 dark:border-zinc-700 pt-4 mt-4">
+              <h3 className="text-sm font-medium text-gray-500 dark:text-zinc-400 mb-4">Resolution</h3>
               <div className="space-y-4">
                 <div className="space-y-2">
                   <Label>Root Cause</Label>
-                  <Textarea value={formData.root_cause || ""} onChange={(e) => setFormData({ ...formData, root_cause: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" placeholder="Identified root cause" rows={2} disabled={isAM} />
+                  <Textarea value={formData.root_cause || ""} onChange={(e) => setFormData({ ...formData, root_cause: e.target.value })} className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white" placeholder="Identified root cause" rows={2} disabled={isAM} />
                 </div>
                 <div className="space-y-2">
                   <Label>Alternative Route/Solution</Label>
-                  <Textarea value={formData.action_taken || ""} onChange={(e) => setFormData({ ...formData, action_taken: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" placeholder="Alternative route or solution taken" rows={2} disabled={isAM} />
+                  <Textarea value={formData.action_taken || ""} onChange={(e) => setFormData({ ...formData, action_taken: e.target.value })} className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white" placeholder="Alternative route or solution taken" rows={2} disabled={isAM} />
                 </div>
                 <div className="space-y-2">
                   <Label>Internal Notes</Label>
-                  <Textarea value={formData.internal_notes || ""} onChange={(e) => setFormData({ ...formData, internal_notes: e.target.value })} className="bg-zinc-800 border-zinc-700 text-white" placeholder="Internal notes (not visible to client)" rows={2} disabled={isAM} />
+                  <Textarea value={formData.internal_notes || ""} onChange={(e) => setFormData({ ...formData, internal_notes: e.target.value })} className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white" placeholder="Internal notes (not visible to client)" rows={2} disabled={isAM} />
                 </div>
               </div>
             </div>
@@ -1732,7 +1732,7 @@ export default function VoiceTicketsPage() {
                   Create Request
                 </Button>
               )}
-              <Button type="button" variant="outline" onClick={() => setSheetOpen(false)} className="border-zinc-700 text-white hover:bg-zinc-800">{isAM ? "Close" : "Cancel"}</Button>
+              <Button type="button" variant="outline" onClick={() => setSheetOpen(false)} className="border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-zinc-800">{isAM ? "Close" : "Cancel"}</Button>
             </div>
           </form>
         </SheetContent>
@@ -1740,16 +1740,16 @@ export default function VoiceTicketsPage() {
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <AlertDialogContent className="bg-zinc-900 border-white/10">
+        <AlertDialogContent className="bg-white dark:bg-zinc-900 border-black/10 dark:border-white/10">
           <AlertDialogHeader>
-            <AlertDialogTitle className="text-white">Delete Ticket</AlertDialogTitle>
-            <AlertDialogDescription className="text-zinc-400">
+            <AlertDialogTitle className="text-gray-900 dark:text-white">Delete Ticket</AlertDialogTitle>
+            <AlertDialogDescription className="text-gray-500 dark:text-zinc-400">
               Are you sure you want to delete ticket {ticketToDelete?.ticket_number}? This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel className="border-zinc-700 text-white hover:bg-zinc-800">Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} className="bg-red-500 text-white hover:bg-red-600">
+            <AlertDialogCancel className="border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-zinc-800">Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete} className="bg-red-500 text-gray-900 dark:text-white hover:bg-red-600">
               Delete
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -1758,15 +1758,15 @@ export default function VoiceTicketsPage() {
         
       {/* Same-Day Identical Ticket Confirmation Dialog */}
       <AlertDialog open={sameDayDialogOpen} onOpenChange={setSameDayDialogOpen}>
-        <AlertDialogContent className="bg-zinc-900 border-white/10">
+        <AlertDialogContent className="bg-white dark:bg-zinc-900 border-black/10 dark:border-white/10">
           <AlertDialogHeader>
-            <AlertDialogTitle className="text-white">Same-Day Identical Ticket Found</AlertDialogTitle>
-            <AlertDialogDescription className="text-zinc-400">
+            <AlertDialogTitle className="text-gray-900 dark:text-white">Same-Day Identical Ticket Found</AlertDialogTitle>
+            <AlertDialogDescription className="text-gray-500 dark:text-zinc-400">
               A ticket with the same Enterprise, Trunk, Destination, and Issue was created today: {sameDayTickets.map(t => t.ticket_number).join(', ')}. Do you still want to create this ticket?
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel className="border-zinc-700 text-white hover:bg-zinc-800" onClick={() => {
+            <AlertDialogCancel className="border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-zinc-800" onClick={() => {
               setSameDayDialogOpen(false);
               setSameDayTickets([]);
               setPendingFormData(null);
@@ -1780,7 +1780,7 @@ export default function VoiceTicketsPage() {
 
       {/* Actions/Ticket History Dialog */}
       <Dialog open={actionsDialogOpen} onOpenChange={setActionsDialogOpen}>
-        <DialogContent className="bg-zinc-900 border-white/10 text-white max-w-2xl">
+        <DialogContent className="bg-white dark:bg-zinc-900 border-black/10 dark:border-white/10 text-gray-900 dark:text-white max-w-2xl">
           <DialogHeader>
             <DialogTitle>Ticket Actions - {selectedTicket?.ticket_number}</DialogTitle>
           </DialogHeader>
@@ -1790,7 +1790,7 @@ export default function VoiceTicketsPage() {
               <Button
                 size="sm"
                 onClick={handleInformAM}
-                className="bg-blue-500 text-white hover:bg-blue-600"
+                className="bg-blue-500 text-gray-900 dark:text-white hover:bg-blue-600"
               >
                 <User className="h-4 w-4 mr-2" />
                 Inform AM
@@ -1835,7 +1835,7 @@ export default function VoiceTicketsPage() {
               <p className="text-zinc-500 text-center py-4">No actions recorded yet</p>
             ) : (
               ticketActions.map((action) => (
-                <div key={action.id} className="bg-zinc-800/50 rounded-lg p-3 border border-white/5">
+                <div key={action.id} className="bg-gray-100/50 dark:bg-zinc-800/50 rounded-lg p-3 border border-black/5 dark:border-white/5">
                   <div className="flex justify-between items-start mb-2">
                     <div className="flex items-center gap-2">
                       <span className="text-emerald-500 font-medium text-sm">{action.created_by_username}</span>
@@ -1856,7 +1856,7 @@ export default function VoiceTicketsPage() {
                             size="sm"
                             variant="ghost"
                             onClick={() => handleEditAction(action)}
-                            className="h-6 w-6 p-0 text-zinc-400 hover:text-white"
+                            className="h-6 w-6 p-0 text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white"
                           >
                             <Pencil className="h-3 w-3" />
                           </Button>
@@ -1864,7 +1864,7 @@ export default function VoiceTicketsPage() {
                             size="sm"
                             variant="ghost"
                             onClick={() => handleDeleteAction(action.id)}
-                            className="h-6 w-6 p-0 text-zinc-400 hover:text-red-400"
+                            className="h-6 w-6 p-0 text-gray-500 dark:text-zinc-400 hover:text-red-400"
                           >
                             <Trash2 className="h-3 w-3" />
                           </Button>
@@ -1877,7 +1877,7 @@ export default function VoiceTicketsPage() {
                       <Textarea
                         value={editActionText}
                         onChange={(e) => setEditActionText(e.target.value)}
-                        className="bg-zinc-700 border-zinc-600 text-white text-sm"
+                        className="bg-gray-200 dark:bg-zinc-700 border-gray-300 dark:border-zinc-600 text-gray-900 dark:text-white text-sm"
                         rows={3}
                       />
                       <div className="flex gap-2">
@@ -1893,14 +1893,14 @@ export default function VoiceTicketsPage() {
                           size="sm"
                           variant="outline"
                           onClick={handleCancelEdit}
-                          className="border-zinc-600 text-zinc-300 hover:bg-zinc-700"
+                          className="border-gray-300 dark:border-zinc-600 text-gray-700 dark:text-zinc-300 hover:bg-gray-200 dark:hover:bg-zinc-700"
                         >
                           Cancel
                         </Button>
                       </div>
                     </div>
                   ) : (
-                    <p className="text-zinc-300 text-sm whitespace-pre-wrap">{action.text}</p>
+                    <p className="text-gray-700 dark:text-zinc-300 text-sm whitespace-pre-wrap">{action.text}</p>
                   )}
                 </div>
               ))
@@ -1912,7 +1912,7 @@ export default function VoiceTicketsPage() {
                 value={newActionText}
                 onChange={(e) => setNewActionText(e.target.value)}
                 placeholder="Add a new action/update..."
-                className="bg-zinc-800 border-zinc-700 text-white placeholder:text-zinc-500"
+                className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white placeholder:text-zinc-500"
                 rows={3}
               />
               <Button
@@ -1929,18 +1929,18 @@ export default function VoiceTicketsPage() {
 
       {/* Ticket Details Dialog for AM Users */}
       <Dialog open={ticketDetailsDialogOpen} onOpenChange={setTicketDetailsDialogOpen}>
-        <DialogContent className="bg-zinc-900 border-white/10 text-white max-w-3xl max-h-[85vh] overflow-hidden p-4">
+        <DialogContent className="bg-white dark:bg-zinc-900 border-black/10 dark:border-white/10 text-gray-900 dark:text-white max-w-3xl max-h-[85vh] overflow-hidden p-4">
           <DialogHeader className="pb-2">
             <DialogTitle className="text-lg font-semibold">Voice Ticket - {editingTicket?.ticket_number}</DialogTitle>
           </DialogHeader>
           {/* Compact Header - Priority & Status */}
-          <div className="flex items-center justify-between bg-zinc-800/50 p-2 rounded-lg mb-3">
+          <div className="flex items-center justify-between bg-gray-100/50 dark:bg-zinc-800/50 p-2 rounded-lg mb-3">
             <div className="flex items-center gap-2">
-              <span className="text-zinc-400 text-xs">Priority:</span>
+              <span className="text-gray-500 dark:text-zinc-400 text-xs">Priority:</span>
               <PriorityIndicator priority={editingTicket?.priority} />
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-zinc-400 text-xs">Status:</span>
+              <span className="text-gray-500 dark:text-zinc-400 text-xs">Status:</span>
               <StatusBadge status={editingTicket?.status} />
             </div>
           </div>
@@ -1949,37 +1949,37 @@ export default function VoiceTicketsPage() {
             <div className="space-y-2">
               {/* Main Info - 4 columns compact */}
               <div className="grid grid-cols-4 gap-2">
-                <div className="bg-zinc-800/30 p-2 rounded">
+                <div className="bg-gray-100/30 dark:bg-zinc-800/30 p-2 rounded">
                   <span className="text-zinc-500 text-[10px] uppercase">Customer</span>
-                  <p className="text-white text-sm font-medium truncate">{editingTicket?.customer || editingTicket?.enterprise || '-'}</p>
+                  <p className="text-gray-900 dark:text-white text-sm font-medium truncate">{editingTicket?.customer || editingTicket?.enterprise || '-'}</p>
                 </div>
-                <div className="bg-zinc-800/30 p-2 rounded">
+                <div className="bg-gray-100/30 dark:bg-zinc-800/30 p-2 rounded">
                   <span className="text-zinc-500 text-[10px] uppercase">Destination</span>
-                  <p className="text-white text-sm font-medium truncate">{editingTicket?.destination || '-'}</p>
+                  <p className="text-gray-900 dark:text-white text-sm font-medium truncate">{editingTicket?.destination || '-'}</p>
                 </div>
-                <div className="bg-zinc-800/30 p-2 rounded">
+                <div className="bg-gray-100/30 dark:bg-zinc-800/30 p-2 rounded">
                   <span className="text-zinc-500 text-[10px] uppercase">ANI</span>
-                  <p className="text-white text-sm font-medium truncate">{editingTicket?.ani || '-'}</p>
+                  <p className="text-gray-900 dark:text-white text-sm font-medium truncate">{editingTicket?.ani || '-'}</p>
                 </div>
-                <div className="bg-zinc-800/30 p-2 rounded">
+                <div className="bg-gray-100/30 dark:bg-zinc-800/30 p-2 rounded">
                   <span className="text-zinc-500 text-[10px] uppercase">Volume</span>
-                  <p className="text-white text-sm font-medium">{editingTicket?.volume || '0'}</p>
+                  <p className="text-gray-900 dark:text-white text-sm font-medium">{editingTicket?.volume || '0'}</p>
                 </div>
               </div>
 
               {/* Rate & Advanced Settings */}
               <div className="grid grid-cols-3 gap-2">
-                <div className="bg-zinc-800/30 p-2 rounded">
+                <div className="bg-gray-100/30 dark:bg-zinc-800/30 p-2 rounded">
                   <span className="text-zinc-500 text-[10px] uppercase">Rate</span>
-                  <p className="text-white text-sm font-medium">{editingTicket?.rate || '-'}</p>
+                  <p className="text-gray-900 dark:text-white text-sm font-medium">{editingTicket?.rate || '-'}</p>
                 </div>
-                <div className="bg-zinc-800/30 p-2 rounded">
+                <div className="bg-gray-100/30 dark:bg-zinc-800/30 p-2 rounded">
                   <span className="text-zinc-500 text-[10px] uppercase">Assigned To</span>
-                  <p className="text-white text-sm font-medium truncate">{users.find(u => u.id === editingTicket?.assigned_to)?.username || 'Unassigned'}</p>
+                  <p className="text-gray-900 dark:text-white text-sm font-medium truncate">{users.find(u => u.id === editingTicket?.assigned_to)?.username || 'Unassigned'}</p>
                 </div>
-                <div className="bg-zinc-800/30 p-2 rounded">
+                <div className="bg-gray-100/30 dark:bg-zinc-800/30 p-2 rounded">
                   <span className="text-zinc-500 text-[10px] uppercase">Opened Via</span>
-                  <p className="text-white text-sm font-medium truncate">{Array.isArray(editingTicket?.opened_via) ? editingTicket.opened_via.join(', ') : editingTicket?.opened_via || '-'}</p>
+                  <p className="text-gray-900 dark:text-white text-sm font-medium truncate">{Array.isArray(editingTicket?.opened_via) ? editingTicket.opened_via.join(', ') : editingTicket?.opened_via || '-'}</p>
                 </div>
               </div>
 
@@ -1992,16 +1992,16 @@ export default function VoiceTicketsPage() {
 
               {/* Vendor Trunks with %, Position, Cost */}
               {editingTicket?.vendor_trunks && editingTicket.vendor_trunks.length > 0 && (
-                <div className="bg-zinc-800/30 p-2 rounded">
+                <div className="bg-gray-100/30 dark:bg-zinc-800/30 p-2 rounded">
                   <span className="text-zinc-500 text-[10px] uppercase">Vendor Trunks ({editingTicket.vendor_trunks.length})</span>
                   <div className="mt-1 space-y-1">
                     {editingTicket.vendor_trunks.map((trunk, idx) => (
-                      <div key={idx} className="flex items-center justify-between bg-zinc-800/50 p-1.5 rounded text-xs">
-                        <span className="text-white font-medium truncate flex-1">{trunk.trunk}</span>
+                      <div key={idx} className="flex items-center justify-between bg-gray-100/50 dark:bg-zinc-800/50 p-1.5 rounded text-xs">
+                        <span className="text-gray-900 dark:text-white font-medium truncate flex-1">{trunk.trunk}</span>
                         <div className="flex items-center gap-2 ml-2">
                           {trunk.network && <span className="text-blue-400">Network: {trunk.network}</span>}
-                          {trunk.percentage && <span className="text-zinc-400">{trunk.percentage}%</span>}
-                          {trunk.position && <span className="text-zinc-400">Pos: {trunk.position}</span>}
+                          {trunk.percentage && <span className="text-gray-500 dark:text-zinc-400">{trunk.percentage}%</span>}
+                          {trunk.position && <span className="text-gray-500 dark:text-zinc-400">Pos: {trunk.position}</span>}
                           {trunk.cost && <span className="text-emerald-400">{trunk.cost}</span>}
                           {(trunk.min_cost || trunk.max_cost) && <span className="text-emerald-400">${trunk.min_cost || '0'}-{trunk.max_cost || '0'}</span>}
                         </div>
@@ -2012,18 +2012,18 @@ export default function VoiceTicketsPage() {
               )}
 
               {/* Issue Types - compact */}
-              <div className="bg-zinc-800/30 p-2 rounded">
+              <div className="bg-gray-100/30 dark:bg-zinc-800/30 p-2 rounded">
                 <span className="text-zinc-500 text-[10px] uppercase">Issues</span>
                 <div className="flex flex-wrap gap-1 mt-1">
                   {(editingTicket?.issue_types || []).length > 0 ? (
                     editingTicket.issue_types.map((issue, idx) => (
-                      <span key={idx} className="px-1.5 py-0.5 bg-zinc-700 text-zinc-200 text-xs rounded">{issue}</span>
+                      <span key={idx} className="px-1.5 py-0.5 bg-gray-200 dark:bg-zinc-700 text-gray-800 dark:text-zinc-200 text-xs rounded">{issue}</span>
                     ))
                   ) : (
-                    <span className="text-white text-xs">-</span>
+                    <span className="text-gray-900 dark:text-white text-xs">-</span>
                   )}
                   {editingTicket?.issue_other && (
-                    <span className="px-1.5 py-0.5 bg-zinc-700 text-zinc-200 text-xs rounded">Other: {editingTicket.issue_other}</span>
+                    <span className="px-1.5 py-0.5 bg-gray-200 dark:bg-zinc-700 text-gray-800 dark:text-zinc-200 text-xs rounded">Other: {editingTicket.issue_other}</span>
                   )}
                 </div>
               </div>
@@ -2032,21 +2032,21 @@ export default function VoiceTicketsPage() {
               {(editingTicket?.action_taken || editingTicket?.internal_notes || editingTicket?.root_cause) && (
                 <div className="space-y-2">
                   {editingTicket?.root_cause && (
-                    <div className="bg-zinc-800/30 p-2 rounded">
+                    <div className="bg-gray-100/30 dark:bg-zinc-800/30 p-2 rounded">
                       <span className="text-zinc-500 text-[10px] uppercase">Root Cause</span>
-                      <p className="text-white text-xs mt-1 whitespace-pre-wrap">{editingTicket.root_cause}</p>
+                      <p className="text-gray-900 dark:text-white text-xs mt-1 whitespace-pre-wrap">{editingTicket.root_cause}</p>
                     </div>
                   )}
                   {editingTicket?.action_taken && (
-                    <div className="bg-zinc-800/30 p-2 rounded">
+                    <div className="bg-gray-100/30 dark:bg-zinc-800/30 p-2 rounded">
                       <span className="text-zinc-500 text-[10px] uppercase">Solution</span>
-                      <p className="text-white text-xs mt-1 whitespace-pre-wrap">{editingTicket.action_taken}</p>
+                      <p className="text-gray-900 dark:text-white text-xs mt-1 whitespace-pre-wrap">{editingTicket.action_taken}</p>
                     </div>
                   )}
                   {editingTicket?.internal_notes && (
-                    <div className="bg-zinc-800/30 p-2 rounded">
+                    <div className="bg-gray-100/30 dark:bg-zinc-800/30 p-2 rounded">
                       <span className="text-zinc-500 text-[10px] uppercase">Internal Notes</span>
-                      <p className="text-white text-xs mt-1 whitespace-pre-wrap">{editingTicket.internal_notes}</p>
+                      <p className="text-gray-900 dark:text-white text-xs mt-1 whitespace-pre-wrap">{editingTicket.internal_notes}</p>
                     </div>
                   )}
                 </div>
@@ -2073,7 +2073,7 @@ export default function VoiceTicketsPage() {
               <Plus className="h-3 w-3 mr-1" />
               Create Request
             </Button>
-            <Button type="button" variant="outline" size="sm" onClick={() => setTicketDetailsDialogOpen(false)} className="border-zinc-700 text-white hover:bg-zinc-800 text-xs">
+            <Button type="button" variant="outline" size="sm" onClick={() => setTicketDetailsDialogOpen(false)} className="border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-zinc-800 text-xs">
               Close
             </Button>
           </DialogFooter>

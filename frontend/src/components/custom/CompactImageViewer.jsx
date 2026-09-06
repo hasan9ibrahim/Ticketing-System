@@ -127,13 +127,13 @@ const CompactImageViewer = ({ images, title = "Images" }) => {
 
   return (
     <>
-      <div className="border-t border-zinc-700 pt-4 mt-4">
-        <label className="text-zinc-400 text-sm">{title} ({images.length})</label>
+      <div className="border-t border-gray-200 dark:border-zinc-700 pt-4 mt-4">
+        <label className="text-gray-500 dark:text-zinc-400 text-sm">{title} ({images.length})</label>
         <div className="mt-2 space-y-2">
           {images.map((image, index) => (
             <div
               key={index}
-              className="flex items-center justify-between bg-zinc-800/50 rounded-lg p-2 border border-zinc-700 hover:border-zinc-500 transition-colors"
+              className="flex items-center justify-between bg-gray-100/50 dark:bg-zinc-800/50 rounded-lg p-2 border border-gray-200 dark:border-zinc-700 hover:border-gray-400 dark:hover:border-zinc-500 transition-colors"
             >
               {/* Image preview - clickable to open lightbox */}
               <div 
@@ -141,7 +141,7 @@ const CompactImageViewer = ({ images, title = "Images" }) => {
                 onClick={() => openLightbox(index)}
               >
                 {/* Thumbnail */}
-                <div className="w-12 h-12 flex-shrink-0 rounded overflow-hidden bg-zinc-700">
+                <div className="w-12 h-12 flex-shrink-0 rounded overflow-hidden bg-gray-200 dark:bg-zinc-700">
                   <img
                     src={image}
                     alt={`Image ${index + 1}`}
@@ -151,9 +151,9 @@ const CompactImageViewer = ({ images, title = "Images" }) => {
                 
                 {/* File info */}
                 <div className="flex items-center gap-2 min-w-0">
-                  <FileImage className="w-5 h-5 text-zinc-400 flex-shrink-0" />
+                  <FileImage className="w-5 h-5 text-gray-500 dark:text-zinc-400 flex-shrink-0" />
                   <div className="flex flex-col min-w-0">
-                    <span className="text-sm text-white truncate">
+                    <span className="text-sm text-gray-900 dark:text-white truncate">
                       image_{index + 1}.{getFileExtension(image)}
                     </span>
                     <span className="text-xs text-zinc-500">
@@ -169,24 +169,24 @@ const CompactImageViewer = ({ images, title = "Images" }) => {
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="h-8 w-8 flex-shrink-0 text-zinc-400 hover:text-white hover:bg-zinc-700"
+                    className="h-8 w-8 flex-shrink-0 text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-zinc-700"
                     onClick={(e) => e.stopPropagation()}
                   >
                     <MoreVertical className="h-4 w-4" />
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="bg-zinc-800 border-zinc-700 text-white">
+                <DropdownMenuContent align="end" className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white">
                   <DropdownMenuItem 
                     onClick={() => copyImage(image)}
-                    className="cursor-pointer focus:bg-zinc-700 focus:text-white"
+                    className="cursor-pointer focus:bg-gray-200 dark:focus:bg-zinc-700 focus:text-gray-900 dark:focus:text-white"
                   >
                     <Copy className="w-4 h-4 mr-2" />
                     Copy Image
                   </DropdownMenuItem>
-                  <DropdownMenuSeparator className="bg-zinc-700" />
+                  <DropdownMenuSeparator className="bg-gray-200 dark:bg-zinc-700" />
                   <DropdownMenuItem 
                     onClick={() => downloadImage(image, index)}
-                    className="cursor-pointer focus:bg-zinc-700 focus:text-white"
+                    className="cursor-pointer focus:bg-gray-200 dark:focus:bg-zinc-700 focus:text-gray-900 dark:focus:text-white"
                   >
                     <Download className="w-4 h-4 mr-2" />
                     Download
@@ -200,17 +200,17 @@ const CompactImageViewer = ({ images, title = "Images" }) => {
 
       {/* Lightbox Modal */}
       <Dialog open={lightboxOpen} onOpenChange={setLightboxOpen}>
-        <DialogContent className="max-w-4xl w-auto bg-black border-zinc-800 p-0 overflow-hidden" showCloseButton={false}>
+        <DialogContent className="max-w-4xl w-auto bg-white dark:bg-black border-gray-200 dark:border-zinc-800 p-0 overflow-hidden" showCloseButton={false}>
           {/* Custom Close Button */}
           <button
             onClick={() => setLightboxOpen(false)}
-            className="absolute top-4 right-4 z-20 bg-black/50 hover:bg-black/70 text-white rounded-full p-2 transition-colors"
+            className="absolute top-4 right-4 z-20 bg-black/50 hover:bg-black/70 text-gray-900 dark:text-white rounded-full p-2 transition-colors"
             aria-label="Close"
           >
             <X className="w-5 h-5" />
           </button>
           <DialogHeader className="absolute top-0 left-0 right-0 z-10 bg-gradient-to-b from-black/80 to-transparent p-4">
-            <DialogTitle className="text-white text-sm">
+            <DialogTitle className="text-gray-900 dark:text-white text-sm">
               {selectedImageIndex + 1} / {images.length} - image_{selectedImageIndex + 1}.{getFileExtension(images[selectedImageIndex])}
             </DialogTitle>
           </DialogHeader>
@@ -221,7 +221,7 @@ const CompactImageViewer = ({ images, title = "Images" }) => {
               <Button
                 variant="ghost"
                 size="icon"
-                className="absolute left-2 top-1/2 -translate-y-1/2 z-10 bg-black/50 text-white hover:bg-black/70 h-12 w-12"
+                className="absolute left-2 top-1/2 -translate-y-1/2 z-10 bg-black/50 text-gray-900 dark:text-white hover:bg-black/70 h-12 w-12"
                 onClick={() => navigateImage(-1)}
                 disabled={selectedImageIndex === 0}
               >
@@ -230,7 +230,7 @@ const CompactImageViewer = ({ images, title = "Images" }) => {
               <Button
                 variant="ghost"
                 size="icon"
-                className="absolute right-2 top-1/2 -translate-y-1/2 z-10 bg-black/50 text-white hover:bg-black/70 h-12 w-12"
+                className="absolute right-2 top-1/2 -translate-y-1/2 z-10 bg-black/50 text-gray-900 dark:text-white hover:bg-black/70 h-12 w-12"
                 onClick={() => navigateImage(1)}
                 disabled={selectedImageIndex === images.length - 1}
               >
@@ -253,7 +253,7 @@ const CompactImageViewer = ({ images, title = "Images" }) => {
             <Button
               variant="outline"
               size="sm"
-              className="bg-zinc-800 border-zinc-600 text-white hover:bg-zinc-700"
+              className="bg-gray-100 dark:bg-zinc-800 border-gray-300 dark:border-zinc-600 text-gray-900 dark:text-white hover:bg-gray-200 dark:hover:bg-zinc-700"
               onClick={() => copyImage(images[selectedImageIndex])}
             >
               <Copy className="w-4 h-4 mr-2" />
@@ -262,7 +262,7 @@ const CompactImageViewer = ({ images, title = "Images" }) => {
             <Button
               variant="outline"
               size="sm"
-              className="bg-zinc-800 border-zinc-600 text-white hover:bg-zinc-700"
+              className="bg-gray-100 dark:bg-zinc-800 border-gray-300 dark:border-zinc-600 text-gray-900 dark:text-white hover:bg-gray-200 dark:hover:bg-zinc-700"
               onClick={() => downloadImage(images[selectedImageIndex], selectedImageIndex)}
             >
               <Download className="w-4 h-4 mr-2" />

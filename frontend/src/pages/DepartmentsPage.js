@@ -160,8 +160,8 @@ export default function DepartmentsPage() {
     <div className="p-6 lg:p-8 space-y-6 max-w-[1920px] mx-auto">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-4xl font-bold text-white">Departments</h1>
-          <p className="text-zinc-400 mt-1">Manage departments and permissions</p>
+          <h1 className="text-4xl font-bold text-gray-900 dark:text-white">Departments</h1>
+          <p className="text-gray-500 dark:text-zinc-400 mt-1">Manage departments and permissions</p>
         </div>
         <Button onClick={openCreateSheet} className="bg-emerald-500 text-black hover:bg-emerald-400 h-9">
           <Plus className="h-4 w-4 mr-2" />New Department
@@ -174,38 +174,38 @@ export default function DepartmentsPage() {
           placeholder="Search departments..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
-          className="pl-10 bg-zinc-900 border-zinc-700 text-white placeholder:text-zinc-500"
+          className="pl-10 bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white placeholder:text-zinc-500"
         />
       </div>
 
-      <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg overflow-hidden">
+      <div className="bg-white/50 dark:bg-zinc-900/50 border border-gray-200 dark:border-zinc-800 rounded-lg overflow-hidden">
         <Table>
           <TableHeader>
-            <TableRow className="border-zinc-800 hover:bg-zinc-800/50">
-              <TableHead className="text-zinc-400">Name</TableHead>
-              <TableHead className="text-zinc-400">Type</TableHead>
-              <TableHead className="text-zinc-400">Description</TableHead>
-              <TableHead className="text-zinc-400">Enterprises</TableHead>
-              <TableHead className="text-zinc-400">Tickets</TableHead>
-              <TableHead className="text-zinc-400">Users</TableHead>
-              <TableHead className="text-zinc-400 text-right">Actions</TableHead>
+            <TableRow className="border-gray-200 dark:border-zinc-800 hover:bg-gray-100/50 dark:hover:bg-zinc-800/50">
+              <TableHead className="text-gray-500 dark:text-zinc-400">Name</TableHead>
+              <TableHead className="text-gray-500 dark:text-zinc-400">Type</TableHead>
+              <TableHead className="text-gray-500 dark:text-zinc-400">Description</TableHead>
+              <TableHead className="text-gray-500 dark:text-zinc-400">Enterprises</TableHead>
+              <TableHead className="text-gray-500 dark:text-zinc-400">Tickets</TableHead>
+              <TableHead className="text-gray-500 dark:text-zinc-400">Users</TableHead>
+              <TableHead className="text-gray-500 dark:text-zinc-400 text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {filteredDepartments.length > 0 ? (
               filteredDepartments.map((dept) => (
-                <TableRow key={dept.id} className="border-zinc-800 hover:bg-zinc-800/50">
-                  <TableCell className="text-white font-medium">
+                <TableRow key={dept.id} className="border-gray-200 dark:border-zinc-800 hover:bg-gray-100/50 dark:hover:bg-zinc-800/50">
+                  <TableCell className="text-gray-900 dark:text-white font-medium">
                     {dept.name}
                     {isDefaultDepartment(dept.id) && (
                       <span className="ml-2 text-xs text-zinc-500">(Default)</span>
                     )}
                   </TableCell>
-                  <TableCell className="text-zinc-400">
+                  <TableCell className="text-gray-500 dark:text-zinc-400">
                     {dept.department_type === "all" ? "All" : dept.department_type === "sms" ? "SMS" : "Voice"}
                   </TableCell>
-                  <TableCell className="text-zinc-400">{dept.description || "-"}</TableCell>
-                  <TableCell className="text-zinc-400">
+                  <TableCell className="text-gray-500 dark:text-zinc-400">{dept.description || "-"}</TableCell>
+                  <TableCell className="text-gray-500 dark:text-zinc-400">
                     <div className="flex space-x-1 text-xs">
                       {dept.can_view_enterprises && <span className="text-emerald-500">View</span>}
                       {dept.can_edit_enterprises && <span className="text-emerald-500">Edit</span>}
@@ -213,7 +213,7 @@ export default function DepartmentsPage() {
                       {dept.can_delete_enterprises && <span className="text-emerald-500">Delete</span>}
                     </div>
                   </TableCell>
-                  <TableCell className="text-zinc-400">
+                  <TableCell className="text-gray-500 dark:text-zinc-400">
                     <div className="flex space-x-1 text-xs">
                       {dept.can_view_tickets && <span className="text-emerald-500">View</span>}
                       {dept.can_create_tickets && <span className="text-emerald-500">Create</span>}
@@ -221,7 +221,7 @@ export default function DepartmentsPage() {
                       {dept.can_delete_tickets && <span className="text-emerald-500">Delete</span>}
                     </div>
                   </TableCell>
-                  <TableCell className="text-zinc-400">
+                  <TableCell className="text-gray-500 dark:text-zinc-400">
                     <div className="flex space-x-1 text-xs">
                       {dept.can_view_users && <span className="text-emerald-500">View</span>}
                       {dept.can_edit_users && <span className="text-emerald-500">Edit</span>}
@@ -267,9 +267,9 @@ export default function DepartmentsPage() {
 
       {/* Create/Edit Sheet */}
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-        <SheetContent className="bg-zinc-900 border-white/10 text-white sm:max-w-2xl overflow-y-auto">
+        <SheetContent className="bg-white dark:bg-zinc-900 border-black/10 dark:border-white/10 text-gray-900 dark:text-white sm:max-w-2xl overflow-y-auto">
           <SheetHeader>
-            <SheetTitle className="text-white">
+            <SheetTitle className="text-gray-900 dark:text-white">
               {editingDepartment ? "Edit Department" : "Create Department"}
             </SheetTitle>
           </SheetHeader>
@@ -279,7 +279,7 @@ export default function DepartmentsPage() {
               <Input
                 value={formData.name || ""}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                className="bg-zinc-800 border-zinc-700 text-white"
+                className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white"
                 required
               />
             </div>
@@ -288,7 +288,7 @@ export default function DepartmentsPage() {
               <Input
                 value={formData.description || ""}
                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                className="bg-zinc-800 border-zinc-700 text-white"
+                className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white"
               />
             </div>
 
@@ -299,21 +299,21 @@ export default function DepartmentsPage() {
                 value={formData.department_type || "all"}
                 onValueChange={(value) => setFormData({ ...formData, department_type: value })}
               >
-                <SelectTrigger className="bg-zinc-800 border-zinc-700 text-white">
+                <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white">
                   <SelectValue placeholder="Select department type" />
                 </SelectTrigger>
-                <SelectContent className="bg-zinc-800 border-zinc-700">
-                  <SelectItem value="all" className="text-zinc-300">All (SMS & Voice)</SelectItem>
-                  <SelectItem value="sms" className="text-zinc-300">SMS Only</SelectItem>
-                  <SelectItem value="voice" className="text-zinc-300">Voice Only</SelectItem>
+                <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
+                  <SelectItem value="all" className="text-gray-700 dark:text-zinc-300">All (SMS & Voice)</SelectItem>
+                  <SelectItem value="sms" className="text-gray-700 dark:text-zinc-300">SMS Only</SelectItem>
+                  <SelectItem value="voice" className="text-gray-700 dark:text-zinc-300">Voice Only</SelectItem>
                 </SelectContent>
               </Select>
               <p className="text-xs text-zinc-500">Determines which tickets this department can access</p>
             </div>
 
             {/* Enterprises Permissions */}
-            <div className="border-t border-zinc-700 pt-4">
-              <Label className="text-zinc-400 mb-2 block">Enterprises Permissions</Label>
+            <div className="border-t border-gray-200 dark:border-zinc-700 pt-4">
+              <Label className="text-gray-500 dark:text-zinc-400 mb-2 block">Enterprises Permissions</Label>
               <div className="grid grid-cols-2 gap-2">
                 <div className="flex items-center space-x-2">
                   <Checkbox
@@ -321,7 +321,7 @@ export default function DepartmentsPage() {
                     checked={formData.can_view_enterprises}
                     onCheckedChange={(checked) => setFormData({ ...formData, can_view_enterprises: checked })}
                   />
-                  <label htmlFor="can_view_enterprises" className="text-sm text-zinc-300">View</label>
+                  <label htmlFor="can_view_enterprises" className="text-sm text-gray-700 dark:text-zinc-300">View</label>
                 </div>
                 <div className="flex items-center space-x-2">
                   <Checkbox
@@ -329,7 +329,7 @@ export default function DepartmentsPage() {
                     checked={formData.can_edit_enterprises}
                     onCheckedChange={(checked) => setFormData({ ...formData, can_edit_enterprises: checked })}
                   />
-                  <label htmlFor="can_edit_enterprises" className="text-sm text-zinc-300">Edit</label>
+                  <label htmlFor="can_edit_enterprises" className="text-sm text-gray-700 dark:text-zinc-300">Edit</label>
                 </div>
                 <div className="flex items-center space-x-2">
                   <Checkbox
@@ -337,7 +337,7 @@ export default function DepartmentsPage() {
                     checked={formData.can_create_enterprises}
                     onCheckedChange={(checked) => setFormData({ ...formData, can_create_enterprises: checked })}
                   />
-                  <label htmlFor="can_create_enterprises" className="text-sm text-zinc-300">Create</label>
+                  <label htmlFor="can_create_enterprises" className="text-sm text-gray-700 dark:text-zinc-300">Create</label>
                 </div>
                 <div className="flex items-center space-x-2">
                   <Checkbox
@@ -345,14 +345,14 @@ export default function DepartmentsPage() {
                     checked={formData.can_delete_enterprises}
                     onCheckedChange={(checked) => setFormData({ ...formData, can_delete_enterprises: checked })}
                   />
-                  <label htmlFor="can_delete_enterprises" className="text-sm text-zinc-300">Delete</label>
+                  <label htmlFor="can_delete_enterprises" className="text-sm text-gray-700 dark:text-zinc-300">Delete</label>
                 </div>
               </div>
             </div>
 
             {/* Tickets Permissions */}
-            <div className="border-t border-zinc-700 pt-4">
-              <Label className="text-zinc-400 mb-2 block">Tickets Permissions</Label>
+            <div className="border-t border-gray-200 dark:border-zinc-700 pt-4">
+              <Label className="text-gray-500 dark:text-zinc-400 mb-2 block">Tickets Permissions</Label>
               <div className="grid grid-cols-2 gap-2">
                 <div className="flex items-center space-x-2">
                   <Checkbox
@@ -360,7 +360,7 @@ export default function DepartmentsPage() {
                     checked={formData.can_view_tickets}
                     onCheckedChange={(checked) => setFormData({ ...formData, can_view_tickets: checked })}
                   />
-                  <label htmlFor="can_view_tickets" className="text-sm text-zinc-300">View</label>
+                  <label htmlFor="can_view_tickets" className="text-sm text-gray-700 dark:text-zinc-300">View</label>
                 </div>
                 <div className="flex items-center space-x-2">
                   <Checkbox
@@ -368,7 +368,7 @@ export default function DepartmentsPage() {
                     checked={formData.can_create_tickets}
                     onCheckedChange={(checked) => setFormData({ ...formData, can_create_tickets: checked })}
                   />
-                  <label htmlFor="can_create_tickets" className="text-sm text-zinc-300">Create</label>
+                  <label htmlFor="can_create_tickets" className="text-sm text-gray-700 dark:text-zinc-300">Create</label>
                 </div>
                 <div className="flex items-center space-x-2">
                   <Checkbox
@@ -376,7 +376,7 @@ export default function DepartmentsPage() {
                     checked={formData.can_edit_tickets}
                     onCheckedChange={(checked) => setFormData({ ...formData, can_edit_tickets: checked })}
                   />
-                  <label htmlFor="can_edit_tickets" className="text-sm text-zinc-300">Edit</label>
+                  <label htmlFor="can_edit_tickets" className="text-sm text-gray-700 dark:text-zinc-300">Edit</label>
                 </div>
                 <div className="flex items-center space-x-2">
                   <Checkbox
@@ -384,14 +384,14 @@ export default function DepartmentsPage() {
                     checked={formData.can_delete_tickets}
                     onCheckedChange={(checked) => setFormData({ ...formData, can_delete_tickets: checked })}
                   />
-                  <label htmlFor="can_delete_tickets" className="text-sm text-zinc-300">Delete</label>
+                  <label htmlFor="can_delete_tickets" className="text-sm text-gray-700 dark:text-zinc-300">Delete</label>
                 </div>
               </div>
             </div>
 
             {/* Users Permissions */}
-            <div className="border-t border-zinc-700 pt-4">
-              <Label className="text-zinc-400 mb-2 block">Users Permissions</Label>
+            <div className="border-t border-gray-200 dark:border-zinc-700 pt-4">
+              <Label className="text-gray-500 dark:text-zinc-400 mb-2 block">Users Permissions</Label>
               <div className="grid grid-cols-2 gap-2">
                 <div className="flex items-center space-x-2">
                   <Checkbox
@@ -399,7 +399,7 @@ export default function DepartmentsPage() {
                     checked={formData.can_view_users}
                     onCheckedChange={(checked) => setFormData({ ...formData, can_view_users: checked })}
                   />
-                  <label htmlFor="can_view_users" className="text-sm text-zinc-300">View</label>
+                  <label htmlFor="can_view_users" className="text-sm text-gray-700 dark:text-zinc-300">View</label>
                 </div>
                 <div className="flex items-center space-x-2">
                   <Checkbox
@@ -407,21 +407,21 @@ export default function DepartmentsPage() {
                     checked={formData.can_edit_users}
                     onCheckedChange={(checked) => setFormData({ ...formData, can_edit_users: checked })}
                   />
-                  <label htmlFor="can_edit_users" className="text-sm text-zinc-300">Edit</label>
+                  <label htmlFor="can_edit_users" className="text-sm text-gray-700 dark:text-zinc-300">Edit</label>
                 </div>
               </div>
             </div>
 
             {/* Other Permissions */}
-            <div className="border-t border-zinc-700 pt-4">
-              <Label className="text-zinc-400 mb-2 block">Other Permissions</Label>
+            <div className="border-t border-gray-200 dark:border-zinc-700 pt-4">
+              <Label className="text-gray-500 dark:text-zinc-400 mb-2 block">Other Permissions</Label>
               <div className="flex items-center space-x-2">
                 <Checkbox
                   id="can_view_all_tickets"
                   checked={formData.can_view_all_tickets}
                   onCheckedChange={(checked) => setFormData({ ...formData, can_view_all_tickets: checked })}
                 />
-                <label htmlFor="can_view_all_tickets" className="text-sm text-zinc-300">View All Tickets (not just assigned)</label>
+                <label htmlFor="can_view_all_tickets" className="text-sm text-gray-700 dark:text-zinc-300">View All Tickets (not just assigned)</label>
               </div>
             </div>
 
@@ -429,7 +429,7 @@ export default function DepartmentsPage() {
               <Button type="submit" className="bg-emerald-500 text-black hover:bg-emerald-400">
                 {editingDepartment ? "Update Department" : "Create Department"}
               </Button>
-              <Button type="button" variant="outline" onClick={() => setSheetOpen(false)} className="border-zinc-700 text-white hover:bg-zinc-800">
+              <Button type="button" variant="outline" onClick={() => setSheetOpen(false)} className="border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-zinc-800">
                 Cancel
               </Button>
             </div>
@@ -439,16 +439,16 @@ export default function DepartmentsPage() {
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <AlertDialogContent className="bg-zinc-900 border-white/10">
+        <AlertDialogContent className="bg-white dark:bg-zinc-900 border-black/10 dark:border-white/10">
           <AlertDialogHeader>
-            <AlertDialogTitle className="text-white">Delete Department</AlertDialogTitle>
-            <AlertDialogDescription className="text-zinc-400">
+            <AlertDialogTitle className="text-gray-900 dark:text-white">Delete Department</AlertDialogTitle>
+            <AlertDialogDescription className="text-gray-500 dark:text-zinc-400">
               Are you sure you want to delete {departmentToDelete?.name}? This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel className="border-zinc-700 text-white hover:bg-zinc-800">Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} className="bg-red-500 text-white hover:bg-red-600">
+            <AlertDialogCancel className="border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-zinc-800">Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete} className="bg-red-500 text-gray-900 dark:text-white hover:bg-red-600">
               Delete
             </AlertDialogAction>
           </AlertDialogFooter>

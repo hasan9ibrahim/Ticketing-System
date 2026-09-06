@@ -645,7 +645,7 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
         return (
         <div
           key={chat.conversation_id}
-          className={`fixed z-40 flex flex-col bg-black border border-zinc-700 text-white transition-all duration-300 ${
+          className={`fixed z-40 flex flex-col bg-white dark:bg-black border border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white transition-all duration-300 ${
             chat.minimized 
               ? "bottom-2" 
               : "bottom-2"
@@ -659,14 +659,14 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
           {/* Chat Header - only show when minimized */}
           {chat.minimized && (
             <div 
-              className="flex items-center justify-between px-3 py-2 bg-zinc-900 border-b border-zinc-700 cursor-pointer hover:bg-zinc-800"
+              className="flex items-center justify-between px-3 py-2 bg-white dark:bg-zinc-900 border-b border-gray-200 dark:border-zinc-700 cursor-pointer hover:bg-gray-100 dark:hover:bg-zinc-800"
               onClick={() => handleChatTabClick(chat)}
             >
               <div className="flex items-center gap-2 min-w-0 flex-1">
                 <span className="font-medium truncate text-sm flex items-center gap-1 mr-6">
                   {chat.participant?.name || chat.participant?.username}
                   {chat.unreadCount > 0 && (
-                    <Badge className="bg-red-500 text-white text-xs min-w-[18px] h-[18px] flex items-center justify-center p-0">
+                    <Badge className="bg-red-500 text-gray-900 dark:text-white text-xs min-w-[18px] h-[18px] flex items-center justify-center p-0">
                       {chat.unreadCount > 99 ? '99+' : chat.unreadCount}
                     </Badge>
                   )}
@@ -676,7 +676,7 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="p-1 h-6 w-6 text-zinc-400 hover:text-red-400"
+                  className="p-1 h-6 w-6 text-gray-500 dark:text-zinc-400 hover:text-red-400"
                   onClick={(e) => closeChatWindow(chat.conversation_id, e)}
                 >
                   <X className="w-3 h-3" />
@@ -712,21 +712,21 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
 
       {/* Main Chat Widget */}
       <div
-        className={`fixed bottom-0 right-4 z-50 flex flex-col bg-black border border-zinc-800 ${
+        className={`fixed bottom-0 right-4 z-50 flex flex-col bg-white dark:bg-black border border-gray-200 dark:border-zinc-800 ${
           minimized ? "h-12" : "h-[500px]"
-        } transition-all duration-300 text-white`}
+        } transition-all duration-300 text-gray-900 dark:text-white`}
         style={{ width: minimized ? "60px" : "380px" }}
       >
       {/* Header */}
       <div
-        className="flex items-center justify-between px-3 py-2 bg-zinc-900 border-b border-white/10 rounded-t-lg cursor-pointer hover:bg-zinc-800"
+        className="flex items-center justify-between px-3 py-2 bg-white dark:bg-zinc-900 border-b border-black/10 dark:border-white/10 rounded-t-lg cursor-pointer hover:bg-gray-100 dark:hover:bg-zinc-800"
         onClick={() => setMinimized(!minimized)}
       >
         <div className="flex items-center gap-2">
           <div className="relative">
             <MessageSquare className="w-5 h-5" />
             {minimized && totalUnread > 0 && (
-              <Badge className="absolute -top-2 -right-2 bg-red-500 text-white text-xs min-w-[18px] h-[18px] flex items-center justify-center p-0">
+              <Badge className="absolute -top-2 -right-2 bg-red-500 text-gray-900 dark:text-white text-xs min-w-[18px] h-[18px] flex items-center justify-center p-0">
                 {totalUnread > 99 ? '99+' : totalUnread}
               </Badge>
             )}
@@ -740,9 +740,9 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
       {!minimized && (
         <>
           {/* Chat List View - Coming soon message instead */}
-          <div className="flex flex-col flex-1 bg-black border border-t-0 border-gray-800 rounded-b-lg overflow-hidden p-4">
+          <div className="flex flex-col flex-1 bg-white dark:bg-black border border-t-0 border-gray-200 dark:border-gray-800 rounded-b-lg overflow-hidden p-4">
             <div className="flex-1 flex items-center justify-center">
-              <div className="text-white text-lg">Coming soon...</div>
+              <div className="text-gray-900 dark:text-white text-lg">Coming soon...</div>
             </div>
           </div>
         </>
@@ -832,14 +832,14 @@ function ChatListView({
   };
 
   return (
-    <div className="flex flex-col flex-1 bg-black border border-t-0 border-gray-800 rounded-b-lg overflow-hidden">
+    <div className="flex flex-col flex-1 bg-white dark:bg-black border border-t-0 border-gray-200 dark:border-gray-800 rounded-b-lg overflow-hidden">
       {/* Search */}
-      <div className="p-2 border-b border-zinc-800">
+      <div className="p-2 border-b border-gray-200 dark:border-zinc-800">
         <Input
           placeholder="Search messages..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="h-9 bg-zinc-900 border-zinc-700 text-white placeholder:text-zinc-500"
+          className="h-9 bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white placeholder:text-zinc-500"
         />
       </div>
 
@@ -852,12 +852,12 @@ function ChatListView({
             return (
               <div
                 key={conv.id}
-                className="flex items-center gap-3 p-2 hover:bg-gray-800 rounded-lg cursor-pointer"
+                className="flex items-center gap-3 p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg cursor-pointer"
                 onClick={() => onSelectConversation(conv)}
               >
                 <div className="relative">
                   <Avatar className="w-10 h-10">
-                    <AvatarFallback className="bg-emerald-600 text-white">
+                    <AvatarFallback className="bg-emerald-600 text-gray-900 dark:text-white">
                       {getInitials(participant?.name)}
                     </AvatarFallback>
                   </Avatar>
@@ -867,7 +867,7 @@ function ChatListView({
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between">
-                    <div className="font-medium truncate text-white">{participant?.name}</div>
+                    <div className="font-medium truncate text-gray-900 dark:text-white">{participant?.name}</div>
                     <div className="text-xs text-zinc-500">
                       {formatTime(conv.last_message_time)}
                     </div>
@@ -878,7 +878,7 @@ function ChatListView({
                       {conv.last_message || "No messages yet"}
                     </div>
                     {conv.unread_count > 0 && (
-                      <Badge className="bg-emerald-600 text-white text-xs min-w-[20px] h-5 flex items-center justify-center">
+                      <Badge className="bg-emerald-600 text-gray-900 dark:text-white text-xs min-w-[20px] h-5 flex items-center justify-center">
                         {conv.unread_count}
                       </Badge>
                     )}
@@ -900,12 +900,12 @@ function ChatListView({
               {usersWithoutConversations.map((user) => (
                 <div
                   key={user.id}
-                  className="flex items-center gap-3 p-2 hover:bg-gray-800 rounded-lg cursor-pointer"
+                  className="flex items-center gap-3 p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg cursor-pointer"
                   onClick={() => onStartConversation(user)}
                 >
                   <div className="relative">
                     <Avatar className="w-10 h-10">
-                      <AvatarFallback className="bg-emerald-600 text-white">
+                      <AvatarFallback className="bg-emerald-600 text-gray-900 dark:text-white">
                         {getInitials(user.name)}
                       </AvatarFallback>
                     </Avatar>
@@ -914,7 +914,7 @@ function ChatListView({
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="font-medium truncate text-white">{user.name}</div>
+                    <div className="font-medium truncate text-gray-900 dark:text-white">{user.name}</div>
                     <div className="text-xs text-gray-500 truncate">{user.is_online ? 'Online' : 'Offline'}</div>
                   </div>
                 </div>
@@ -1194,23 +1194,23 @@ function ChatWindowView({
   };
 
   return (
-    <div className="flex flex-col flex-1 bg-black border border-t-0 border-gray-800 rounded-b-lg overflow-hidden" style={{ minHeight: 0 }}>
+    <div className="flex flex-col flex-1 bg-white dark:bg-black border border-t-0 border-gray-200 dark:border-gray-800 rounded-b-lg overflow-hidden" style={{ minHeight: 0 }}>
       {/* Chat Header */}
-      <div className="flex items-center justify-between gap-2 px-2 py-1 border-b border-white/10 bg-zinc-900">
+      <div className="flex items-center justify-between gap-2 px-2 py-1 border-b border-black/10 dark:border-white/10 bg-white dark:bg-zinc-900">
         <div className="flex items-center gap-2">
           <div className="relative">
             <Avatar className="w-8 h-8">
-              <AvatarFallback className="bg-emerald-600 text-white text-xs">
+              <AvatarFallback className="bg-emerald-600 text-gray-900 dark:text-white text-xs">
                 {getInitials(chat.participant?.name)}
               </AvatarFallback>
             </Avatar>
             {chat.participant?.is_online && (
-              <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-gray-800" />
+              <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-white dark:border-gray-800" />
             )}
           </div>
           <div>
-            <div className="font-medium text-sm text-white">{chat.participant?.name}</div>
-            <div className="text-[10px] text-zinc-400">
+            <div className="font-medium text-sm text-gray-900 dark:text-white">{chat.participant?.name}</div>
+            <div className="text-[10px] text-gray-500 dark:text-zinc-400">
               {chat.participant?.is_online ? "Online" : "Offline"}
             </div>
           </div>
@@ -1220,7 +1220,7 @@ function ChatWindowView({
             <Button
               variant="ghost"
               size="sm"
-              className="p-1 h-6 w-6 text-zinc-400 hover:text-white"
+              className="p-1 h-6 w-6 text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white"
               onClick={onMinimize}
               title="Minimize"
             >
@@ -1233,7 +1233,7 @@ function ChatWindowView({
             <Button
               variant="ghost"
               size="sm"
-              className="p-1 h-6 w-6 text-zinc-400 hover:text-red-400"
+              className="p-1 h-6 w-6 text-gray-500 dark:text-zinc-400 hover:text-red-400"
               onClick={onClose}
               title="Close"
             >
@@ -1251,7 +1251,7 @@ function ChatWindowView({
         onScroll={handleScroll}
       >
         {loading && messages.length === 0 && (
-          <div className="text-center text-zinc-400 py-4">Loading...</div>
+          <div className="text-center text-gray-500 dark:text-zinc-400 py-4">Loading...</div>
         )}
         {groupMessagesByDate().map((item, index) => {
           if (item.type === "date") {
@@ -1274,8 +1274,8 @@ function ChatWindowView({
               <div
                 className={`max-w-[70%] rounded px-2 py-1 text-sm ${
                   isOwn
-                    ? "bg-emerald-600 text-white"
-                    : "bg-zinc-700 text-zinc-100"
+                    ? "bg-emerald-600 text-gray-900 dark:text-white"
+                    : "bg-gray-200 dark:bg-zinc-700 text-gray-900 dark:text-zinc-100"
                 }`}
               >
                 {/* Image message */}
@@ -1297,7 +1297,7 @@ function ChatWindowView({
                     target="_blank"
                     rel="noopener noreferrer"
                     className={`flex items-center gap-2 mb-1 ${
-                      isOwn ? "text-emerald-200 hover:text-white" : "text-emerald-400 hover:text-emerald-300"
+                      isOwn ? "text-emerald-200 hover:text-gray-900 dark:hover:text-white" : "text-emerald-400 hover:text-emerald-300"
                     }`}
                   >
                     <Paperclip className="w-3 h-3" />
@@ -1316,7 +1316,7 @@ function ChatWindowView({
                           target="_blank"
                           rel="noopener noreferrer"
                           className={`underline ${
-                            isOwn ? "text-emerald-200 hover:text-white" : "text-emerald-400 hover:text-emerald-300"
+                            isOwn ? "text-emerald-200 hover:text-gray-900 dark:hover:text-white" : "text-emerald-400 hover:text-emerald-300"
                           }`}
                         >
                           {part}
@@ -1344,7 +1344,7 @@ function ChatWindowView({
 
         {/* Typing indicator */}
         {typingUser && typingUser.user_id !== user.id && (
-          <div className="flex items-center gap-2 text-xs text-zinc-400 mb-1">
+          <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-zinc-400 mb-1">
             <div className="flex gap-1">
               <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
               <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
@@ -1358,7 +1358,7 @@ function ChatWindowView({
       </div>
 
       {/* Message Input */}
-      <div className="flex items-center gap-1 px-2 py-1 border-t border-white/10 bg-zinc-900">
+      <div className="flex items-center gap-1 px-2 py-1 border-t border-black/10 dark:border-white/10 bg-white dark:bg-zinc-900">
         <Button
           variant="ghost"
           size="sm"
@@ -1366,7 +1366,7 @@ function ChatWindowView({
           onClick={() => fileInputRef.current?.click()}
           title="Attach file"
         >
-          <Paperclip className="w-4 h-4 text-zinc-400" />
+          <Paperclip className="w-4 h-4 text-gray-500 dark:text-zinc-400" />
         </Button>
         <Button
           variant="ghost"
@@ -1384,7 +1384,7 @@ function ChatWindowView({
           onChange={(e) => setMessage(e.target.value)}
           onKeyPress={handleKeyPress}
           onPaste={handlePaste}
-          className="flex-1 h-8 text-sm bg-zinc-700 border-zinc-600 text-white placeholder:text-zinc-400"
+          className="flex-1 h-8 text-sm bg-gray-200 dark:bg-zinc-700 border-gray-300 dark:border-zinc-600 text-gray-900 dark:text-white placeholder:text-gray-500 dark:placeholder:text-zinc-400"
         />
         <Button
           variant="ghost"

@@ -51,7 +51,7 @@ const SHIFT_TYPES = [
   { id: "shift_d", label: "Shift D", time: "4 PM - 12 AM", color: "bg-purple-600", textColor: "text-purple-100" },
   { id: "off", label: "Off", time: "", color: "bg-red-600", textColor: "text-red-100" },
   { id: "leave", label: "Leave", time: "", color: "bg-amber-600", textColor: "text-amber-100" },
-  { id: "holiday", label: "Holiday", time: "", color: "bg-zinc-600", textColor: "text-zinc-100" },
+  { id: "holiday", label: "Holiday", time: "", color: "bg-gray-300 dark:bg-zinc-600", textColor: "text-gray-900 dark:text-zinc-100" },
 ];
 
 const getShiftConfig = (shiftType) => {
@@ -317,7 +317,7 @@ export default function NOCSchedulePage() {
   const renderCalendarDays = () => {
     if (nocUsers.length === 0) {
       return (
-        <div className="p-8 text-center text-zinc-400">
+        <div className="p-8 text-center text-gray-500 dark:text-zinc-400">
           No NOC users found. Please add NOC users first.
         </div>
       );
@@ -336,11 +336,11 @@ export default function NOCSchedulePage() {
       days.push(
         <div 
           key={day} 
-          className={`flex items-center border-b border-zinc-800 ${isToday ? 'bg-emerald-900/20' : ''} ${isWeekend ? 'bg-zinc-900/30' : ''}`}
+          className={`flex items-center border-b border-gray-200 dark:border-zinc-800 ${isToday ? 'bg-emerald-900/20' : ''} ${isWeekend ? 'bg-white/30 dark:bg-zinc-900/30' : ''}`}
         >
           {/* Day column - sticky */}
-          <div className="w-16 flex-shrink-0 p-2 border-r border-zinc-800 sticky left-0 z-10 bg-zinc-950">
-            <div className={`text-sm font-medium ${isToday ? 'text-emerald-400' : 'text-zinc-400'}`}>
+          <div className="w-16 flex-shrink-0 p-2 border-r border-gray-200 dark:border-zinc-800 sticky left-0 z-10 bg-gray-50 dark:bg-zinc-950">
+            <div className={`text-sm font-medium ${isToday ? 'text-emerald-400' : 'text-gray-500 dark:text-zinc-400'}`}>
               {day}
             </div>
             <div className="text-xs text-zinc-500">{getDayName(dayOfWeek)}</div>
@@ -355,9 +355,9 @@ export default function NOCSchedulePage() {
               return (
                 <div 
                   key={nocUser.id}
-                  className={`flex-1 min-w-[80px] h-12 border-r border-zinc-800 flex items-center justify-center cursor-pointer transition-colors
+                  className={`flex-1 min-w-[80px] h-12 border-r border-gray-200 dark:border-zinc-800 flex items-center justify-center cursor-pointer transition-colors
                     ${canEdit ? 'hover:opacity-80' : ''}
-                    ${shiftConfig ? shiftConfig.color : 'bg-zinc-900'}`}
+                    ${shiftConfig ? shiftConfig.color : 'bg-white dark:bg-zinc-900'}`}
                   onClick={() => openEditDialog(nocUser.id, day)}
                   title={schedule ? `${shiftConfig.label} - ${shiftConfig.time || 'No shift'}` : "Click to assign shift"}
                 >
@@ -378,12 +378,12 @@ export default function NOCSchedulePage() {
   };
 
   return (
-    <div className="p-6 bg-black min-h-screen text-white">
+    <div className="p-6 bg-white dark:bg-black min-h-screen text-gray-900 dark:text-white">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-3xl font-bold text-white">NOC Schedule</h1>
-          <p className="text-zinc-400 mt-1">Monthly schedule for NOC team</p>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">NOC Schedule</h1>
+          <p className="text-gray-500 dark:text-zinc-400 mt-1">Monthly schedule for NOC team</p>
         </div>
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
@@ -428,7 +428,7 @@ export default function NOCSchedulePage() {
         {SHIFT_TYPES.map(shift => (
           <div key={shift.id} className="flex items-center gap-2">
             <div className={`w-4 h-4 rounded ${shift.color}`}></div>
-            <span className="text-sm text-zinc-400">
+            <span className="text-sm text-gray-500 dark:text-zinc-400">
               {shift.label}
               {shift.time && <span className="text-zinc-500 ml-1">({shift.time})</span>}
             </span>
@@ -437,10 +437,10 @@ export default function NOCSchedulePage() {
       </div>
 
       {/* NOC Users Info */}
-      <div className="mb-4 p-3 bg-zinc-900 rounded-lg">
-        <span className="text-sm text-zinc-400">NOC Team Members: </span>
+      <div className="mb-4 p-3 bg-white dark:bg-zinc-900 rounded-lg">
+        <span className="text-sm text-gray-500 dark:text-zinc-400">NOC Team Members: </span>
         {nocUsers.length > 0 ? (
-          <span className="text-sm text-white">
+          <span className="text-sm text-gray-900 dark:text-white">
             {nocUsers.map(u => u.name || u.username).join(", ")}
           </span>
         ) : (
@@ -473,8 +473,8 @@ export default function NOCSchedulePage() {
         const holidays = todaySchedules.filter(s => s.shift && s.shift.id === 'holiday');
 
         return (
-          <div className="mb-6 p-4 bg-zinc-900 rounded-lg border border-zinc-800">
-            <h3 className="text-lg font-semibold text-white mb-4">Today's Schedule ({today.getDate()} {getMonthName(todayMonth)} {todayYear})</h3>
+          <div className="mb-6 p-4 bg-white dark:bg-zinc-900 rounded-lg border border-gray-200 dark:border-zinc-800">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Today's Schedule ({today.getDate()} {getMonthName(todayMonth)} {todayYear})</h3>
             <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
               {/* Day Shifts */}
               <div className="p-3 bg-blue-900/20 rounded-lg border border-blue-800/50">
@@ -485,7 +485,7 @@ export default function NOCSchedulePage() {
                 {dayShifts.length > 0 ? (
                   <div className="space-y-1">
                     {dayShifts.map(s => (
-                      <div key={s.user.id} className="text-sm text-zinc-300">
+                      <div key={s.user.id} className="text-sm text-gray-700 dark:text-zinc-300">
                         {s.user.name || s.user.username} <span className="text-zinc-500">({s.shift.label})</span>
                       </div>
                     ))}
@@ -504,7 +504,7 @@ export default function NOCSchedulePage() {
                 {nightShifts.length > 0 ? (
                   <div className="space-y-1">
                     {nightShifts.map(s => (
-                      <div key={s.user.id} className="text-sm text-zinc-300">
+                      <div key={s.user.id} className="text-sm text-gray-700 dark:text-zinc-300">
                         {s.user.name || s.user.username} <span className="text-zinc-500">({s.shift.label})</span>
                       </div>
                     ))}
@@ -523,7 +523,7 @@ export default function NOCSchedulePage() {
                 {offUsers.length > 0 ? (
                   <div className="space-y-1">
                     {offUsers.map(s => (
-                      <div key={s.user.id} className="text-sm text-zinc-300">
+                      <div key={s.user.id} className="text-sm text-gray-700 dark:text-zinc-300">
                         {s.user.name || s.user.username}
                       </div>
                     ))}
@@ -542,7 +542,7 @@ export default function NOCSchedulePage() {
                 {onLeave.length > 0 ? (
                   <div className="space-y-1">
                     {onLeave.map(s => (
-                      <div key={s.user.id} className="text-sm text-zinc-300">
+                      <div key={s.user.id} className="text-sm text-gray-700 dark:text-zinc-300">
                         {s.user.name || s.user.username}
                       </div>
                     ))}
@@ -553,15 +553,15 @@ export default function NOCSchedulePage() {
               </div>
 
               {/* Holidays */}
-              <div className="p-3 bg-zinc-700/30 rounded-lg border border-zinc-600/50">
+              <div className="p-3 bg-gray-200/30 dark:bg-zinc-700/30 rounded-lg border border-gray-300/50 dark:border-zinc-600/50">
                 <div className="flex items-center gap-2 mb-2">
-                  <div className="w-3 h-3 rounded-full bg-zinc-500"></div>
-                  <span className="text-sm font-medium text-zinc-400">Holiday</span>
+                  <div className="w-3 h-3 rounded-full bg-gray-400 dark:bg-zinc-500"></div>
+                  <span className="text-sm font-medium text-gray-500 dark:text-zinc-400">Holiday</span>
                 </div>
                 {holidays.length > 0 ? (
                   <div className="space-y-1">
                     {holidays.map(s => (
-                      <div key={s.user.id} className="text-sm text-zinc-300">
+                      <div key={s.user.id} className="text-sm text-gray-700 dark:text-zinc-300">
                         {s.user.name || s.user.username}
                       </div>
                     ))}
@@ -576,18 +576,18 @@ export default function NOCSchedulePage() {
       })()}
 
       {/* Calendar */}
-      <div className="border border-zinc-800 rounded-lg overflow-hidden mb-6">
+      <div className="border border-gray-200 dark:border-zinc-800 rounded-lg overflow-hidden mb-6">
         {/* Header row - sticky */}
-        <div className="flex bg-zinc-900 border-b border-zinc-800 sticky top-0 z-20">
-          <div className="w-16 flex-shrink-0 p-2 border-r border-zinc-800 bg-zinc-900">
-            <span className="text-sm font-medium text-zinc-400">Day</span>
+        <div className="flex bg-white dark:bg-zinc-900 border-b border-gray-200 dark:border-zinc-800 sticky top-0 z-20">
+          <div className="w-16 flex-shrink-0 p-2 border-r border-gray-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
+            <span className="text-sm font-medium text-gray-500 dark:text-zinc-400">Day</span>
           </div>
           {nocUsers.map(nocUser => (
             <div 
               key={nocUser.id} 
-              className="flex-1 min-w-[80px] p-2 border-r border-zinc-800 text-center"
+              className="flex-1 min-w-[80px] p-2 border-r border-gray-200 dark:border-zinc-800 text-center"
             >
-              <div className="text-sm font-medium text-white truncate">
+              <div className="text-sm font-medium text-gray-900 dark:text-white truncate">
                 {nocUser.name || nocUser.username}
               </div>
             </div>
@@ -596,7 +596,7 @@ export default function NOCSchedulePage() {
         
         {/* Calendar body */}
         {loading ? (
-          <div className="p-8 text-center text-zinc-400">Loading...</div>
+          <div className="p-8 text-center text-gray-500 dark:text-zinc-400">Loading...</div>
         ) : (
           <div className="overflow-auto max-h-[600px]">
             {renderCalendarDays()}
@@ -605,11 +605,11 @@ export default function NOCSchedulePage() {
       </div>
 
       {/* Monthly Note */}
-      <Card className="bg-zinc-900 border-zinc-800">
+      <Card className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-800">
         <CardHeader className="pb-3">
           <div className="flex items-center gap-2">
-            <FileText className="w-5 h-5 text-zinc-400" />
-            <CardTitle className="text-white text-lg">Monthly Notes</CardTitle>
+            <FileText className="w-5 h-5 text-gray-500 dark:text-zinc-400" />
+            <CardTitle className="text-gray-900 dark:text-white text-lg">Monthly Notes</CardTitle>
           </div>
         </CardHeader>
         <CardContent>
@@ -617,7 +617,7 @@ export default function NOCSchedulePage() {
             value={monthlyNote}
             onChange={(e) => setMonthlyNote(e.target.value)}
             placeholder={canEdit ? "Add notes for this month (visible to all)..." : "No notes for this month"}
-            className="bg-zinc-800 border-zinc-700 text-white min-h-[100px]"
+            className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white min-h-[100px]"
             disabled={!canEdit}
           />
           {canEdit && (
@@ -632,23 +632,23 @@ export default function NOCSchedulePage() {
 
       {/* Edit Dialog */}
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
-        <DialogContent className="bg-zinc-900 border-zinc-800">
+        <DialogContent className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-800">
           <DialogHeader>
-            <DialogTitle className="text-white">
+            <DialogTitle className="text-gray-900 dark:text-white">
               Edit Schedule - {editData?.userName} - Day {editData?.day}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div>
-              <label className="text-sm text-zinc-400 mb-1 block">Shift</label>
+              <label className="text-sm text-gray-500 dark:text-zinc-400 mb-1 block">Shift</label>
               <Select 
                 value={editData?.shiftType || "off"} 
                 onValueChange={(value) => setEditData({ ...editData, shiftType: value })}
               >
-                <SelectTrigger className="bg-zinc-800 border-zinc-700">
+                <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="bg-zinc-800 border-zinc-700">
+                <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
                   {SHIFT_TYPES.map(shift => (
                     <SelectItem key={shift.id} value={shift.id}>
                       {shift.label} {shift.time && `(${shift.time})`}
@@ -658,11 +658,11 @@ export default function NOCSchedulePage() {
               </Select>
             </div>
             <div>
-              <label className="text-sm text-zinc-400 mb-1 block">Notes (optional)</label>
+              <label className="text-sm text-gray-500 dark:text-zinc-400 mb-1 block">Notes (optional)</label>
               <Input
                 value={editData?.notes || ""}
                 onChange={(e) => setEditData({ ...editData, notes: e.target.value })}
-                className="bg-zinc-800 border-zinc-700"
+                className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700"
                 placeholder="Optional notes..."
               />
             </div>

@@ -293,7 +293,7 @@ export default function LoginPage({ setUser }) {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                     </svg>
                   </div>
-                  <h2 className="text-xl font-semibold text-white">Two-Factor Authentication</h2>
+                  <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Two-Factor Authentication</h2>
                   <p className="text-slate-400 text-sm mt-2">
                     Enter the code from your Google Authenticator app
                   </p>
@@ -309,7 +309,7 @@ export default function LoginPage({ setUser }) {
                     placeholder="Enter 6-digit code"
                     value={twoFactorCode}
                     onChange={(e) => setTwoFactorCode(e.target.value)}
-                    className="bg-slate-900/50 border-slate-600/50 text-white placeholder:text-slate-500 h-12 text-center text-lg tracking-[0.5em] font-mono"
+                    className="bg-slate-900/50 border-slate-600/50 text-gray-900 dark:text-white placeholder:text-slate-500 h-12 text-center text-lg tracking-[0.5em] font-mono"
                     maxLength={6}
                     required
                   />
@@ -335,7 +335,7 @@ export default function LoginPage({ setUser }) {
                   type="button"
                   variant="ghost"
                   onClick={resetToLogin}
-                  className="w-full text-slate-400 hover:text-white hover:bg-slate-700/50"
+                  className="w-full text-slate-400 hover:text-gray-900 dark:hover:text-white hover:bg-slate-700/50"
                 >
                   Back to Login
                 </Button>
@@ -358,7 +358,7 @@ export default function LoginPage({ setUser }) {
                       placeholder="Enter your username"
                       value={identifier}
                       onChange={(e) => setIdentifier(e.target.value)}
-                      className="bg-slate-900/50 border-slate-600/50 text-white placeholder:text-slate-500 pl-12 h-12 focus:border-emerald-500/50 focus:ring-emerald-500/20"
+                      className="bg-slate-900/50 border-slate-600/50 text-gray-900 dark:text-white placeholder:text-slate-500 pl-12 h-12 focus:border-emerald-500/50 focus:ring-emerald-500/20"
                       required
                     />
                   </div>
@@ -380,7 +380,7 @@ export default function LoginPage({ setUser }) {
                       placeholder="Enter your password"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
-                      className="bg-slate-900/50 border-slate-600/50 text-white placeholder:text-slate-500 pl-12 h-12 focus:border-emerald-500/50 focus:ring-emerald-500/20"
+                      className="bg-slate-900/50 border-slate-600/50 text-gray-900 dark:text-white placeholder:text-slate-500 pl-12 h-12 focus:border-emerald-500/50 focus:ring-emerald-500/20"
                       required
                     />
                   </div>
@@ -482,7 +482,7 @@ export default function LoginPage({ setUser }) {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
                 </svg>
               </div>
-              <h2 className="text-2xl font-semibold text-white">Reset Password</h2>
+              <h2 className="text-2xl font-semibold text-gray-900 dark:text-white">Reset Password</h2>
               <p className="text-slate-400 text-sm mt-2">Use Google Authenticator to verify your identity</p>
             </div>
             
@@ -498,7 +498,7 @@ export default function LoginPage({ setUser }) {
                     placeholder="Enter your username or email"
                     value={resetIdentifier}
                     onChange={(e) => setResetIdentifier(e.target.value)}
-                    className="bg-slate-900/50 border-slate-600/50 text-white placeholder:text-slate-500 mt-1 h-12 focus:border-emerald-500/50 focus:ring-emerald-500/20"
+                    className="bg-slate-900/50 border-slate-600/50 text-gray-900 dark:text-white placeholder:text-slate-500 mt-1 h-12 focus:border-emerald-500/50 focus:ring-emerald-500/20"
                     required
                   />
                 </div>
@@ -512,7 +512,7 @@ export default function LoginPage({ setUser }) {
                   type="button"
                   variant="ghost"
                   onClick={() => setShowPasswordReset(false)}
-                  className="w-full text-slate-400 hover:text-white hover:bg-slate-700/50"
+                  className="w-full text-slate-400 hover:text-gray-900 dark:hover:text-white hover:bg-slate-700/50"
                 >
                   Cancel
                 </Button>
@@ -534,7 +534,7 @@ export default function LoginPage({ setUser }) {
                     placeholder="Enter 6-digit code"
                     value={resetCode}
                     onChange={(e) => setResetCode(e.target.value)}
-                    className="bg-slate-900/50 border-slate-600/50 text-white placeholder:text-slate-500 mt-1 h-12 text-center text-lg tracking-[0.5em] font-mono focus:border-emerald-500/50 focus:ring-emerald-500/20"
+                    className="bg-slate-900/50 border-slate-600/50 text-gray-900 dark:text-white placeholder:text-slate-500 mt-1 h-12 text-center text-lg tracking-[0.5em] font-mono focus:border-emerald-500/50 focus:ring-emerald-500/20"
                     maxLength={6}
                     required
                   />
@@ -549,7 +549,7 @@ export default function LoginPage({ setUser }) {
                   type="button"
                   variant="ghost"
                   onClick={() => setResetStep(1)}
-                  className="w-full text-slate-400 hover:text-white hover:bg-slate-700/50"
+                  className="w-full text-slate-400 hover:text-gray-900 dark:hover:text-white hover:bg-slate-700/50"
                 >
                   Back
                 </Button>
@@ -568,7 +568,7 @@ export default function LoginPage({ setUser }) {
                     placeholder="Enter new password"
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
-                    className="bg-slate-900/50 border-slate-600/50 text-white placeholder:text-slate-500 mt-1 h-12 focus:border-emerald-500/50 focus:ring-emerald-500/20"
+                    className="bg-slate-900/50 border-slate-600/50 text-gray-900 dark:text-white placeholder:text-slate-500 mt-1 h-12 focus:border-emerald-500/50 focus:ring-emerald-500/20"
                     required
                   />
                 </div>
@@ -582,7 +582,7 @@ export default function LoginPage({ setUser }) {
                     placeholder="Confirm new password"
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
-                    className="bg-slate-900/50 border-slate-600/50 text-white placeholder:text-slate-500 mt-1 h-12 focus:border-emerald-500/50 focus:ring-emerald-500/20"
+                    className="bg-slate-900/50 border-slate-600/50 text-gray-900 dark:text-white placeholder:text-slate-500 mt-1 h-12 focus:border-emerald-500/50 focus:ring-emerald-500/20"
                     required
                   />
                 </div>

@@ -140,19 +140,19 @@ export default function TwoFactorSetupPage() {
       <div className="flex items-center gap-3 mb-6">
         <Shield className="h-8 w-8 text-emerald-500" />
         <div>
-          <h1 className="text-2xl font-bold text-white">Two-Factor Authentication</h1>
-          <p className="text-zinc-400">Secure your account with 2FA</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Two-Factor Authentication</h1>
+          <p className="text-gray-500 dark:text-zinc-400">Secure your account with 2FA</p>
         </div>
       </div>
 
       {user?.two_factor_enabled ? (
-        <Card className="bg-zinc-900 border-zinc-800">
+        <Card className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-800">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-white">
+            <CardTitle className="flex items-center gap-2 text-gray-900 dark:text-white">
               <ShieldCheck className="h-5 w-5 text-green-500" />
               2FA is Enabled
             </CardTitle>
-            <CardDescription className="text-zinc-400">
+            <CardDescription className="text-gray-500 dark:text-zinc-400">
               Your account is protected with Google Authenticator
             </CardDescription>
           </CardHeader>
@@ -170,13 +170,13 @@ export default function TwoFactorSetupPage() {
           </CardContent>
         </Card>
       ) : secret || qrCode ? (
-        <Card className="bg-zinc-900 border-zinc-800">
+        <Card className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-800">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-white">
+            <CardTitle className="flex items-center gap-2 text-gray-900 dark:text-white">
               <QrCode className="h-5 w-5 text-emerald-500" />
               Setup Google Authenticator
             </CardTitle>
-            <CardDescription className="text-zinc-400">
+            <CardDescription className="text-gray-500 dark:text-zinc-400">
               Scan the QR code with your Google Authenticator app
             </CardDescription>
           </CardHeader>
@@ -197,16 +197,16 @@ export default function TwoFactorSetupPage() {
             
             {secret && (
               <div className="space-y-2">
-                <Label className="text-zinc-400">Or enter this secret manually:</Label>
+                <Label className="text-gray-500 dark:text-zinc-400">Or enter this secret manually:</Label>
                 <div className="flex items-center gap-2">
-                  <code className="flex-1 p-2 bg-zinc-800 rounded text-zinc-300 font-mono text-sm break-all">
+                  <code className="flex-1 p-2 bg-gray-100 dark:bg-zinc-800 rounded text-gray-700 dark:text-zinc-300 font-mono text-sm break-all">
                     {secret}
                   </code>
                   <Button
                     size="sm"
                     variant="outline"
                     onClick={copySecret}
-                    className="border-zinc-700 text-zinc-400 hover:text-white"
+                    className="border-gray-200 dark:border-zinc-700 text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white"
                   >
                     {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                   </Button>
@@ -215,12 +215,12 @@ export default function TwoFactorSetupPage() {
             )}
 
             <div className="space-y-2">
-              <Label className="text-white">Enter verification code</Label>
+              <Label className="text-gray-900 dark:text-white">Enter verification code</Label>
               <Input
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
                 placeholder={method === "email" ? "Enter 6-digit code from your email" : "Enter 6-digit code from Google Authenticator"}
-                className="bg-zinc-800 border-zinc-700 text-white"
+                className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white"
                 maxLength={6}
               />
             </div>
@@ -236,7 +236,7 @@ export default function TwoFactorSetupPage() {
               <Button
                 variant="outline"
                 onClick={() => { setSecret(null); setQrCode(null); setCode(""); }}
-                className="border-zinc-700 text-white hover:bg-zinc-800"
+                className="border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-zinc-800"
               >
                 Cancel
               </Button>
@@ -244,10 +244,10 @@ export default function TwoFactorSetupPage() {
           </CardContent>
         </Card>
       ) : (
-        <Card className="bg-zinc-900 border-zinc-800">
+        <Card className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-800">
           <CardHeader>
-            <CardTitle className="text-white">Enable Two-Factor Authentication</CardTitle>
-            <CardDescription className="text-zinc-400">
+            <CardTitle className="text-gray-900 dark:text-white">Enable Two-Factor Authentication</CardTitle>
+            <CardDescription className="text-gray-500 dark:text-zinc-400">
               Set up Google Authenticator for two-factor authentication
             </CardDescription>
           </CardHeader>
@@ -257,12 +257,12 @@ export default function TwoFactorSetupPage() {
                 className={`p-4 rounded-lg border-2 cursor-pointer transition-colors ${
                   method === "totp"
                     ? "border-emerald-500 bg-emerald-500/10"
-                    : "border-zinc-700 hover:border-zinc-600"
+                    : "border-gray-200 dark:border-zinc-700 hover:border-gray-300 dark:hover:border-zinc-600"
                 }`}
               >
-                <Smartphone className={`h-8 w-8 mb-2 ${method === "totp" ? "text-emerald-500" : "text-zinc-400"}`} />
-                <div className="font-medium text-white">Google Authenticator</div>
-                <div className="text-sm text-zinc-400">Use the Google Authenticator app</div>
+                <Smartphone className={`h-8 w-8 mb-2 ${method === "totp" ? "text-emerald-500" : "text-gray-500 dark:text-zinc-400"}`} />
+                <div className="font-medium text-gray-900 dark:text-white">Google Authenticator</div>
+                <div className="text-sm text-gray-500 dark:text-zinc-400">Use the Google Authenticator app</div>
               </div>
             </div>
 

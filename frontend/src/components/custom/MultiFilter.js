@@ -348,9 +348,9 @@ export default function MultiFilter({
             <Badge
               key={filter.field}
               variant="secondary"
-              className="bg-zinc-800 text-white hover:bg-zinc-700 px-2 py-1 gap-1"
+              className="bg-gray-100 dark:bg-zinc-800 text-gray-900 dark:text-white hover:bg-gray-200 dark:hover:bg-zinc-700 px-2 py-1 gap-1"
             >
-              <span className="text-zinc-400">{filter.fieldLabel}:</span>
+              <span className="text-gray-500 dark:text-zinc-400">{filter.fieldLabel}:</span>
               {filter.values.length === 1 ? (
                 <span 
                   className="font-medium cursor-pointer hover:text-red-400"
@@ -383,7 +383,7 @@ export default function MultiFilter({
             variant="ghost"
             size="sm"
             onClick={handleClearAll}
-            className="text-zinc-400 hover:text-white h-auto py-0"
+            className="text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white h-auto py-0"
           >
             Clear all
           </Button>
@@ -395,31 +395,31 @@ export default function MultiFilter({
         <PopoverTrigger asChild>
           <Button
             variant="outline"
-            className="w-full bg-zinc-900 border-zinc-700 text-zinc-400 hover:text-white hover:bg-zinc-800 justify-start"
+            className="w-full bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-zinc-800 justify-start"
           >
             <Filter className="h-4 w-4 mr-2" />
             Add Filter
             {filters.length > 0 && (
-              <Badge variant="secondary" className="ml-2 bg-zinc-700">
+              <Badge variant="secondary" className="ml-2 bg-gray-200 dark:bg-zinc-700">
                 {filters.length}
               </Badge>
             )}
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-[300px] p-0 bg-zinc-900 border-zinc-700" align="start">
+        <PopoverContent className="w-[300px] p-0 bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700" align="start">
           <div className="flex flex-col max-h-[400px]">
             {/* Step indicator */}
             {(step === "values" || step === "input") && selectedField && (
-              <div className="flex items-center gap-2 p-3 border-b border-zinc-700">
+              <div className="flex items-center gap-2 p-3 border-b border-gray-200 dark:border-zinc-700">
                 <Button
                   variant="ghost"
                   size="sm"
                   onClick={() => setStep("fields")}
-                  className="text-zinc-400 hover:text-white p-0"
+                  className="text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white p-0"
                 >
                   ← Back
                 </Button>
-                <span className="text-white font-medium">{selectedField.label}</span>
+                <span className="text-gray-900 dark:text-white font-medium">{selectedField.label}</span>
                 {supportsMultiSelect(selectedField) && (
                   <span className="text-xs text-zinc-500">(multi-select)</span>
                 )}
@@ -428,13 +428,13 @@ export default function MultiFilter({
             
             {/* Search input (for fields and dropdown values) */}
             {step !== "input" && (
-              <div className="p-2 border-b border-zinc-700">
+              <div className="p-2 border-b border-gray-200 dark:border-zinc-700">
                 <input
                   type="text"
                   placeholder={step === "fields" ? "Search filter fields..." : `Search ${selectedField?.label.toLowerCase()}...`}
                   value={searchValue}
                   onChange={(e) => setSearchValue(e.target.value)}
-                  className="w-full bg-zinc-800 text-white px-3 py-2 rounded-md outline-none focus:ring-1 focus:ring-emerald-500 placeholder:text-zinc-500"
+                  className="w-full bg-gray-100 dark:bg-zinc-800 text-gray-900 dark:text-white px-3 py-2 rounded-md outline-none focus:ring-1 focus:ring-emerald-500 placeholder:text-zinc-500"
                   autoFocus
                 />
               </div>
@@ -442,14 +442,14 @@ export default function MultiFilter({
 
             {/* Text input for Ticket # and Destination */}
             {step === "input" && selectedField && (
-              <div className="p-2 border-b border-zinc-700">
+              <div className="p-2 border-b border-gray-200 dark:border-zinc-700">
                 <input
                   type="text"
                   placeholder={selectedField.placeholder || `Enter ${selectedField.label.toLowerCase()}...`}
                   value={textInputValue}
                   onChange={(e) => setTextInputValue(e.target.value)}
                   onKeyDown={handleKeyPress}
-                  className="w-full bg-zinc-800 text-white px-3 py-2 rounded-md outline-none focus:ring-1 focus:ring-emerald-500 placeholder:text-zinc-500"
+                  className="w-full bg-gray-100 dark:bg-zinc-800 text-gray-900 dark:text-white px-3 py-2 rounded-md outline-none focus:ring-1 focus:ring-emerald-500 placeholder:text-zinc-500"
                   autoFocus
                 />
                 <Button
@@ -471,7 +471,7 @@ export default function MultiFilter({
                       <button
                         key={field.id}
                         onClick={() => handleSelectField(field)}
-                        className="w-full text-left px-4 py-2 text-white hover:bg-zinc-800 transition-colors flex items-center justify-between"
+                        className="w-full text-left px-4 py-2 text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors flex items-center justify-between"
                       >
                         {field.label}
                         {field.type === "text" && (
@@ -489,7 +489,7 @@ export default function MultiFilter({
                       <button
                         key={opt.value}
                         onClick={() => handleToggleValue(opt.value, opt.label)}
-                        className="w-full text-left px-4 py-2 text-white hover:bg-zinc-800 transition-colors flex items-center justify-between"
+                        className="w-full text-left px-4 py-2 text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors flex items-center justify-between"
                       >
                         {opt.label}
                         {isValueSelected(opt.value) && (

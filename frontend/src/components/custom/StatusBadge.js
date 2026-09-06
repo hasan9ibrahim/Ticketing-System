@@ -1,6 +1,6 @@
 export const StatusBadge = ({ status }) => {
   const statusColors = {
-    Unassigned: "bg-white/20 text-white border-white/30",
+    Unassigned: "bg-white/20 text-gray-900 dark:text-white border-black/30 dark:border-white/30",
     Resolved: "bg-emerald-500/20 text-emerald-500 border-emerald-500/30",
     Assigned: "bg-blue-500/20 text-blue-500 border-blue-500/30",
     "Awaiting Vendor": "bg-yellow-500/20 text-yellow-500 border-yellow-500/30",
@@ -9,7 +9,7 @@ export const StatusBadge = ({ status }) => {
     Unresolved: "bg-red-500/20 text-red-500 border-red-500/30",
   };
 
-  const colorClass = statusColors[status] || "bg-zinc-500/20 text-zinc-500 border-zinc-500/30";
+  const colorClass = statusColors[status] || "bg-gray-400/20 dark:bg-zinc-500/20 text-zinc-500 border-gray-400/30 dark:border-zinc-500/30";
 
   return (
     <span

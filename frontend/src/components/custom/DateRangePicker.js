@@ -13,14 +13,14 @@ export const DateRangePicker = ({ date, onDateChange }) => {
       <PopoverTrigger asChild>
         <Button
           variant="outline"
-          className="w-full justify-start text-left font-normal bg-zinc-900 border-zinc-700 text-white hover:bg-zinc-800 hover:text-white"
+          className="w-full justify-start text-left font-normal bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-zinc-800 hover:text-gray-900 dark:hover:text-white"
         >
           <CalendarIcon className="mr-2 h-4 w-4" />
           {date ? format(date, "PPP") : <span>Pick a date</span>}
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-auto p-0 bg-zinc-900 border-zinc-700" align="start">
-        <div className="p-3 border-b border-zinc-700">
+      <PopoverContent className="w-auto p-0 bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700" align="start">
+        <div className="p-3 border-b border-gray-200 dark:border-zinc-700">
           <div className="flex gap-2">
             <Button
               variant="ghost"
@@ -29,7 +29,7 @@ export const DateRangePicker = ({ date, onDateChange }) => {
                 onDateChange(new Date());
                 setIsOpen(false);
               }}
-              className="text-xs text-zinc-400 hover:text-white hover:bg-zinc-800"
+              className="text-xs text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-zinc-800"
             >
               Today
             </Button>
@@ -40,7 +40,7 @@ export const DateRangePicker = ({ date, onDateChange }) => {
                 onDateChange(null);
                 setIsOpen(false);
               }}
-              className="text-xs text-zinc-400 hover:text-white hover:bg-zinc-800"
+              className="text-xs text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-zinc-800"
             >
               All Dates
             </Button>
@@ -54,7 +54,7 @@ export const DateRangePicker = ({ date, onDateChange }) => {
             setIsOpen(false);
           }}
           initialFocus
-          className="bg-zinc-900 text-white"
+          className="bg-white dark:bg-zinc-900 text-gray-900 dark:text-white"
         />
       </PopoverContent>
     </Popover>

@@ -105,7 +105,7 @@ function App() {
   };
 
   if (loading) {
-    return <div className="h-screen w-screen flex items-center justify-center bg-zinc-950"><div className="text-emerald-500">Loading...</div></div>;
+    return <div className="h-screen w-screen flex items-center justify-center bg-background"><div className="text-emerald-500">Loading...</div></div>;
   }
 
   return (

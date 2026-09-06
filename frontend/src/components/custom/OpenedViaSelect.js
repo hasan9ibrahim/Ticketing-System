@@ -20,7 +20,7 @@ export default function OpenedViaSelect({ selectedOptions = [], onChange, disabl
   return (
     <div className="space-y-2">
       <Label>Opened Via *</Label>
-      <div className="grid grid-cols-2 gap-2 p-3 bg-zinc-800 border border-zinc-700 rounded-md">
+      <div className="grid grid-cols-2 gap-2 p-3 bg-gray-100 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-md">
         {OPENED_VIA_OPTIONS.map((option) => (
           <div key={option} className="flex items-center space-x-2">
             <Checkbox
@@ -28,12 +28,12 @@ export default function OpenedViaSelect({ selectedOptions = [], onChange, disabl
               checked={selectedOptions.includes(option)}
               onCheckedChange={() => handleToggle(option)}
               disabled={disabled}
-              className="border-zinc-600 data-[state=checked]:bg-emerald-500 data-[state=checked]:border-emerald-500"
+              className="border-gray-300 dark:border-zinc-600 data-[state=checked]:bg-emerald-500 data-[state=checked]:border-emerald-500"
               data-testid={`opened-via-${option.toLowerCase()}`}
             />
             <Label
               htmlFor={`opened-via-${option}`}
-              className="font-normal cursor-pointer text-sm text-zinc-300"
+              className="font-normal cursor-pointer text-sm text-gray-700 dark:text-zinc-300"
             >
               {option}
             </Label>

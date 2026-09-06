@@ -137,7 +137,7 @@ const formatChanges = (changes, getUsernameById) => {
       if (oldStr !== newStr) {
         changedFields.push(
           <div key={key} className="text-xs">
-            <span className="text-zinc-400">{formatFieldName(key)}:</span>{" "}
+            <span className="text-gray-500 dark:text-zinc-400">{formatFieldName(key)}:</span>{" "}
             <span className="text-red-400">{formatChangeValue(oldValue, getUsernameById)}</span>
             {" → "}
             <span className="text-emerald-400">{formatChangeValue(newValue, getUsernameById)}</span>
@@ -161,7 +161,7 @@ const formatChanges = (changes, getUsernameById) => {
       if (key === "updated_at" || key === "_id" || key === "password_hash") return;
       createdFields.push(
         <div key={key} className="text-xs">
-          <span className="text-zinc-400">{formatFieldName(key)}:</span>{" "}
+          <span className="text-gray-500 dark:text-zinc-400">{formatFieldName(key)}:</span>{" "}
           <span className="text-emerald-400">{formatChangeValue(changes[key], getUsernameById)}</span>
         </div>
       );
@@ -363,17 +363,17 @@ export default function AuditPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-white">Audit Logs</h1>
-          <p className="text-zinc-400 mt-1">
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Audit Logs</h1>
+          <p className="text-gray-500 dark:text-zinc-400 mt-1">
             Track all changes made in the system
           </p>
         </div>
       </div>
 
       {/* Filters */}
-      <Card className="bg-zinc-900 border-zinc-800">
+      <Card className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-800">
         <CardHeader className="pb-4">
-          <CardTitle className="text-lg text-white flex items-center gap-2">
+          <CardTitle className="text-lg text-gray-900 dark:text-white flex items-center gap-2">
             <Filter className="h-5 w-5" />
             Filters
           </CardTitle>
@@ -388,7 +388,7 @@ export default function AuditPage() {
                 placeholder="Search user, entity..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10 bg-zinc-950 border-zinc-800 text-white h-9 w-full"
+                className="pl-10 bg-gray-50 dark:bg-zinc-950 border-gray-200 dark:border-zinc-800 text-gray-900 dark:text-white h-9 w-full"
               />
             </div>
 
@@ -418,7 +418,7 @@ export default function AuditPage() {
                 const today = new Date();
                 setDateRange({ from: today, to: today });
               }}
-              className="border-zinc-700 text-zinc-400 hover:text-white hover:bg-zinc-800 h-9 text-xs"
+              className="border-gray-200 dark:border-zinc-700 text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-zinc-800 h-9 text-xs"
             >
               Show Today
             </Button>
@@ -428,7 +428,7 @@ export default function AuditPage() {
                 const today = new Date();
                 setDateRange({ from: startOfWeek(today, { weekStartsOn: 1 }), to: endOfWeek(today, { weekStartsOn: 1 }) });
               }}
-              className="border-zinc-700 text-zinc-400 hover:text-white hover:bg-zinc-800 h-9 text-xs"
+              className="border-gray-200 dark:border-zinc-700 text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-zinc-800 h-9 text-xs"
             >
               This Week
             </Button>
@@ -437,7 +437,7 @@ export default function AuditPage() {
             <Button
               variant="outline"
               onClick={clearFilters}
-              className="border-zinc-700 text-zinc-300 hover:bg-zinc-800 hover:text-white h-9"
+              className="border-gray-200 dark:border-zinc-700 text-gray-700 dark:text-zinc-300 hover:bg-gray-100 dark:hover:bg-zinc-800 hover:text-gray-900 dark:hover:text-white h-9"
             >
               <X className="h-4 w-4 mr-2" />
               Clear
@@ -447,55 +447,55 @@ export default function AuditPage() {
       </Card>
 
       {/* Audit Logs Table */}
-      <Card className="bg-zinc-900 border-zinc-800">
+      <Card className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-800">
         <CardContent className="p-0">
           <Table>
             <TableHeader>
-              <TableRow className="border-zinc-800 hover:bg-zinc-900">
-                <TableHead className="text-zinc-400">Timestamp</TableHead>
-                <TableHead className="text-zinc-400">User</TableHead>
-                <TableHead className="text-zinc-400">Action</TableHead>
-                <TableHead className="text-zinc-400">Entity Type</TableHead>
-                <TableHead className="text-zinc-400">Entity Name</TableHead>
-                <TableHead className="text-zinc-400">Details</TableHead>
+              <TableRow className="border-gray-200 dark:border-zinc-800 hover:bg-white dark:hover:bg-zinc-900">
+                <TableHead className="text-gray-500 dark:text-zinc-400">Timestamp</TableHead>
+                <TableHead className="text-gray-500 dark:text-zinc-400">User</TableHead>
+                <TableHead className="text-gray-500 dark:text-zinc-400">Action</TableHead>
+                <TableHead className="text-gray-500 dark:text-zinc-400">Entity Type</TableHead>
+                <TableHead className="text-gray-500 dark:text-zinc-400">Entity Name</TableHead>
+                <TableHead className="text-gray-500 dark:text-zinc-400">Details</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center text-zinc-400 py-8">
+                  <TableCell colSpan={6} className="text-center text-gray-500 dark:text-zinc-400 py-8">
                     Loading audit logs...
                   </TableCell>
                 </TableRow>
               ) : filteredLogs.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center text-zinc-400 py-8">
+                  <TableCell colSpan={6} className="text-center text-gray-500 dark:text-zinc-400 py-8">
                     No audit logs found
                   </TableCell>
                 </TableRow>
               ) : (
                 filteredLogs.map((log) => (
-                  <TableRow key={log.id} className="border-zinc-800 hover:bg-zinc-800/50">
-                    <TableCell className="text-white font-mono text-sm whitespace-nowrap">
+                  <TableRow key={log.id} className="border-gray-200 dark:border-zinc-800 hover:bg-gray-100/50 dark:hover:bg-zinc-800/50">
+                    <TableCell className="text-gray-900 dark:text-white font-mono text-sm whitespace-nowrap">
                       {formatTimestamp(log.timestamp)}
                     </TableCell>
-                    <TableCell className="text-zinc-300">
+                    <TableCell className="text-gray-700 dark:text-zinc-300">
                       {log.username}
                     </TableCell>
                     <TableCell>
                       <Badge
-                        className={`border ${ACTION_COLORS[log.action] || "bg-zinc-500/20 text-zinc-400 border-zinc-500/30"}`}
+                        className={`border ${ACTION_COLORS[log.action] || "bg-gray-400/20 dark:bg-zinc-500/20 text-gray-500 dark:text-zinc-400 border-gray-400/30 dark:border-zinc-500/30"}`}
                       >
                         {log.action.charAt(0).toUpperCase() + log.action.slice(1)}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-zinc-300">
+                    <TableCell className="text-gray-700 dark:text-zinc-300">
                       {ENTITY_LABELS[log.entity_type] || log.entity_type}
                     </TableCell>
-                    <TableCell className="text-white font-medium">
+                    <TableCell className="text-gray-900 dark:text-white font-medium">
                       {log.entity_name}
                     </TableCell>
-                    <TableCell className="text-zinc-400 text-sm max-w-xs">
+                    <TableCell className="text-gray-500 dark:text-zinc-400 text-sm max-w-xs">
                       {formatChanges(log.changes, getUsernameById)}
                     </TableCell>
                   </TableRow>
@@ -508,7 +508,7 @@ export default function AuditPage() {
 
       {/* Pagination */}
       <div className="flex items-center justify-between">
-        <div className="text-zinc-400 text-sm">
+        <div className="text-gray-500 dark:text-zinc-400 text-sm">
           Showing {pagination.offset + 1} to {Math.min(pagination.offset + pagination.limit, pagination.total)} of {pagination.total} entries
         </div>
         <div className="flex items-center gap-2">
@@ -517,11 +517,11 @@ export default function AuditPage() {
             size="sm"
             onClick={handlePreviousPage}
             disabled={pagination.offset === 0}
-            className="border-zinc-700 text-zinc-300 hover:bg-zinc-800 hover:text-white disabled:opacity-50"
+            className="border-gray-200 dark:border-zinc-700 text-gray-700 dark:text-zinc-300 hover:bg-gray-100 dark:hover:bg-zinc-800 hover:text-gray-900 dark:hover:text-white disabled:opacity-50"
           >
             <ChevronLeft className="h-4 w-4" />
           </Button>
-          <span className="text-zinc-400 text-sm">
+          <span className="text-gray-500 dark:text-zinc-400 text-sm">
             Page {currentPage} of {totalPages || 1}
           </span>
           <Button
@@ -529,7 +529,7 @@ export default function AuditPage() {
             size="sm"
             onClick={handleNextPage}
             disabled={pagination.offset + pagination.limit >= pagination.total}
-            className="border-zinc-700 text-zinc-300 hover:bg-zinc-800 hover:text-white disabled:opacity-50"
+            className="border-gray-200 dark:border-zinc-700 text-gray-700 dark:text-zinc-300 hover:bg-gray-100 dark:hover:bg-zinc-800 hover:text-gray-900 dark:hover:text-white disabled:opacity-50"
           >
             <ChevronRight className="h-4 w-4" />
           </Button>
