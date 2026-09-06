@@ -20,6 +20,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { useDebounce } from "@/hooks/useDebounce";
+import { fetchCached } from "@/lib/dataCache";
 
 const BACKEND_URL = process.env.REACT_APP_API_URL;
 const API = `${BACKEND_URL}/api`;
@@ -42,18 +44,24 @@ export default function UsersPage() {
     fetchDepartments();
   }, []);
 
+  // Debounced copy of the free-text search input - avoids re-filtering the
+  // user list on every keystroke.
+  const debouncedSearchTerm = useDebounce(searchTerm, 300);
+
   useEffect(() => {
     filterUsers();
-  }, [searchTerm, users, multiFilters]);
+  }, [debouncedSearchTerm, users, multiFilters]);
 
   const fetchUsers = async () => {
     try {
       const token = localStorage.getItem("token");
-      const response = await axios.get(`${API}/users`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      setUsers(response.data);
-      setFilteredUsers(response.data);
+      // Users rarely change - share one fetch across pages instead of every
+      // page (and every poll tick) re-fetching its own copy.
+      const data = await fetchCached("users", () =>
+        axios.get(`${API}/users`, { headers: { Authorization: `Bearer ${token}` } }).then((r) => r.data)
+      );
+      setUsers(data);
+      setFilteredUsers(data);
     } catch (error) {
       toast.error("Failed to load users");
     } finally {
@@ -74,11 +82,13 @@ export default function UsersPage() {
   const fetchDepartments = async () => {
     try {
       const token = localStorage.getItem("token");
-      const response = await axios.get(`${API}/departments`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      // Departments rarely change - share one fetch across pages instead of
+      // every page re-fetching its own copy.
+      const data = await fetchCached("departments", () =>
+        axios.get(`${API}/departments`, { headers: { Authorization: `Bearer ${token}` } }).then((r) => r.data)
+      );
       // Remove duplicates by department ID
-      const uniqueDepartments = response.data.filter((dept, index, self) => 
+      const uniqueDepartments = data.filter((dept, index, self) =>
         index === self.findIndex((d) => d.id === dept.id)
       );
       setDepartments(uniqueDepartments);
@@ -115,12 +125,12 @@ export default function UsersPage() {
       });
     }
 
-    if (!searchTerm) {
+    if (!debouncedSearchTerm) {
       setFilteredUsers(filtered);
       return;
     }
 
-    const term = searchTerm.toLowerCase();
+    const term = debouncedSearchTerm.toLowerCase();
     filtered = filtered.filter(
       (user) =>
         user.username.toLowerCase().includes(term) ||
@@ -160,21 +170,23 @@ export default function UsersPage() {
       
       if (editingUser) {
         // Update existing user
-        await axios.put(`${API}/users/${editingUser.id}`, formData, {
+        const res = await axios.put(`${API}/users/${editingUser.id}`, formData, {
           headers: { Authorization: `Bearer ${token}` },
         });
+        // Patch the updated user into local state instead of re-fetching the whole list.
+        setUsers((prev) => prev.map((u) => (u.id === res.data.id ? res.data : u)));
         toast.success("User updated successfully");
       } else {
         // Create new user
-        await axios.post(`${API}/auth/register`, formData, {
+        const res = await axios.post(`${API}/auth/register`, formData, {
           headers: { Authorization: `Bearer ${token}` },
         });
+        setUsers((prev) => [res.data, ...prev]);
         toast.success("User created successfully");
       }
-      
+
       setSheetOpen(false);
       setEditingUser(null);
-      fetchUsers();
     } catch (error) {
       toast.error(error.response?.data?.detail || (editingUser ? "Failed to update user" : "Failed to create user"));
     }
@@ -187,8 +199,8 @@ export default function UsersPage() {
         headers: { Authorization: `Bearer ${token}` },
       });
       toast.success("User deleted successfully");
+      setUsers((prev) => prev.filter((u) => u.id !== userToDelete.id));
       setDeleteDialogOpen(false);
-      fetchUsers();
     } catch (error) {
       toast.error("Failed to delete user");
     }
@@ -308,7 +320,9 @@ export default function UsersPage() {
                             headers: { Authorization: `Bearer ${token}` },
                           });
                           toast.success(`User ${checked ? "activated" : "deactivated"} successfully`);
-                          fetchUsers();
+                          // Response only carries {message, is_active} - merge the known
+                          // changed field into local state instead of re-fetching the list.
+                          setUsers((prev) => prev.map((u) => (u.id === user.id ? { ...u, is_active: checked } : u)));
                         } catch (error) {
                           toast.error("Failed to update user status");
                         }
@@ -322,11 +336,11 @@ export default function UsersPage() {
                         onCheckedChange={async (checked) => {
                           try {
                             const token = localStorage.getItem("token");
-                            await axios.put(`${API}/users/${user.id}`, { can_view_my_enterprises: checked }, {
+                            const res = await axios.put(`${API}/users/${user.id}`, { can_view_my_enterprises: checked }, {
                               headers: { Authorization: `Bearer ${token}` },
                             });
                             toast.success(`My Enterprises access ${checked ? "enabled" : "disabled"} for ${user.username}`);
-                            fetchUsers();
+                            setUsers((prev) => prev.map((u) => (u.id === res.data.id ? res.data : u)));
                           } catch (error) {
                             toast.error("Failed to update My Enterprises access");
                           }

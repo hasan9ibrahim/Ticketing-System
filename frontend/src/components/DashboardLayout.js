@@ -612,12 +612,14 @@ export default function DashboardLayout({ user, setUser }) {
     }
     try {
       const token = localStorage.getItem("token");
-      // Fetch all requests (we'll filter for pending ones)
+      // Ask the server for just pending requests instead of the whole
+      // department list - this endpoint is polled every 20s from every page.
       const res = await axios.get(`${API}/requests`, {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` },
+        params: { status: "pending" }
       });
-      // Filter for pending requests (status=pending AND not claimed)
-      const pending = (res.data || []).filter(r => r.status === "pending" && !r.claimed_by);
+      // Still filter out claimed ones client-side (claimed_by isn't a status)
+      const pending = (res.data || []).filter(r => !r.claimed_by);
       setSidebarPendingRequests(pending);
     } catch (error) {
       console.log("Sidebar requests fetch error:", error.message);
@@ -700,8 +702,13 @@ export default function DashboardLayout({ user, setUser }) {
   useEffect(() => {
     if (user && (user.role === "noc" || user.role === "admin" || user?.department?.can_view_all_tickets)) {
       fetchAlerts(true); // true = is initial load
-      // Refresh alerts every 30 seconds for faster updates when tickets are assigned
-      const alertInterval = setInterval(() => fetchAlerts(false), 30000);
+      // Refresh alerts every 30 seconds for faster updates when tickets are assigned.
+      // Skip the poll while the tab is backgrounded - this layout wraps every
+      // page, so an idle/minimized tab was previously still generating a
+      // steady stream of requests forever.
+      const alertInterval = setInterval(() => {
+        if (!document.hidden) fetchAlerts(false);
+      }, 30000);
       return () => clearInterval(alertInterval);
     }
   }, [user]);
@@ -710,8 +717,12 @@ export default function DashboardLayout({ user, setUser }) {
   useEffect(() => {
     if (user) {
       fetchTicketModifications();
-      // Refresh every 10 seconds to catch notifications quickly
-      const notificationInterval = setInterval(fetchTicketModifications, 10000);
+      // Refresh every 20 seconds to catch notifications quickly (was 10s;
+      // halved the polling volume from this layout-wide timer with no
+      // meaningful loss of freshness for a notification badge).
+      const notificationInterval = setInterval(() => {
+        if (!document.hidden) fetchTicketModifications();
+      }, 20000);
       return () => clearInterval(notificationInterval);
     }
   }, [user]);
@@ -721,7 +732,9 @@ export default function DashboardLayout({ user, setUser }) {
     if (user) {
       fetchAssignedReminders(true); // true = is initial load
       // Refresh every 30 seconds to check for overdue tickets
-      const reminderInterval = setInterval(() => fetchAssignedReminders(false), 30000);
+      const reminderInterval = setInterval(() => {
+        if (!document.hidden) fetchAssignedReminders(false);
+      }, 30000);
       return () => clearInterval(reminderInterval);
     }
   }, [user]);
@@ -734,13 +747,21 @@ export default function DashboardLayout({ user, setUser }) {
       fetchSidebarRequests();
       fetchRequestNotifications();
       // Refresh every 30 seconds
-      const alertNotifInterval = setInterval(fetchAlertNotifications, 30000);
-      // Refresh sidebar alerts every 10 seconds to stay in sync with References page
-      const sidebarAlertsInterval = setInterval(fetchSidebarAlerts, 10000);
-      // Refresh sidebar requests every 10 seconds to stay in sync with Requests page
-      const sidebarRequestsInterval = setInterval(fetchSidebarRequests, 10000);
+      const alertNotifInterval = setInterval(() => {
+        if (!document.hidden) fetchAlertNotifications();
+      }, 30000);
+      // Refresh sidebar alerts every 20 seconds to stay in sync with References page (was 10s)
+      const sidebarAlertsInterval = setInterval(() => {
+        if (!document.hidden) fetchSidebarAlerts();
+      }, 20000);
+      // Refresh sidebar requests every 20 seconds to stay in sync with Requests page (was 10s)
+      const sidebarRequestsInterval = setInterval(() => {
+        if (!document.hidden) fetchSidebarRequests();
+      }, 20000);
       // Refresh request notifications every 30 seconds
-      const requestNotifInterval = setInterval(fetchRequestNotifications, 30000);
+      const requestNotifInterval = setInterval(() => {
+        if (!document.hidden) fetchRequestNotifications();
+      }, 30000);
       return () => {
         clearInterval(alertNotifInterval);
         clearInterval(sidebarAlertsInterval);

@@ -76,24 +76,6 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
     };
   }, [token, user?.id]);
 
-  // Also fetch conversations on mount (for initial load)
-  useEffect(() => {
-    if (!token || !user?.id) return;
-
-    const fetchConversations = async () => {
-      try {
-        const convResponse = await axios.get(`${API}/chat/conversations`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        setConversations(convResponse.data);
-      } catch (error) {
-        console.error('Error fetching conversations:', error);
-      }
-    };
-
-    fetchConversations();
-  }, [token, user?.id]);
-
   // Send message via WebSocket
   const sendWebSocketMessage = (message) => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
@@ -326,17 +308,23 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
     }
   }, [token]);
 
-  // Periodic refresh for online status (every 30 seconds)
+  // Periodic refresh for online status. New messages/read-receipts already
+  // arrive over the WebSocket above, so this poll only exists to refresh
+  // participants' online/offline indicator - only worth doing while the chat
+  // panel is actually open and the tab is in the foreground, and every 60s
+  // is plenty for a presence indicator (was every 30s regardless of state).
   useEffect(() => {
-    if (!token) return;
-    
+    if (!token || minimized) return;
+
     const interval = setInterval(() => {
-      fetchConversations();
-      fetchUsers();
-    }, 30000); // 30 seconds
-    
+      if (!document.hidden) {
+        fetchConversations();
+        fetchUsers();
+      }
+    }, 60000);
+
     return () => clearInterval(interval);
-  }, [token]);
+  }, [token, minimized]);
 
   const fetchConversations = async () => {
     try {

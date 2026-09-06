@@ -27,6 +27,8 @@ import { DateRangePickerWithRange } from "@/components/custom/DateRangePickerWit
 import IssueTypeSelect, { SMS_ISSUE_TYPES } from "@/components/custom/IssueTypeSelect";
 import OpenedViaSelect, { OPENED_VIA_OPTIONS } from "@/components/custom/OpenedViaSelect";
 import MultiFilter from "@/components/custom/MultiFilter";
+import { useDebounce } from "@/hooks/useDebounce";
+import { fetchCached } from "@/lib/dataCache";
 
 const BACKEND_URL = process.env.REACT_APP_API_URL;
 const API = `${BACKEND_URL}/api`;
@@ -55,7 +57,20 @@ export default function SMSTicketsPage() {
     };
   });
   const [multiFilters, setMultiFilters] = useState([]);
-  
+
+  // Debounced copies of free-text filter inputs - avoids re-filtering the
+  // (potentially large) ticket list on every keystroke.
+  const debouncedSearchTerm = useDebounce(searchTerm, 300);
+  const debouncedDestinationFilter = useDebounce(destinationFilter, 300);
+
+  // Server-side pagination: only the `ticketLimit` most recent matching
+  // tickets are fetched at a time (was previously unbounded - every ticket,
+  // every request). totalTicketsCount comes from the X-Total-Count response
+  // header so "Load more" only shows up when there's actually more to load.
+  const [ticketLimit, setTicketLimit] = useState(500);
+  const [totalTicketsCount, setTotalTicketsCount] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
+
   // AM view mode state
   const [amViewMode, setAmViewMode] = useState("all"); // "all" or "assigned"
   const [amTrunkFilter, setAmTrunkFilter] = useState(""); // "" or "customer_trunk" or "vendor_trunk"
@@ -114,7 +129,7 @@ export default function SMSTicketsPage() {
 
   useEffect(() => {
     filterAndSortTickets();
-  }, [searchTerm, priorityFilter, statusFilter, enterpriseFilter, issueTypeFilter, destinationFilter, assignedToFilter, dateRange, sortBy, activeTab, tickets, multiFilters]);
+  }, [debouncedSearchTerm, priorityFilter, statusFilter, enterpriseFilter, issueTypeFilter, debouncedDestinationFilter, assignedToFilter, dateRange, sortBy, activeTab, tickets, multiFilters]);
 
   // Re-fetch tickets when AM view mode or trunk filter changes
   useEffect(() => {
@@ -192,13 +207,13 @@ export default function SMSTicketsPage() {
     return legacy;
   };
 
-  const fetchData = async () => {
+  const fetchData = async (limitOverride) => {
     try {
       const token = localStorage.getItem("token");
       const headers = { Authorization: `Bearer ${token}` };
 
       // Build query params for AMs
-      const ticketParams = {};
+      const ticketParams = { limit: limitOverride || ticketLimit };
       if (currentUser?.role === "am") {
         ticketParams.view_mode = amViewMode;
         if (amTrunkFilter) {
@@ -206,21 +221,33 @@ export default function SMSTicketsPage() {
         }
       }
 
-      const [ticketsRes, enterprisesRes, usersRes] = await Promise.all([
+      const [ticketsRes, enterprisesData, usersData] = await Promise.all([
         axios.get(`${API}/tickets/sms`, { headers, params: ticketParams }),
-        axios.get(`${API}/clients`, { headers }),
-        axios.get(`${API}/users`, { headers }),
+        // Enterprises/users rarely change - share one fetch across pages
+        // instead of every page (and every poll tick) re-fetching its own copy.
+        fetchCached("clients", () => axios.get(`${API}/clients`, { headers }).then((r) => r.data)),
+        fetchCached("users", () => axios.get(`${API}/users`, { headers }).then((r) => r.data)),
       ]);
 
       setTickets(ticketsRes.data);
-      setEnterprises(enterprisesRes.data);
-      setAllUsers(usersRes.data);
-      setUsers(usersRes.data.filter((u) => u.role === "noc"));
+      const totalHeader = ticketsRes.headers?.["x-total-count"];
+      setTotalTicketsCount(totalHeader ? parseInt(totalHeader, 10) : ticketsRes.data.length);
+      setEnterprises(enterprisesData);
+      setAllUsers(usersData);
+      setUsers(usersData.filter((u) => u.role === "noc"));
     } catch (error) {
       toast.error("Failed to load data");
     } finally {
       setLoading(false);
+      setLoadingMore(false);
     }
+  };
+
+  const handleLoadMoreTickets = () => {
+    const newLimit = ticketLimit + 500;
+    setLoadingMore(true);
+    setTicketLimit(newLimit);
+    fetchData(newLimit);
   };
 
   // Auto-refresh data every 10 seconds
@@ -231,7 +258,7 @@ export default function SMSTicketsPage() {
       }
     }, 10000);
     return () => clearInterval(interval);
-  }, [currentUser, amViewMode, amTrunkFilter]);
+  }, [currentUser, amViewMode, amTrunkFilter, ticketLimit]);
 
   const getOpenedViaPriority = (openedVia) => {
     if (!openedVia) return 999;
@@ -277,8 +304,8 @@ export default function SMSTicketsPage() {
     }
 
     // Text search - searches across issues
-    if (searchTerm) {
-      const term = searchTerm.toLowerCase();
+    if (debouncedSearchTerm) {
+      const term = debouncedSearchTerm.toLowerCase();
       filtered = filtered.filter((ticket) => {
         const issueText = getIssueDisplayText(ticket).toLowerCase();
         return (
@@ -313,8 +340,8 @@ export default function SMSTicketsPage() {
     }
 
     // Destination filter
-    if (destinationFilter) {
-      const term = destinationFilter.toLowerCase();
+    if (debouncedDestinationFilter) {
+      const term = debouncedDestinationFilter.toLowerCase();
       filtered = filtered.filter((ticket) => 
         ticket.destination?.toLowerCase().includes(term)
       );
@@ -835,15 +862,19 @@ export default function SMSTicketsPage() {
       const submitData = formData.status === "Unassigned" ? { ...formData, assigned_to: "" } : formData;
 
       if (editingTicket) {
-        await axios.put(`${API}/tickets/sms/${editingTicket.id}`, submitData, { headers });
+        const res = await axios.put(`${API}/tickets/sms/${editingTicket.id}`, submitData, { headers });
+        // Patch the updated ticket into local state instead of re-fetching
+        // the entire (possibly hundreds-of-tickets) list.
+        setTickets((prev) => prev.map((t) => (t.id === res.data.id ? res.data : t)));
         toast.success("Ticket updated successfully");
       } else {
-        await axios.post(`${API}/tickets/sms`, submitData, { headers });
+        const res = await axios.post(`${API}/tickets/sms`, submitData, { headers });
+        setTickets((prev) => [res.data, ...prev]);
+        setTotalTicketsCount((prev) => prev + 1);
         toast.success("Ticket created successfully");
       }
 
       setSheetOpen(false);
-      fetchData();
     } catch (error) {
       toast.error(formatApiError(error, "Failed to save ticket"));
     }
@@ -856,9 +887,10 @@ export default function SMSTicketsPage() {
         headers: { Authorization: `Bearer ${token}` },
       });
       toast.success("Ticket deleted successfully");
+      setTickets((prev) => prev.filter((t) => t.id !== ticketToDelete.id));
+      setTotalTicketsCount((prev) => Math.max(0, prev - 1));
       setDeleteDialogOpen(false);
       setTicketToDelete(null);
-      fetchData();
     } catch (error) {
       toast.error(error.response?.data?.detail || "Failed to delete ticket");
     }
@@ -866,17 +898,18 @@ export default function SMSTicketsPage() {
 
     const handleConfirmedSubmit = async () => {
     if (!pendingFormData) return;
-    
+
     try {
       const token = localStorage.getItem("token");
       const headers = { Authorization: `Bearer ${token}` };
-      await axios.post(`${API}/tickets/sms`, pendingFormData, { headers });
+      const res = await axios.post(`${API}/tickets/sms`, pendingFormData, { headers });
+      setTickets((prev) => [res.data, ...prev]);
+      setTotalTicketsCount((prev) => prev + 1);
       toast.success("Ticket created successfully");
       setSameDayDialogOpen(false);
       setSameDayTickets([]);
       setPendingFormData(null);
       setSheetOpen(false);
-      fetchData();
     } catch (error) {
       toast.error(formatApiError(error, "Failed to save ticket"));
     }
@@ -899,11 +932,14 @@ export default function SMSTicketsPage() {
         { text: newActionText },
         { headers }
       );
-      
-      setTicketActions([...ticketActions, response.data.action]);
+
+      const updatedActions = [...ticketActions, response.data.action];
+      setTicketActions(updatedActions);
+      // Patch the ticket's actions locally (keeps the table's action-count
+      // badge in sync) instead of re-fetching the entire ticket list.
+      setTickets((prev) => prev.map((t) => (t.id === selectedTicket.id ? { ...t, actions: updatedActions } : t)));
       setNewActionText("");
       toast.success("Action added successfully");
-      fetchData(); // Refresh to get updated actions
     } catch (error) {
       toast.error("Failed to add action");
     }
@@ -927,15 +963,17 @@ export default function SMSTicketsPage() {
         { text: editActionText },
         { headers }
       );
-      
+
       setEditingAction(null);
       setEditActionText("");
       toast.success("Action updated successfully");
-      fetchData(); // Refresh to get updated actions
-      
-      // Refresh the ticket to get updated actions in the dialog
+
+      // Refresh just this one ticket (not the whole list) to get the
+      // authoritative edited/edited_at fields for the actions dialog, and
+      // patch it into local ticket state.
       const ticketResponse = await axios.get(`${API}/tickets/sms/${selectedTicket.id}`, { headers });
       setTicketActions(ticketResponse.data.actions || []);
+      setTickets((prev) => prev.map((t) => (t.id === selectedTicket.id ? ticketResponse.data : t)));
     } catch (error) {
       toast.error(error.response?.data?.detail || "Failed to update action");
     }
@@ -958,13 +996,14 @@ export default function SMSTicketsPage() {
         `${API}/tickets/sms/${selectedTicket.id}/actions/${actionId}`,
         { headers }
       );
-      
+
       toast.success("Action deleted successfully");
-      fetchData(); // Refresh to get updated actions
-      
-      // Refresh the ticket to get updated actions in the dialog
+
+      // Refresh just this one ticket (not the whole list) and patch it into
+      // local ticket state.
       const ticketResponse = await axios.get(`${API}/tickets/sms/${selectedTicket.id}`, { headers });
       setTicketActions(ticketResponse.data.actions || []);
+      setTickets((prev) => prev.map((t) => (t.id === selectedTicket.id ? ticketResponse.data : t)));
     } catch (error) {
       toast.error(error.response?.data?.detail || "Failed to delete action");
     }
@@ -1454,6 +1493,23 @@ export default function SMSTicketsPage() {
               </TableBody>
             </Table>
           </div>
+          {tickets.length < totalTicketsCount && (
+            <div className="flex flex-col items-center gap-2 py-4">
+              <p className="text-zinc-500 text-xs">
+                Showing {tickets.length} of {totalTicketsCount} tickets in the selected range
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleLoadMoreTickets}
+                disabled={loadingMore}
+                className="border-white/10 text-white"
+              >
+                {loadingMore ? "Loading..." : "Load more tickets"}
+              </Button>
+            </div>
+          )}
         </TabsContent>
       </Tabs>
 
