@@ -13,6 +13,18 @@ const BACKEND_URL =
 
 const API = `${BACKEND_URL}/api`;
 
+// Calculate role from department permissions - mirrors the backend's
+// get_current_user() logic so the freshly logged-in user has the correct
+// role immediately, instead of the stale/legacy value on the user record
+// (which only gets corrected on a full page reload, via App.js).
+const computeRoleFromDepartment = (dept) => {
+  if (!dept) return "unknown";
+  if (dept.can_edit_users) return "admin";
+  if (dept.can_create_tickets && !dept.can_edit_enterprises) return "am";
+  if (dept.can_edit_tickets) return "noc";
+  return "unknown";
+};
+
 export default function LoginPage({ setUser }) {
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
@@ -65,6 +77,7 @@ export default function LoginPage({ setUser }) {
             department_id: deptResponse.data.id,
             department_type: deptResponse.data.department_type,
             department: deptResponse.data,
+            role: computeRoleFromDepartment(deptResponse.data),
           };
         }
       } catch (deptError) {
@@ -106,6 +119,7 @@ export default function LoginPage({ setUser }) {
             department_id: deptResponse.data.id,
             department_type: deptResponse.data.department_type,
             department: deptResponse.data,
+            role: computeRoleFromDepartment(deptResponse.data),
           };
         }
       } catch (deptError) {

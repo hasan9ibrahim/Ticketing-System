@@ -4996,23 +4996,36 @@ async def delete_voice_ticket_action(
 
 # ==================== DASHBOARD ROUTES ====================
 
-@api_router.get("/dashboard/online-users")
+@api_router.get("/dashboard/online-users", response_model=List[ChatUser])
 async def get_online_users(current_user: dict = Depends(get_current_user)):
-    """Get list of users who were active in the last 5 minutes"""
+    """Get list of active users who were active in the last 5 minutes"""
     from datetime import timedelta
-    
+
     # Consider users active in the last 5 minutes as online
     five_minutes_ago = datetime.now(timezone.utc) - timedelta(minutes=5)
-    
-    # Get users who have been active in the last 5 minutes
+
+    # Only project the fields this widget actually needs - the previous
+    # implementation returned full user documents (minus password_hash) to
+    # every authenticated caller, leaking email/phone/2FA secrets/etc. to
+    # anyone logged in.
     online_users = await db.users.find(
-        {"last_active": {"$gte": five_minutes_ago}},
-        {"_id": 0, "password_hash": 0}
+        {
+            "last_active": {"$gte": five_minutes_ago},
+            "$or": [{"is_active": True}, {"is_active": {"$exists": False}}]
+        },
+        {"_id": 0, "id": 1, "username": 1, "name": 1, "last_active": 1}
     ).to_list(100)
-    
-    # Also include users who logged in recently (last_active not set but logged in recently)
-    # For now, just return users with last_active
-    return online_users
+
+    return [
+        ChatUser(
+            id=u["id"],
+            username=u["username"],
+            name=u.get("name") or u["username"],
+            last_active=u.get("last_active"),
+            is_online=True
+        )
+        for u in online_users
+    ]
 
 
 @api_router.get("/dashboard/user-online-time")
