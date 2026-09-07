@@ -1372,6 +1372,7 @@ export default function VoiceTicketsPage() {
               selectedOptions={formData.opened_via || []}
               onChange={(options) => setFormData({ ...formData, opened_via: options })}
               disabled={isAM}
+              ticketType="voice"
             />
 
             {/* Assigned To */}
