@@ -1590,6 +1590,7 @@ export default function SMSTicketsPage() {
               selectedOptions={formData.opened_via || []}
               onChange={(options) => setFormData({ ...formData, opened_via: options })}
               disabled={isAM}
+              ticketType="sms"
             />
 
             {/* Assigned To */}

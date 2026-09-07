@@ -74,7 +74,7 @@ Issue types are:
 | Destination | No | Target destination |
 | Issue Types | No | Multi-select checklist of predefined issues |
 | Issue Other | No | Custom issue text for "Other" option |
-| Opened Via | Yes | Monitoring, Email, Teams, AM, or combinations |
+| Opened Via | Yes | Monitoring, Email, Teams, AM, Telegram, or combinations |
 | Assigned To | No | NOC member assignment |
 | Status | Yes | Unassigned, Assigned, Awaiting Vendor, Awaiting Client, Awaiting AM, Resolved, Unresolved |
 | SID | No | Message SID |

@@ -3,17 +3,20 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 
 const OPENED_VIA_OPTIONS = ["Monitoring", "Teams", "Email", "AM"];
+const SMS_OPENED_VIA_OPTIONS = ["Monitoring", "Teams", "Email", "AM", "Telegram"];
 
-export { OPENED_VIA_OPTIONS };
+export { OPENED_VIA_OPTIONS, SMS_OPENED_VIA_OPTIONS };
 
-export default function OpenedViaSelect({ selectedOptions = [], onChange, disabled = false }) {
+export default function OpenedViaSelect({ selectedOptions = [], onChange, disabled = false, ticketType = "voice" }) {
+  const options = ticketType === "sms" ? SMS_OPENED_VIA_OPTIONS : OPENED_VIA_OPTIONS;
+
   const handleToggle = (option) => {
     if (disabled) return;
-    
+
     const newSelection = selectedOptions.includes(option)
       ? selectedOptions.filter(o => o !== option)
       : [...selectedOptions, option];
-    
+
     onChange(newSelection);
   };
 
@@ -21,7 +24,7 @@ export default function OpenedViaSelect({ selectedOptions = [], onChange, disabl
     <div className="space-y-2">
       <Label>Opened Via *</Label>
       <div className="grid grid-cols-2 gap-2 p-3 bg-gray-100 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-md">
-        {OPENED_VIA_OPTIONS.map((option) => (
+        {options.map((option) => (
           <div key={option} className="flex items-center space-x-2">
             <Checkbox
               id={`opened-via-${option}`}

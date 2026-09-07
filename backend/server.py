@@ -940,7 +940,7 @@ class SMSTicket(BaseModel):
     issue_types: Optional[List[str]] = []  # Predefined issue types checklist
     issue_other: Optional[str] = None  # Custom "Other" issue text
     issue: Optional[str] = None  # Legacy field - computed from issue_types + issue_other
-    opened_via: List[str] = []  # Multi-select: Monitoring, Teams, Email, AM
+    opened_via: List[str] = []  # Multi-select: Monitoring, Teams, Email, AM, Telegram
     assigned_to: Optional[str] = None
     status: str
     # Legacy single SID/Content fields (kept for backward compatibility)
