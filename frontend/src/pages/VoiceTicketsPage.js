@@ -284,6 +284,14 @@ export default function VoiceTicketsPage() {
     return ticket.vendor_trunk || "";
   };
 
+  const getVendorCostDisplayText = (ticket) => {
+    const costs = (ticket.vendor_trunks || [])
+      .map((v) => v.cost || (v.min_cost || v.max_cost ? `${v.min_cost || "0"}-${v.max_cost || "0"}` : null))
+      .filter(Boolean);
+    if (costs.length > 0) return costs.join(", ");
+    return ticket.cost || "";
+  };
+
     // Check for same-day identical tickets (Enterprise, Trunk, Destination, Issue)
   const findSameDayIdenticalTickets = (customerId, customerTrunk, destination, issueTypes) => {
     if (!customerId) return [];
@@ -899,65 +907,52 @@ export default function VoiceTicketsPage() {
     }
   };
 
-  // Handle informing AM about a ticket
+  // Handle informing AM about a ticket - copies a filled-in ticket summary template to the clipboard
   const handleInformAM = async () => {
     if (!selectedTicket) return;
 
+    const lcrText = selectedTicket.is_lcr === "yes" ? "Yes" : selectedTicket.is_lcr === "no" ? "No" : "";
+
+    const template = `Volume:
+${selectedTicket.volume || ""}
+
+Customer Trunk:
+${selectedTicket.customer_trunk || ""}
+
+Destination:
+${selectedTicket.destination || ""}
+
+ANI:
+${selectedTicket.ani || ""}
+
+Issue:
+${getIssueDisplayText(selectedTicket)}
+
+Rate:
+${selectedTicket.rate || ""}
+
+Vendor(s):
+${getVendorTrunkDisplayText(selectedTicket)}
+
+Cost:
+${getVendorCostDisplayText(selectedTicket)}
+
+LCR:
+${lcrText}
+
+Root cause:
+${selectedTicket.root_cause || ""}
+
+Alternative route:
+
+
+${selectedTicket.ticket_number}`;
+
     try {
-      const token = localStorage.getItem("token");
-      const headers = { Authorization: `Bearer ${token}` };
-
-      // Get the enterprise for this ticket
-      const enterprise = enterprises.find(e => e.id === selectedTicket.customer_id);
-      if (!enterprise) {
-        toast.error("Customer not found for this ticket");
-        return;
-      }
-
-      // Get the AM assigned to this enterprise
-      const amId = enterprise.assigned_am_id;
-      if (!amId) {
-        toast.error("No Account Manager assigned to this enterprise");
-        return;
-      }
-
-      // Get AM details from users (use allUsers since users only contains NOC)
-      const amUser = allUsers.find(u => u.id === amId);
-      if (!amUser) {
-        toast.error("Account Manager user not found");
-        return;
-      }
-
-      // Create a conversation with the AM
-      const conversationResponse = await axios.post(
-        `${API}/chat/conversations`,
-        { participant_id: amId },
-        { headers }
-      );
-
-      const conversation = conversationResponse.data;
-
-      // Build the ticket details URL
-      const ticketUrl = `${window.location.origin}/voice-tickets?ticket=${selectedTicket.id}`;
-
-      // Create the message
-      const messageContent = `Dear ${amUser.name || amUser.username}, Kindly note that the ticket with ticket number: ${selectedTicket.ticket_number} requires your attention. Please check it at your own convenience: ${ticketUrl}`;
-
-      // Send the message
-      await axios.post(
-        `${API}/chat/messages`,
-        {
-          conversation_id: conversation.id,
-          content: messageContent,
-          message_type: "text"
-        },
-        { headers }
-      );
-
-      toast.success(`Informed ${amUser.name || amUser.username} about ticket ${selectedTicket.ticket_number}`);
-    } catch (error) {
-      console.error("Error informing AM:", error);
-      toast.error(error.response?.data?.detail || "Failed to inform Account Manager");
+      await navigator.clipboard.writeText(template);
+      toast.success("Inform AM template copied to clipboard!");
+    } catch (err) {
+      toast.error("Failed to copy to clipboard");
     }
   };
 
