@@ -4008,18 +4008,18 @@ async def update_request(request_id: str, request_data: dict, current_user: dict
                 }
                 await db.notifications.insert_one(notification_doc)
 
-                # Live popup+sound for the AM. send_personal_message is a
-                # no-op if they have no active WebSocket connection, which
-                # is exactly the desired "only when online" behavior - no
+                # Live popup+sound for the AM, over the general system
+                # WebSocket (not chat's). send_personal_message is a no-op
+                # if they have no active connection there, which is exactly
+                # the desired "only when online" behavior - no
                 # queuing/replay for an AM who's offline right now.
-                if new_status == "completed":
-                    await manager.send_personal_message({
-                        "type": "request_completed",
-                        "request_id": request_id,
-                        "request_type_label": request_type_label,
-                        "message": notification_message,
-                        "response": request_data.get("response", "")
-                    }, am_id)
+                await manager.send_personal_message({
+                    "type": f"request_{new_status}",  # "request_completed" or "request_rejected"
+                    "request_id": request_id,
+                    "request_type_label": request_type_label,
+                    "message": notification_message,
+                    "response": request_data.get("response", "")
+                }, am_id)
 
     # Return updated request
     updated = await db.am_requests.find_one({"id": request_id})

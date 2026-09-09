@@ -3,6 +3,7 @@ import { Outlet, useNavigate, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import axios from "axios";
 import Chat from "@/components/Chat";
+import SystemNotifications from "@/components/SystemNotifications";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -1484,6 +1485,10 @@ export default function DashboardLayout({ user, setUser }) {
           setActiveChat={setActiveChat}
         />
       )}
+
+      {/* General system notifications (e.g. request completed/rejected) -
+          its own WebSocket, independent of chat */}
+      {user && <SystemNotifications user={user} />}
 
       {/* Notification Detail Dialog */}
       <AlertDialog key={notificationKey} open={!!selectedNotification} onOpenChange={(open) => !open && handleCloseNotificationDetail()}>
