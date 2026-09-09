@@ -125,14 +125,25 @@ class ChatMessage(BaseModel):
     file_name: Optional[str] = None  # Original file name
     file_size: Optional[int] = None  # File size in bytes
     file_mime_type: Optional[str] = None  # MIME type
-    is_read: bool = False  # Whether message has been read
+    is_read: bool = False  # Whether message has been read by at least one other participant
+    read_by: List[str] = Field(default_factory=list)  # User IDs (other than sender) who have read this message - powers per-message read receipts in groups
+    edited: bool = False  # Whether the sender has edited this message
+    edited_at: Optional[datetime] = None
+    is_deleted: bool = False  # Soft-deleted by the sender - content is cleared, a placeholder is shown instead
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
+class EditMessageData(BaseModel):
+    """Request model to edit a chat message"""
+    content: str
+
 class Conversation(BaseModel):
-    """Conversation model representing a chat between two users"""
+    """Conversation model representing a chat between two or more users"""
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     participant_ids: List[str]  # List of user IDs in this conversation
+    is_group: bool = False  # Group chat (admin-created, named, 2+ members) vs 1:1 DM
+    name: Optional[str] = None  # Group name - unused for 1:1 conversations
+    created_by: Optional[str] = None  # Who created the conversation (group creator, for groups)
     last_message: Optional[str] = None  # Preview of last message
     last_message_time: Optional[datetime] = None  # Timestamp of last message
     last_message_sender_id: Optional[str] = None  # Who sent the last message
@@ -141,8 +152,18 @@ class Conversation(BaseModel):
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class ConversationCreate(BaseModel):
-    """Request model to create or get a conversation"""
+    """Request model to create or get a 1:1 conversation"""
     participant_id: str  # The other user's ID
+
+class GroupConversationCreate(BaseModel):
+    """Request model to create a group conversation (admin only)"""
+    name: str
+    participant_ids: List[str]  # Member IDs, in addition to the creating admin
+
+class GroupConversationUpdate(BaseModel):
+    """Request model to rename a group and/or replace its member list (admin only)"""
+    name: Optional[str] = None
+    participant_ids: Optional[List[str]] = None  # Full replacement member list
 
 class MessageCreate(BaseModel):
     """Request model to create a message"""
@@ -3986,7 +4007,20 @@ async def update_request(request_id: str, request_data: dict, current_user: dict
                     "read": False
                 }
                 await db.notifications.insert_one(notification_doc)
-    
+
+                # Live popup+sound for the AM, over the general system
+                # WebSocket (not chat's). send_personal_message is a no-op
+                # if they have no active connection there, which is exactly
+                # the desired "only when online" behavior - no
+                # queuing/replay for an AM who's offline right now.
+                await manager.send_personal_message({
+                    "type": f"request_{new_status}",  # "request_completed" or "request_rejected"
+                    "request_id": request_id,
+                    "request_type_label": request_type_label,
+                    "message": notification_message,
+                    "response": request_data.get("response", "")
+                }, am_id)
+
     # Return updated request
     updated = await db.am_requests.find_one({"id": request_id})
     return updated
@@ -5860,6 +5894,9 @@ async def websocket_chat(websocket: WebSocket, token: str):
                             "file_size": file_size,
                             "file_mime_type": file_mime_type,
                             "is_read": False,
+                            "read_by": [],
+                            "edited": False,
+                            "is_deleted": False,
                             "created_at": msg_obj.created_at.isoformat()
                         }
                     }
@@ -5881,31 +5918,35 @@ async def websocket_chat(websocket: WebSocket, token: str):
                             await manager.send_personal_message(typing_payload, participant_id)
 
             elif message_type == "read":
-                # User read messages
+                # User read messages - mark every other participant's
+                # messages as read (works the same for a 1:1 DM or a group).
+                # read_by records this specific user for per-message receipts
+                # in groups; is_read stays "read by at least one other person".
                 conversation_id = data.get("conversation_id")
-                # Mark all messages from the other user as read
-                other_user = data.get("other_user_id")
-                if other_user:
+                conv = await db.conversations.find_one({"id": conversation_id})
+                if conv:
                     await db.chat_messages.update_many(
                         {
                             "conversation_id": conversation_id,
-                            "sender_id": other_user,
-                            "is_read": False
+                            "sender_id": {"$ne": user_id},
+                            "read_by": {"$ne": user_id}
                         },
-                        {"$set": {"is_read": True}}
+                        {"$set": {"is_read": True}, "$addToSet": {"read_by": user_id}}
                     )
                     # Reset unread count
                     await db.conversations.update_one(
                         {"id": conversation_id},
                         {"$set": {f"unread_counts.{user_id}": 0}}
                     )
-                    # Notify the other user
+                    # Notify the other participants
                     read_payload = {
                         "type": "message_read",
                         "conversation_id": conversation_id,
                         "read_by": user_id
                     }
-                    await manager.send_personal_message(read_payload, other_user)
+                    for participant_id in conv.get("participant_ids", []):
+                        if participant_id != user_id:
+                            await manager.send_personal_message(read_payload, participant_id)
 
     except WebSocketDisconnect:
         manager.disconnect(websocket)
@@ -5955,6 +5996,25 @@ async def websocket_data(websocket: WebSocket, token: str):
 
 # ==================== CHAT API ENDPOINTS ====================
 
+def build_chat_user_info(u: dict) -> dict:
+    """Shape a user doc into the {id, username, name, last_active, is_online}
+    form used across every chat endpoint. Online = active within 5 minutes."""
+    is_online = False
+    last_active = u.get("last_active")
+    if last_active:
+        if isinstance(last_active, str):
+            last_active = datetime.fromisoformat(last_active)
+        if last_active.tzinfo is None:
+            last_active = last_active.replace(tzinfo=timezone.utc)
+        is_online = last_active > datetime.now(timezone.utc) - timedelta(minutes=5)
+    return {
+        "id": u["id"],
+        "username": u["username"],
+        "name": u["name"],
+        "last_active": u.get("last_active"),
+        "is_online": is_online
+    }
+
 @api_router.get("/chat/users")
 async def get_chat_users(current_user: dict = Depends(get_current_user)):
     """Get all users that can be chatted with (all users except current)"""
@@ -5964,30 +6024,7 @@ async def get_chat_users(current_user: dict = Depends(get_current_user)):
             {"_id": 0, "id": 1, "username": 1, "name": 1, "last_active": 1}
         ).to_list(length=500)
 
-        # Determine online status (active in last 5 minutes)
-        now = datetime.now(timezone.utc)
-        online_threshold = now - timedelta(minutes=5)
-
-        result = []
-        for u in users:
-            is_online = False
-            if u.get("last_active"):
-                last_active = u["last_active"]
-                # Convert to timezone-aware if naive
-                if isinstance(last_active, str):
-                    last_active = datetime.fromisoformat(last_active)
-                if last_active.tzinfo is None:
-                    last_active = last_active.replace(tzinfo=timezone.utc)
-                is_online = last_active > online_threshold
-            result.append({
-                "id": u["id"],
-                "username": u["username"],
-                "name": u["name"],
-                "last_active": u.get("last_active"),
-                "is_online": is_online
-            })
-
-        return result
+        return [build_chat_user_info(u) for u in users]
     except Exception as e:
         logger.error(f"Error in get_chat_users: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -6018,38 +6055,23 @@ async def get_conversations(current_user: dict = Depends(get_current_user)):
             ).to_list(length=len(other_participant_ids))
             users_by_id = {u["id"]: u for u in participant_users}
 
-        online_threshold = datetime.now(timezone.utc) - timedelta(minutes=5)
-
         result = []
         for conv in conversations:
-            # Get participant info
+            # Get participant info (every other member - one for a 1:1 DM, N for a group)
             participants = []
             for pid in conv.get("participant_ids", []):
                 if pid != user_id:
                     puser = users_by_id.get(pid)
                     if puser:
-                        is_online = False
-                        if puser.get("last_active"):
-                            last_active = puser["last_active"]
-                            # Convert to timezone-aware if naive
-                            if isinstance(last_active, str):
-                                last_active = datetime.fromisoformat(last_active)
-                            if last_active.tzinfo is None:
-                                last_active = last_active.replace(tzinfo=timezone.utc)
-                            is_online = last_active > online_threshold
-                        participants.append({
-                            "id": puser["id"],
-                            "username": puser["username"],
-                            "name": puser["name"],
-                            "last_active": puser.get("last_active"),
-                            "is_online": is_online
-                        })
+                        participants.append(build_chat_user_info(puser))
 
             # Get unread count for current user
             unread_count = conv.get("unread_counts", {}).get(user_id, 0)
 
             result.append({
                 "id": conv["id"],
+                "is_group": conv.get("is_group", False),
+                "name": conv.get("name"),
                 "participants": participants,
                 "last_message": conv.get("last_message"),
                 "last_message_time": conv.get("last_message_time"),
@@ -6069,41 +6091,29 @@ async def create_or_get_conversation(
     data: ConversationCreate,
     current_user: dict = Depends(get_current_user)
 ):
-    """Create a new conversation or get existing one with a user"""
+    """Create a new 1:1 conversation or get the existing one with a user"""
     user_id = current_user["id"]
     other_user_id = data.participant_id
 
-    # Check if conversation already exists
+    # Check if a 1:1 conversation already exists (excludes groups, in case a
+    # 2-member group ever happens to share the same pair of participant ids)
     existing = await db.conversations.find_one({
-        "participant_ids": {"$all": [user_id, other_user_id], "$size": 2}
+        "participant_ids": {"$all": [user_id, other_user_id], "$size": 2},
+        "is_group": {"$ne": True}
     })
 
-    if existing:
-        # Return existing conversation
-        other_user = await db.users.find_one(
-            {"id": other_user_id},
-            {"_id": 0, "id": 1, "username": 1, "name": 1, "last_active": 1}
-        )
-        is_online = False
-        if other_user and other_user.get("last_active"):
-            last_active = other_user["last_active"]
-            # Convert to timezone-aware if naive
-            if isinstance(last_active, str):
-                last_active = datetime.fromisoformat(last_active)
-            if last_active.tzinfo is None:
-                last_active = last_active.replace(tzinfo=timezone.utc)
-            online_threshold = datetime.now(timezone.utc) - timedelta(minutes=5)
-            is_online = last_active > online_threshold
+    other_user = await db.users.find_one(
+        {"id": other_user_id},
+        {"_id": 0, "id": 1, "username": 1, "name": 1, "last_active": 1}
+    )
+    participants = [build_chat_user_info(other_user)] if other_user else []
 
+    if existing:
         return {
             "id": existing["id"],
-            "participants": [{
-                "id": other_user["id"],
-                "username": other_user["username"],
-                "name": other_user["name"],
-                "last_active": other_user.get("last_active"),
-                "is_online": is_online
-            }] if other_user else [],
+            "is_group": False,
+            "name": None,
+            "participants": participants,
             "last_message": existing.get("last_message"),
             "last_message_time": existing.get("last_message_time"),
             "last_message_sender_id": existing.get("last_message_sender_id"),
@@ -6115,35 +6125,16 @@ async def create_or_get_conversation(
     # Create new conversation
     conv = Conversation(
         participant_ids=[user_id, other_user_id],
-        unread_counts={user_id: 0, other_user_id: 0}
+        unread_counts={user_id: 0, other_user_id: 0},
+        created_by=user_id
     )
     await db.conversations.insert_one(conv.model_dump())
 
-    # Get other user info
-    other_user = await db.users.find_one(
-        {"id": other_user_id},
-        {"_id": 0, "id": 1, "username": 1, "name": 1, "last_active": 1}
-    )
-    is_online = False
-    if other_user and other_user.get("last_active"):
-        if isinstance(other_user["last_active"], str):
-            other_user["last_active"] = datetime.fromisoformat(other_user["last_active"])
-        # Make sure last_active is timezone-aware
-        last_active = other_user["last_active"]
-        if last_active.tzinfo is None:
-            last_active = last_active.replace(tzinfo=timezone.utc)
-        online_threshold = datetime.now(timezone.utc) - timedelta(minutes=5)
-        is_online = last_active > online_threshold
-
     return {
         "id": conv.id,
-        "participants": [{
-            "id": other_user["id"],
-            "username": other_user["username"],
-            "name": other_user["name"],
-            "last_active": other_user.get("last_active"),
-            "is_online": is_online
-        }] if other_user else [],
+        "is_group": False,
+        "name": None,
+        "participants": participants,
         "last_message": None,
         "last_message_time": None,
         "last_message_sender_id": None,
@@ -6151,6 +6142,148 @@ async def create_or_get_conversation(
         "created_at": conv.created_at,
         "updated_at": conv.updated_at
     }
+
+@api_router.post("/chat/conversations/group")
+async def create_group_conversation(
+    data: GroupConversationCreate,
+    current_user: dict = Depends(get_current_admin)
+):
+    """Create a group conversation with specific members (admin only)"""
+    admin_id = current_user["id"]
+    name = data.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Group name is required")
+
+    # De-dupe and make sure the creating admin is a member
+    member_ids = list(dict.fromkeys([admin_id] + [pid for pid in data.participant_ids if pid]))
+    if len(member_ids) < 2:
+        raise HTTPException(status_code=400, detail="A group needs at least 1 other member")
+
+    members = await db.users.find(
+        {"id": {"$in": member_ids}},
+        {"_id": 0, "id": 1, "username": 1, "name": 1, "last_active": 1}
+    ).to_list(length=len(member_ids))
+    members_by_id = {m["id"]: m for m in members}
+
+    conv = Conversation(
+        participant_ids=member_ids,
+        is_group=True,
+        name=name,
+        created_by=admin_id,
+        unread_counts={pid: 0 for pid in member_ids}
+    )
+    await db.conversations.insert_one(conv.model_dump())
+
+    participants = [build_chat_user_info(members_by_id[pid]) for pid in member_ids if pid != admin_id and pid in members_by_id]
+
+    return {
+        "id": conv.id,
+        "is_group": True,
+        "name": name,
+        "participants": participants,
+        "last_message": None,
+        "last_message_time": None,
+        "last_message_sender_id": None,
+        "unread_count": 0,
+        "created_at": conv.created_at,
+        "updated_at": conv.updated_at
+    }
+
+@api_router.put("/chat/conversations/{conversation_id}/group")
+async def update_group_conversation(
+    conversation_id: str,
+    data: GroupConversationUpdate,
+    current_user: dict = Depends(get_current_admin)
+):
+    """Rename a group and/or replace its member list (admin only)"""
+    conv = await db.conversations.find_one({"id": conversation_id, "is_group": True})
+    if not conv:
+        raise HTTPException(status_code=404, detail="Group not found")
+
+    update_fields = {"updated_at": datetime.now(timezone.utc)}
+
+    if data.name is not None:
+        name = data.name.strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="Group name is required")
+        update_fields["name"] = name
+
+    if data.participant_ids is not None:
+        member_ids = list(dict.fromkeys([pid for pid in data.participant_ids if pid]))
+        if len(member_ids) < 2:
+            raise HTTPException(status_code=400, detail="A group needs at least 2 members")
+        update_fields["participant_ids"] = member_ids
+        # Keep unread counts for members who stayed, start new members at 0
+        existing_unread = conv.get("unread_counts", {})
+        update_fields["unread_counts"] = {pid: existing_unread.get(pid, 0) for pid in member_ids}
+
+    await db.conversations.update_one({"id": conversation_id}, {"$set": update_fields})
+    updated = await db.conversations.find_one({"id": conversation_id}, {"_id": 0})
+
+    member_ids = updated.get("participant_ids", [])
+    members = await db.users.find(
+        {"id": {"$in": member_ids}},
+        {"_id": 0, "id": 1, "username": 1, "name": 1, "last_active": 1}
+    ).to_list(length=len(member_ids))
+    members_by_id = {m["id"]: m for m in members}
+    participants = [build_chat_user_info(members_by_id[pid]) for pid in member_ids if pid != current_user["id"] and pid in members_by_id]
+
+    # Let every member's open chat window pick up the rename/membership change live
+    await manager.broadcast_to_conversation({
+        "type": "group_updated",
+        "conversation_id": conversation_id,
+        "name": updated.get("name"),
+        "participant_ids": member_ids
+    }, member_ids)
+
+    return {
+        "id": updated["id"],
+        "is_group": True,
+        "name": updated.get("name"),
+        "participants": participants,
+        "last_message": updated.get("last_message"),
+        "last_message_time": updated.get("last_message_time"),
+        "last_message_sender_id": updated.get("last_message_sender_id"),
+        "unread_count": updated.get("unread_counts", {}).get(current_user["id"], 0),
+        "created_at": updated.get("created_at"),
+        "updated_at": updated.get("updated_at")
+    }
+
+@api_router.post("/chat/conversations/{conversation_id}/leave")
+async def leave_group_conversation(
+    conversation_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Leave a group conversation"""
+    user_id = current_user["id"]
+    conv = await db.conversations.find_one({
+        "id": conversation_id,
+        "is_group": True,
+        "participant_ids": user_id
+    })
+    if not conv:
+        raise HTTPException(status_code=404, detail="Group not found")
+
+    remaining = [pid for pid in conv.get("participant_ids", []) if pid != user_id]
+    if remaining:
+        await db.conversations.update_one(
+            {"id": conversation_id},
+            {
+                "$set": {"participant_ids": remaining, "updated_at": datetime.now(timezone.utc)},
+                "$unset": {f"unread_counts.{user_id}": ""}
+            }
+        )
+        await manager.broadcast_to_conversation({
+            "type": "group_updated",
+            "conversation_id": conversation_id,
+            "participant_ids": remaining
+        }, remaining)
+    else:
+        # No members left - nothing useful to keep around
+        await db.conversations.delete_one({"id": conversation_id})
+        await db.chat_messages.delete_many({"conversation_id": conversation_id})
+
+    return {"message": "Left group"}
 
 @api_router.get("/chat/conversations/{conversation_id}/messages")
 async def get_conversation_messages(
@@ -6198,12 +6331,17 @@ async def get_conversation_messages(
 @api_router.post("/chat/messages/read")
 async def mark_messages_as_read(
     conversation_id: str,
-    other_user_id: str,
+    other_user_id: Optional[str] = None,
     current_user: dict = Depends(get_current_user)
 ):
-    """Mark all messages from another user as read in a conversation"""
+    """Mark all of another participant's messages as read in a conversation.
+
+    other_user_id is accepted for backward compatibility but ignored: every
+    unread message not sent by the caller is marked read, which is exactly
+    equivalent for a 1:1 DM (there's only one other sender) and is what's
+    needed for a group (mark everyone else's messages read at once)."""
     user_id = current_user["id"]
-    
+
     # Verify user is part of conversation
     conv = await db.conversations.find_one({
         "id": conversation_id,
@@ -6211,23 +6349,35 @@ async def mark_messages_as_read(
     })
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
-    
-    # Mark all messages from the other user as read
+
+    # Mark all messages from other participants as read. read_by records
+    # this specific user (per-message read receipts, needed for groups);
+    # is_read stays "read by at least one other person" for 1:1 tick color.
     result = await db.chat_messages.update_many(
         {
             "conversation_id": conversation_id,
-            "sender_id": other_user_id,
-            "is_read": False
+            "sender_id": {"$ne": user_id},
+            "read_by": {"$ne": user_id}
         },
-        {"$set": {"is_read": True}}
+        {"$set": {"is_read": True}, "$addToSet": {"read_by": user_id}}
     )
-    
+
     # Reset unread count for current user
     await db.conversations.update_one(
         {"id": conversation_id},
         {"$set": {f"unread_counts.{user_id}": 0}}
     )
-    
+
+    # Notify other participants over WebSocket so their open chat windows
+    # update the read ticks in real time (mirrors the WS "read" handler).
+    for participant_id in conv.get("participant_ids", []):
+        if participant_id != user_id:
+            await manager.send_personal_message({
+                "type": "message_read",
+                "conversation_id": conversation_id,
+                "read_by": user_id
+            }, participant_id)
+
     return {
         "message": f"Marked {result.modified_count} messages as read",
         "modified_count": result.modified_count
@@ -6299,6 +6449,9 @@ async def create_message(
                     "file_size": data.file_size,
                     "file_mime_type": data.file_mime_type,
                     "is_read": False,
+                    "read_by": [],
+                    "edited": False,
+                    "is_deleted": False,
                     "created_at": msg_obj.created_at.isoformat()
                 }
             }, participant_id)
@@ -6315,8 +6468,146 @@ async def create_message(
         "file_size": data.file_size,
         "file_mime_type": data.file_mime_type,
         "is_read": False,
+        "read_by": [],
+        "edited": False,
+        "is_deleted": False,
         "created_at": msg_obj.created_at.isoformat()
     }
+
+async def _update_conversation_preview_if_latest(conversation_id: str, message_id: str, preview: str):
+    """If message_id is the most recent message in the conversation, patch
+    the conversation's last_message preview to match (used after an edit or
+    a delete, so the chat list doesn't keep showing stale/removed text)."""
+    latest = await db.chat_messages.find_one(
+        {"conversation_id": conversation_id},
+        sort=[("created_at", -1)]
+    )
+    if latest and latest.get("id") == message_id:
+        await db.conversations.update_one(
+            {"id": conversation_id},
+            {"$set": {"last_message": preview}}
+        )
+
+@api_router.put("/chat/messages/{message_id}")
+async def edit_chat_message(
+    message_id: str,
+    data: EditMessageData,
+    current_user: dict = Depends(get_current_user)
+):
+    """Edit a text message you sent"""
+    user_id = current_user["id"]
+    msg = await db.chat_messages.find_one({"id": message_id})
+    if not msg:
+        raise HTTPException(status_code=404, detail="Message not found")
+    if msg.get("sender_id") != user_id:
+        raise HTTPException(status_code=403, detail="You can only edit your own messages")
+    if msg.get("is_deleted"):
+        raise HTTPException(status_code=400, detail="Cannot edit a deleted message")
+    if msg.get("message_type") != "text":
+        raise HTTPException(status_code=400, detail="Only text messages can be edited")
+
+    content = data.content.strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="Message content is required")
+
+    edited_at = datetime.now(timezone.utc)
+    await db.chat_messages.update_one(
+        {"id": message_id},
+        {"$set": {"content": content, "edited": True, "edited_at": edited_at}}
+    )
+
+    conversation_id = msg["conversation_id"]
+    await _update_conversation_preview_if_latest(conversation_id, message_id, content[:100])
+
+    conv = await db.conversations.find_one({"id": conversation_id})
+    if conv:
+        await manager.broadcast_to_conversation({
+            "type": "message_edited",
+            "conversation_id": conversation_id,
+            "message_id": message_id,
+            "content": content,
+            "edited_at": edited_at.isoformat()
+        }, conv.get("participant_ids", []))
+
+    return {"id": message_id, "content": content, "edited": True, "edited_at": edited_at.isoformat()}
+
+@api_router.delete("/chat/messages/{message_id}")
+async def delete_chat_message(
+    message_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Soft-delete a message you sent - content is cleared and a
+    'this message was deleted' placeholder is shown in its place."""
+    user_id = current_user["id"]
+    msg = await db.chat_messages.find_one({"id": message_id})
+    if not msg:
+        raise HTTPException(status_code=404, detail="Message not found")
+    if msg.get("sender_id") != user_id:
+        raise HTTPException(status_code=403, detail="You can only delete your own messages")
+
+    await db.chat_messages.update_one(
+        {"id": message_id},
+        {"$set": {
+            "is_deleted": True,
+            "content": "",
+            "file_url": None,
+            "file_name": None,
+            "file_size": None,
+            "file_mime_type": None
+        }}
+    )
+
+    conversation_id = msg["conversation_id"]
+    await _update_conversation_preview_if_latest(conversation_id, message_id, "This message was deleted")
+
+    conv = await db.conversations.find_one({"id": conversation_id})
+    if conv:
+        await manager.broadcast_to_conversation({
+            "type": "message_deleted",
+            "conversation_id": conversation_id,
+            "message_id": message_id
+        }, conv.get("participant_ids", []))
+
+    return {"id": message_id, "is_deleted": True}
+
+@api_router.delete("/chat/conversations/{conversation_id}/messages")
+async def clear_conversation_messages(
+    conversation_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Clear all messages in a 1:1 DM - permanently deletes the message
+    history for both participants (not a per-user hide)."""
+    user_id = current_user["id"]
+    conv = await db.conversations.find_one({
+        "id": conversation_id,
+        "participant_ids": user_id
+    })
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    if conv.get("is_group"):
+        raise HTTPException(status_code=400, detail="Groups can't be cleared this way")
+
+    await db.chat_messages.delete_many({"conversation_id": conversation_id})
+
+    participant_ids = conv.get("participant_ids", [])
+    await db.conversations.update_one(
+        {"id": conversation_id},
+        {"$set": {
+            "last_message": None,
+            "last_message_time": None,
+            "last_message_sender_id": None,
+            "unread_counts": {pid: 0 for pid in participant_ids},
+            "updated_at": datetime.now(timezone.utc)
+        }}
+    )
+
+    for participant_id in participant_ids:
+        await manager.send_personal_message({
+            "type": "conversation_cleared",
+            "conversation_id": conversation_id
+        }, participant_id)
+
+    return {"message": "Conversation cleared"}
 
 @api_router.post("/chat/upload")
 async def upload_chat_file(

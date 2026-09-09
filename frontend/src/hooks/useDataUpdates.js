@@ -5,6 +5,7 @@ const API = `${process.env.REACT_APP_API_URL || 'http://localhost:8000'}/api`;
 export function useDataUpdates(onDataUpdate) {
   const wsRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
+  const heartbeatIntervalRef = useRef(null);
   const [isConnected, setIsConnected] = useState(false);
 
   const connect = useCallback(() => {
@@ -22,6 +23,13 @@ export function useDataUpdates(onDataUpdate) {
     ws.onopen = () => {
       console.log('[DataUpdates] Connected to WebSocket');
       setIsConnected(true);
+      // Keep the connection alive - matches the chat socket's heartbeat so
+      // this channel doesn't get dropped as idle by a proxy/browser.
+      heartbeatIntervalRef.current = setInterval(() => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'ping' }));
+        }
+      }, 60000);
     };
 
     ws.onmessage = (event) => {
@@ -41,7 +49,11 @@ export function useDataUpdates(onDataUpdate) {
     ws.onclose = (event) => {
       console.log('[DataUpdates] WebSocket closed:', event.code, event.reason);
       setIsConnected(false);
-      
+      if (heartbeatIntervalRef.current) {
+        clearInterval(heartbeatIntervalRef.current);
+        heartbeatIntervalRef.current = null;
+      }
+
       // Attempt to reconnect after 3 seconds if not a clean close
       if (event.code !== 1000) {
         reconnectTimeoutRef.current = setTimeout(() => {
@@ -64,6 +76,9 @@ export function useDataUpdates(onDataUpdate) {
     return () => {
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
+      }
+      if (heartbeatIntervalRef.current) {
+        clearInterval(heartbeatIntervalRef.current);
       }
       if (wsRef.current) {
         wsRef.current.close(1000, 'Component unmounting');
