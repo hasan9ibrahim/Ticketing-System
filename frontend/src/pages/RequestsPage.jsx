@@ -1651,9 +1651,69 @@ export default function RequestsPage() {
   // Use flexible matching to handle different department name formats
   const isSmsDepartment = userDepartment?.startsWith("sms") || userDepartment === "sms";
   const isVoiceDepartment = userDepartment?.startsWith("voice") || userDepartment === "voice";
-  const displayTab = userRole === "am" 
-    ? (isSmsDepartment ? "sms" : isVoiceDepartment ? "voice" : userDepartment) 
+  const displayTab = userRole === "am"
+    ? (isSmsDepartment ? "sms" : isVoiceDepartment ? "voice" : userDepartment)
     : activeTab;
+
+  // Request types selectable in the New/Edit Request dialog, filtered by department
+  const visibleRequestTypes = useMemo(() => {
+    return Object.entries(REQUEST_TYPES).filter(([key, type]) => {
+      if (type.forDepartment) {
+        if (userRole === "am") {
+          const deptMatch = type.forDepartment === "sms" ? isSmsDepartment : type.forDepartment === "voice" ? isVoiceDepartment : false;
+          if (!deptMatch) return false;
+        } else {
+          if (type.forDepartment !== activeTab) return false;
+        }
+      }
+      return true;
+    });
+  }, [userRole, isSmsDepartment, isVoiceDepartment, activeTab]);
+
+  // Hexagonal "beehive" card layout for the Request Type picker - cards sit next to
+  // each other, and once a row is full the rest wrap onto interlocking rows below.
+  const HEX_CLIP_PATH = "polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)";
+  const renderRequestTypeHive = (cols) => {
+    const rows = [];
+    for (let i = 0; i < visibleRequestTypes.length; i += cols) {
+      rows.push(visibleRequestTypes.slice(i, i + cols));
+    }
+    return (
+      <div className="flex flex-col items-center">
+        {rows.map((row, rowIndex) => (
+          <div
+            key={rowIndex}
+            className={`flex gap-2 ${rowIndex > 0 ? "-mt-9" : ""} ${rowIndex % 2 === 1 ? "ml-16" : ""}`}
+          >
+            {row.map(([key, type]) => {
+              const isSelected = formData.request_type === key;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => handleRequestTypeChange(key)}
+                  title={type.description}
+                  className={`shrink-0 w-32 h-36 p-[3px] transition-transform ${isSelected ? "bg-cyan-400 scale-105" : "bg-gray-300 dark:bg-zinc-600 hover:scale-105"}`}
+                  style={{ clipPath: HEX_CLIP_PATH }}
+                >
+                  <div
+                    className={`w-full h-full flex items-center justify-center px-3 text-center transition-colors ${
+                      isSelected
+                        ? "bg-cyan-600 text-white"
+                        : "bg-gray-100 dark:bg-zinc-800 text-gray-900 dark:text-white"
+                    }`}
+                    style={{ clipPath: HEX_CLIP_PATH }}
+                  >
+                    <span className="text-xs font-medium leading-tight">{type.label}</span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+    );
+  };
 
   // Validation for Rating/Routing - requires customer_trunk_configs with trunk and destination, and either rate or vendor trunk(s)
   const isRatingRoutingValid = () => {
@@ -2335,37 +2395,14 @@ export default function RequestsPage() {
           </DialogHeader>
           
           <div className="space-y-4">
-            {/* Request Type */}
+            {/* Request Type - honeycomb card picker */}
             <div>
-              <Label className="text-gray-500 dark:text-zinc-400">Request Type</Label>
-              <Select value={formData.request_type} onValueChange={handleRequestTypeChange}>
-                <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white">
-                  <SelectValue placeholder="Select request type" />
-                </SelectTrigger>
-                <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
-                  {Object.entries(REQUEST_TYPES).filter(([key, type]) => {
-                    // Filter by department - use flexible matching for AMs
-                    if (type.forDepartment) {
-                      if (userRole === "am") {
-                        // For AMs, check against their department
-                        const deptMatch = type.forDepartment === "sms" ? isSmsDepartment : type.forDepartment === "voice" ? isVoiceDepartment : false;
-                        if (!deptMatch) return false;
-                      } else {
-                        // For admins, check against activeTab
-                        if (type.forDepartment !== activeTab) return false;
-                      }
-                    }
-                    return true;
-                  }).map(([key, type]) => (
-                    <SelectItem key={key} value={key} className="text-gray-900 dark:text-white data-[highlighted]:bg-white data-[highlighted]:text-black">
-                      <div className="text-left data-[highlighted]:text-black">
-                        <div className="font-medium text-left">{type.label}</div>
-                        <div className="text-xs text-gray-500 dark:text-zinc-400 text-left data-[highlighted]:text-black">{type.description}</div>
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label className="text-gray-500 dark:text-zinc-400 mb-2 block">Request Type</Label>
+              <div className="sm:hidden">{renderRequestTypeHive(2)}</div>
+              <div className="hidden sm:flex sm:justify-center">{renderRequestTypeHive(3)}</div>
+              {formData.request_type && (
+                <p className="text-xs text-zinc-500 text-center mt-2">{REQUEST_TYPES[formData.request_type]?.description}</p>
+              )}
             </div>
 
             {/* Priority - Show only when request type is selected */}
