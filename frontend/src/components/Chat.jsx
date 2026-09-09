@@ -1,14 +1,24 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { MessageSquare, X, Send, Paperclip, Image as ImageIcon, Users, Plus, Check, CheckCheck, Info, LogOut } from "lucide-react";
+import { MessageSquare, X, Send, Paperclip, Image as ImageIcon, Users, Plus, Check, CheckCheck, Info, LogOut, Smile, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import MultiSelect from "@/components/custom/MultiSelect";
 import axios from "axios";
 import { toast } from "sonner";
+
+// A small curated set rather than a full emoji library/dependency - covers
+// the common reactions people actually reach for in a work chat.
+const EMOJI_OPTIONS = [
+  "😀", "😂", "😅", "🙂", "😉", "😊", "😍", "😘", "🤔", "😎",
+  "😴", "😢", "😭", "😡", "😱", "🤗", "🤝", "👋", "👍", "👎",
+  "👏", "🙏", "💪", "🎉", "🔥", "❤️", "💯", "✅", "❌", "⚠️",
+  "📌", "📎", "📷", "🚀", "⭐", "✨", "💡", "😇", "🥳", "🎊",
+];
 
 const API = `${process.env.REACT_APP_API_URL}/api`;
 // Derive the WebSocket origin from the API URL (http->ws, https->wss) instead
@@ -74,6 +84,53 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
   const registerMessageCallback = useCallback((callback) => {
     messageSentRef.current = callback;
   }, []);
+
+  // Ask for OS notification permission once, so an incoming message can
+  // raise a native notification when the browser tab itself isn't visible
+  // (not just the chat widget being minimized, which the in-app toast covers).
+  useEffect(() => {
+    if ("Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission().catch(() => {});
+    }
+  }, []);
+
+  // Short beep for an incoming message - synthesized so there's no audio
+  // asset to ship/host. Reuses one AudioContext instead of creating a new
+  // one per message.
+  const audioCtxRef = useRef(null);
+  const playNotificationSound = useCallback(() => {
+    try {
+      if (!audioCtxRef.current) {
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        if (!Ctx) return;
+        audioCtxRef.current = new Ctx();
+      }
+      const ctx = audioCtxRef.current;
+      const oscillator = ctx.createOscillator();
+      const gain = ctx.createGain();
+      oscillator.connect(gain);
+      gain.connect(ctx.destination);
+      oscillator.type = "sine";
+      oscillator.frequency.setValueAtTime(880, ctx.currentTime);
+      gain.gain.setValueAtTime(0.15, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.35);
+      oscillator.start();
+      oscillator.stop(ctx.currentTime + 0.35);
+    } catch (error) {
+      // Audio not available/blocked by the browser - not worth surfacing
+    }
+  }, []);
+
+  // Native OS notification, for when the browser tab itself isn't visible
+  // (an in-app toast wouldn't be seen at all in that case).
+  const showNativeNotification = (title, body) => {
+    if (!("Notification" in window) || Notification.permission !== "granted") return;
+    try {
+      new Notification(title, { body, icon: "/favicon.ico" });
+    } catch (error) {
+      // Ignore - notification is a nice-to-have, never worth failing chat over
+    }
+  };
 
   // WebSocket for real-time chat
   useEffect(() => {
@@ -149,9 +206,34 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
       case "group_updated":
         handleGroupUpdated(data);
         break;
+      case "message_edited":
+        handleMessageEdited(data);
+        break;
+      case "message_deleted":
+        handleMessageDeleted(data);
+        break;
       default:
         break;
     }
+  };
+
+  // Apply a field update to one message across activeChat/openChats
+  const patchMessage = (conversationId, messageId, patch) => {
+    const apply = (msgs) => (msgs || []).map((m) => (m.id === messageId ? { ...m, ...patch } : m));
+    setActiveChat((prev) =>
+      prev && prev.conversation_id === conversationId ? { ...prev, messages: apply(prev.messages) } : prev
+    );
+    setOpenChats((prev) =>
+      prev.map((c) => (c.conversation_id === conversationId ? { ...c, messages: apply(c.messages) } : c))
+    );
+  };
+
+  const handleMessageEdited = (data) => {
+    patchMessage(data.conversation_id, data.message_id, { content: data.content, edited: true, edited_at: data.edited_at });
+  };
+
+  const handleMessageDeleted = (data) => {
+    patchMessage(data.conversation_id, data.message_id, { is_deleted: true, content: "", file_url: null, file_name: null });
   };
 
   // A group's name/membership changed (or it was disbanded by the last
@@ -299,9 +381,10 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
       });
     });
 
-    // Toast for messages arriving in a conversation whose window isn't open
-    // and expanded right now - mirrors how FB/WhatsApp/Teams surface a
-    // message you'd otherwise miss.
+    // Toast + sound (+ native notification if the tab itself isn't visible)
+    // for messages arriving in a conversation whose window isn't open and
+    // expanded right now - mirrors how FB/WhatsApp/Teams surface a message
+    // you'd otherwise miss.
     if (!isOwnMessage) {
       const windowChat = openChats.find((c) => c.conversation_id === message.conversation_id);
       const isFocused = windowChat && !windowChat.minimized;
@@ -312,6 +395,10 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
           description: preview,
           action: convForToast ? { label: "Open", onClick: () => openConversationWindow(convForToast) } : undefined,
         });
+        playNotificationSound();
+        if (document.hidden) {
+          showNativeNotification(message.sender_name || "New message", preview);
+        }
       }
     }
   };
@@ -333,16 +420,21 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
   };
 
   const handleMessageRead = (data) => {
-    // Someone (data.read_by) read the conversation - mark every message NOT
-    // authored by them as read (matches the backend's "read by anyone but
-    // the sender" semantics, which also covers groups).
+    // Someone (data.read_by) read the conversation - record them as a
+    // reader on every message NOT authored by them (matches the backend's
+    // "read by anyone but the sender" semantics, and keeps read_by - which
+    // drives the per-message tick/receipt UI - live instead of only is_read).
+    const addReader = (msg) => {
+      if (msg.sender_id === data.read_by) return msg;
+      const currentReadBy = msg.read_by || [];
+      if (currentReadBy.includes(data.read_by)) return msg;
+      return { ...msg, is_read: true, read_by: [...currentReadBy, data.read_by] };
+    };
+
     if (activeChat && data.conversation_id === activeChat.conversation_id) {
       setActiveChat((prev) => ({
         ...prev,
-        messages: prev.messages?.map((msg) => ({
-          ...msg,
-          is_read: msg.sender_id !== data.read_by ? true : msg.is_read,
-        })) || [],
+        messages: prev.messages?.map(addReader) || [],
       }));
     }
 
@@ -352,10 +444,7 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
         if (chat.conversation_id === data.conversation_id) {
           return {
             ...chat,
-            messages: chat.messages?.map((msg) => ({
-              ...msg,
-              is_read: msg.sender_id !== data.read_by ? true : msg.is_read,
-            })) || [],
+            messages: chat.messages?.map(addReader) || [],
           };
         }
         return chat;
@@ -649,6 +738,22 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
     ));
   };
 
+  const editMessage = async (conversationId, messageId, content) => {
+    const response = await axios.put(
+      `${API}/chat/messages/${messageId}`,
+      { content },
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    patchMessage(conversationId, messageId, { content: response.data.content, edited: true, edited_at: response.data.edited_at });
+  };
+
+  const deleteMessage = async (conversationId, messageId) => {
+    await axios.delete(`${API}/chat/messages/${messageId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    patchMessage(conversationId, messageId, { is_deleted: true, content: "", file_url: null, file_name: null });
+  };
+
   const handleFileUpload = async (event, type = "file", conversationId = null) => {
     const file = event.target.files[0];
     if (!file) return;
@@ -781,6 +886,8 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
                 onMinimize={() => toggleChatMinimize(chat.conversation_id)}
                 onUpdateGroup={(name, participantIds) => updateGroup(chat.conversation_id, name, participantIds)}
                 onLeaveGroup={() => leaveGroup(chat.conversation_id)}
+                onEditMessage={(messageId, content) => editMessage(chat.conversation_id, messageId, content)}
+                onDeleteMessage={(messageId) => deleteMessage(chat.conversation_id, messageId)}
                 isFloating={true}
               />
             </div>
@@ -1118,12 +1225,17 @@ function ChatWindowView({
   onMinimize,
   onUpdateGroup,
   onLeaveGroup,
+  onEditMessage,
+  onDeleteMessage,
 }) {
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState([]);
   const [hasLoadedFromApi, setHasLoadedFromApi] = useState(false);
   const [hasMarkedAsRead, setHasMarkedAsRead] = useState(false);
   const [groupInfoOpen, setGroupInfoOpen] = useState(false);
+  const [emojiOpen, setEmojiOpen] = useState(false);
+  const [editingMessageId, setEditingMessageId] = useState(null);
+  const [editingText, setEditingText] = useState("");
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const [loading, setLoading] = useState(false);
@@ -1260,6 +1372,46 @@ function ChatWindowView({
     if (!message.trim()) return;
     onSendMessage(message);
     setMessage("");
+  };
+
+  const insertEmoji = (emoji) => {
+    setMessage((prev) => prev + emoji);
+    setEmojiOpen(false);
+    inputRef.current?.focus();
+  };
+
+  const startEditingMessage = (msg) => {
+    setEditingMessageId(msg.id);
+    setEditingText(msg.content);
+  };
+
+  const cancelEditingMessage = () => {
+    setEditingMessageId(null);
+    setEditingText("");
+  };
+
+  const saveEditingMessage = async () => {
+    if (!editingText.trim() || !editingMessageId) return;
+    const messageId = editingMessageId;
+    const content = editingText.trim();
+    setEditingMessageId(null);
+    setEditingText("");
+    try {
+      await onEditMessage?.(messageId, content);
+    } catch (error) {
+      console.error("Error editing message:", error);
+      toast.error("Failed to edit message");
+    }
+  };
+
+  const handleDeleteMessage = async (messageId) => {
+    if (!window.confirm("Delete this message?")) return;
+    try {
+      await onDeleteMessage?.(messageId);
+    } catch (error) {
+      console.error("Error deleting message:", error);
+      toast.error("Failed to delete message");
+    }
   };
 
   const handleKeyPress = (e) => {
@@ -1457,12 +1609,43 @@ function ChatWindowView({
           const msg = item.data;
           const isOwn = msg.sender_id === user.id;
           const isImage = msg.message_type === "image";
+          const isEditing = editingMessageId === msg.id;
+
+          // Per-message read receipt: how many OTHER participants have read
+          // it vs. how many there are. For a 1:1 DM otherCount is always 1,
+          // so this collapses to the old binary sent/read behavior; for a
+          // group it distinguishes "read by some" from "read by everyone".
+          const otherCount = chat.participants?.length || 0;
+          const readByCount = (msg.read_by || []).length;
+          const readByNames = isGroup
+            ? (msg.read_by || []).map((id) => chat.participants?.find((p) => p.id === id)?.name).filter(Boolean)
+            : [];
 
           return (
             <div
               key={msg.id}
-              className={`flex mb-1 ${isOwn ? "justify-end" : "justify-start"}`}
+              className={`group flex mb-1 items-end gap-1 ${isOwn ? "justify-end" : "justify-start"}`}
             >
+              {isOwn && !msg.is_deleted && !isEditing && (
+                <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                  {msg.message_type === "text" && (
+                    <button
+                      onClick={() => startEditingMessage(msg)}
+                      className="p-1 text-gray-400 hover:text-gray-900 dark:hover:text-white"
+                      title="Edit message"
+                    >
+                      <Pencil className="w-3 h-3" />
+                    </button>
+                  )}
+                  <button
+                    onClick={() => handleDeleteMessage(msg.id)}
+                    className="p-1 text-gray-400 hover:text-red-400"
+                    title="Delete message"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                </div>
+              )}
               <div
                 className={`max-w-[70%] rounded px-2 py-1 text-sm ${
                   isOwn
@@ -1475,71 +1658,104 @@ function ChatWindowView({
                   <div className="text-[10px] font-medium text-emerald-500 mb-0.5">{msg.sender_name}</div>
                 )}
 
-                {/* Image message */}
-                {isImage && msg.file_url && (
-                  <div className="mb-1">
-                    <img
-                      src={`${API.replace("/api", "")}${msg.file_url}`}
-                      alt={msg.file_name || "Image"}
-                      className="max-w-full rounded"
-                      loading="lazy"
+                {msg.is_deleted ? (
+                  <div className="italic text-xs opacity-70">This message was deleted</div>
+                ) : isEditing ? (
+                  <div className="space-y-1 min-w-[160px]">
+                    <Input
+                      autoFocus
+                      value={editingText}
+                      onChange={(e) => setEditingText(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          saveEditingMessage();
+                        } else if (e.key === "Escape") {
+                          cancelEditingMessage();
+                        }
+                      }}
+                      className="h-7 text-sm bg-white/20 border-white/30 text-gray-900 dark:text-white placeholder:text-gray-300"
                     />
+                    <div className="flex justify-end gap-2 text-[10px]">
+                      <button onClick={cancelEditingMessage} className="underline opacity-80 hover:opacity-100">Cancel</button>
+                      <button onClick={saveEditingMessage} disabled={!editingText.trim()} className="underline font-medium disabled:opacity-50">Save</button>
+                    </div>
                   </div>
+                ) : (
+                  <>
+                    {/* Image message */}
+                    {isImage && msg.file_url && (
+                      <div className="mb-1">
+                        <img
+                          src={`${API.replace("/api", "")}${msg.file_url}`}
+                          alt={msg.file_name || "Image"}
+                          className="max-w-full rounded"
+                          loading="lazy"
+                        />
+                      </div>
+                    )}
+
+                    {/* File message */}
+                    {msg.message_type === "file" && msg.file_url && (
+                      <a
+                        href={`${API.replace("/api", "")}${msg.file_url}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={`flex items-center gap-2 mb-1 ${
+                          isOwn ? "text-emerald-200 hover:text-gray-900 dark:hover:text-white" : "text-emerald-400 hover:text-emerald-300"
+                        }`}
+                      >
+                        <Paperclip className="w-3 h-3" />
+                        <span className="text-xs underline">{msg.file_name || "File"}</span>
+                      </a>
+                    )}
+
+                    {/* Text content - detect links */}
+                    {msg.content && (
+                      <div className="break-words">
+                        {msg.content.split(/(https?:\/\/[^\s]+)/g).map((part, i) =>
+                          part.match(/https?:\/\/[^\s]+/) ? (
+                            <a
+                              key={i}
+                              href={part}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className={`underline ${
+                                isOwn ? "text-emerald-200 hover:text-gray-900 dark:hover:text-white" : "text-emerald-400 hover:text-emerald-300"
+                              }`}
+                            >
+                              {part}
+                            </a>
+                          ) : (
+                            <span key={i}>{part}</span>
+                          )
+                        )}
+                      </div>
+                    )}
+                  </>
                 )}
 
-                {/* File message */}
-                {msg.message_type === "file" && msg.file_url && (
-                  <a
-                    href={`${API.replace("/api", "")}${msg.file_url}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={`flex items-center gap-2 mb-1 ${
-                      isOwn ? "text-emerald-200 hover:text-gray-900 dark:hover:text-white" : "text-emerald-400 hover:text-emerald-300"
+                {/* Timestamp + edited tag + read receipt (WhatsApp-style ticks, own messages only) */}
+                {!isEditing && (
+                  <div
+                    className={`flex items-center justify-end gap-1 text-[10px] mt-0.5 ${
+                      isOwn ? "text-emerald-200" : "text-gray-400"
                     }`}
                   >
-                    <Paperclip className="w-3 h-3" />
-                    <span className="text-xs underline">{msg.file_name || "File"}</span>
-                  </a>
-                )}
-
-                {/* Text content - detect links */}
-                {msg.content && (
-                  <div className="break-words">
-                    {msg.content.split(/(https?:\/\/[^\s]+)/g).map((part, i) =>
-                      part.match(/https?:\/\/[^\s]+/) ? (
-                        <a
-                          key={i}
-                          href={part}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className={`underline ${
-                            isOwn ? "text-emerald-200 hover:text-gray-900 dark:hover:text-white" : "text-emerald-400 hover:text-emerald-300"
-                          }`}
-                        >
-                          {part}
-                        </a>
+                    <span>{formatTime(msg.created_at)}</span>
+                    {msg.edited && !msg.is_deleted && <span className="italic">(edited)</span>}
+                    {isOwn && !msg.is_deleted && (
+                      readByCount === 0 ? (
+                        <Check className="w-3 h-3" title="Sent" />
                       ) : (
-                        <span key={i}>{part}</span>
+                        <CheckCheck
+                          className={`w-3 h-3 ${isGroup && readByCount < otherCount ? "opacity-60" : ""}`}
+                          title={isGroup ? (readByNames.length ? `Read by ${readByNames.join(", ")}` : "Read") : "Read"}
+                        />
                       )
                     )}
                   </div>
                 )}
-
-                {/* Timestamp + read receipt (WhatsApp-style ticks, own messages only) */}
-                <div
-                  className={`flex items-center justify-end gap-1 text-[10px] mt-0.5 ${
-                    isOwn ? "text-emerald-200" : "text-gray-400"
-                  }`}
-                >
-                  <span>{formatTime(msg.created_at)}</span>
-                  {isOwn && (
-                    msg.is_read ? (
-                      <CheckCheck className="w-3 h-3" title="Read" />
-                    ) : (
-                      <Check className="w-3 h-3" title="Sent" />
-                    )
-                  )}
-                </div>
               </div>
             </div>
           );
@@ -1580,6 +1796,26 @@ function ChatWindowView({
         >
           <ImageIcon className="w-4 h-4 text-zinc-500" />
         </Button>
+        <Popover open={emojiOpen} onOpenChange={setEmojiOpen}>
+          <PopoverTrigger asChild>
+            <Button variant="ghost" size="sm" className="p-1 h-8 w-8" title="Emoji">
+              <Smile className="w-4 h-4 text-zinc-500" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-64 p-2 bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700">
+            <div className="grid grid-cols-8 gap-1">
+              {EMOJI_OPTIONS.map((emoji, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => insertEmoji(emoji)}
+                  className="text-lg leading-none p-1 rounded hover:bg-gray-100 dark:hover:bg-zinc-800"
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
+          </PopoverContent>
+        </Popover>
         <Input
           ref={inputRef}
           placeholder="Type a message..."

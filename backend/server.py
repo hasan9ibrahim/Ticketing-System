@@ -125,8 +125,16 @@ class ChatMessage(BaseModel):
     file_name: Optional[str] = None  # Original file name
     file_size: Optional[int] = None  # File size in bytes
     file_mime_type: Optional[str] = None  # MIME type
-    is_read: bool = False  # Whether message has been read
+    is_read: bool = False  # Whether message has been read by at least one other participant
+    read_by: List[str] = Field(default_factory=list)  # User IDs (other than sender) who have read this message - powers per-message read receipts in groups
+    edited: bool = False  # Whether the sender has edited this message
+    edited_at: Optional[datetime] = None
+    is_deleted: bool = False  # Soft-deleted by the sender - content is cleared, a placeholder is shown instead
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class EditMessageData(BaseModel):
+    """Request model to edit a chat message"""
+    content: str
 
 class Conversation(BaseModel):
     """Conversation model representing a chat between two or more users"""
@@ -5873,6 +5881,9 @@ async def websocket_chat(websocket: WebSocket, token: str):
                             "file_size": file_size,
                             "file_mime_type": file_mime_type,
                             "is_read": False,
+                            "read_by": [],
+                            "edited": False,
+                            "is_deleted": False,
                             "created_at": msg_obj.created_at.isoformat()
                         }
                     }
@@ -5895,7 +5906,9 @@ async def websocket_chat(websocket: WebSocket, token: str):
 
             elif message_type == "read":
                 # User read messages - mark every other participant's
-                # messages as read (works the same for a 1:1 DM or a group)
+                # messages as read (works the same for a 1:1 DM or a group).
+                # read_by records this specific user for per-message receipts
+                # in groups; is_read stays "read by at least one other person".
                 conversation_id = data.get("conversation_id")
                 conv = await db.conversations.find_one({"id": conversation_id})
                 if conv:
@@ -5903,9 +5916,9 @@ async def websocket_chat(websocket: WebSocket, token: str):
                         {
                             "conversation_id": conversation_id,
                             "sender_id": {"$ne": user_id},
-                            "is_read": False
+                            "read_by": {"$ne": user_id}
                         },
-                        {"$set": {"is_read": True}}
+                        {"$set": {"is_read": True}, "$addToSet": {"read_by": user_id}}
                     )
                     # Reset unread count
                     await db.conversations.update_one(
@@ -6324,14 +6337,16 @@ async def mark_messages_as_read(
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
-    # Mark all messages from other participants as read
+    # Mark all messages from other participants as read. read_by records
+    # this specific user (per-message read receipts, needed for groups);
+    # is_read stays "read by at least one other person" for 1:1 tick color.
     result = await db.chat_messages.update_many(
         {
             "conversation_id": conversation_id,
             "sender_id": {"$ne": user_id},
-            "is_read": False
+            "read_by": {"$ne": user_id}
         },
-        {"$set": {"is_read": True}}
+        {"$set": {"is_read": True}, "$addToSet": {"read_by": user_id}}
     )
 
     # Reset unread count for current user
@@ -6421,6 +6436,9 @@ async def create_message(
                     "file_size": data.file_size,
                     "file_mime_type": data.file_mime_type,
                     "is_read": False,
+                    "read_by": [],
+                    "edited": False,
+                    "is_deleted": False,
                     "created_at": msg_obj.created_at.isoformat()
                 }
             }, participant_id)
@@ -6437,8 +6455,107 @@ async def create_message(
         "file_size": data.file_size,
         "file_mime_type": data.file_mime_type,
         "is_read": False,
+        "read_by": [],
+        "edited": False,
+        "is_deleted": False,
         "created_at": msg_obj.created_at.isoformat()
     }
+
+async def _update_conversation_preview_if_latest(conversation_id: str, message_id: str, preview: str):
+    """If message_id is the most recent message in the conversation, patch
+    the conversation's last_message preview to match (used after an edit or
+    a delete, so the chat list doesn't keep showing stale/removed text)."""
+    latest = await db.chat_messages.find_one(
+        {"conversation_id": conversation_id},
+        sort=[("created_at", -1)]
+    )
+    if latest and latest.get("id") == message_id:
+        await db.conversations.update_one(
+            {"id": conversation_id},
+            {"$set": {"last_message": preview}}
+        )
+
+@api_router.put("/chat/messages/{message_id}")
+async def edit_chat_message(
+    message_id: str,
+    data: EditMessageData,
+    current_user: dict = Depends(get_current_user)
+):
+    """Edit a text message you sent"""
+    user_id = current_user["id"]
+    msg = await db.chat_messages.find_one({"id": message_id})
+    if not msg:
+        raise HTTPException(status_code=404, detail="Message not found")
+    if msg.get("sender_id") != user_id:
+        raise HTTPException(status_code=403, detail="You can only edit your own messages")
+    if msg.get("is_deleted"):
+        raise HTTPException(status_code=400, detail="Cannot edit a deleted message")
+    if msg.get("message_type") != "text":
+        raise HTTPException(status_code=400, detail="Only text messages can be edited")
+
+    content = data.content.strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="Message content is required")
+
+    edited_at = datetime.now(timezone.utc)
+    await db.chat_messages.update_one(
+        {"id": message_id},
+        {"$set": {"content": content, "edited": True, "edited_at": edited_at}}
+    )
+
+    conversation_id = msg["conversation_id"]
+    await _update_conversation_preview_if_latest(conversation_id, message_id, content[:100])
+
+    conv = await db.conversations.find_one({"id": conversation_id})
+    if conv:
+        await manager.broadcast_to_conversation({
+            "type": "message_edited",
+            "conversation_id": conversation_id,
+            "message_id": message_id,
+            "content": content,
+            "edited_at": edited_at.isoformat()
+        }, conv.get("participant_ids", []))
+
+    return {"id": message_id, "content": content, "edited": True, "edited_at": edited_at.isoformat()}
+
+@api_router.delete("/chat/messages/{message_id}")
+async def delete_chat_message(
+    message_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Soft-delete a message you sent - content is cleared and a
+    'this message was deleted' placeholder is shown in its place."""
+    user_id = current_user["id"]
+    msg = await db.chat_messages.find_one({"id": message_id})
+    if not msg:
+        raise HTTPException(status_code=404, detail="Message not found")
+    if msg.get("sender_id") != user_id:
+        raise HTTPException(status_code=403, detail="You can only delete your own messages")
+
+    await db.chat_messages.update_one(
+        {"id": message_id},
+        {"$set": {
+            "is_deleted": True,
+            "content": "",
+            "file_url": None,
+            "file_name": None,
+            "file_size": None,
+            "file_mime_type": None
+        }}
+    )
+
+    conversation_id = msg["conversation_id"]
+    await _update_conversation_preview_if_latest(conversation_id, message_id, "This message was deleted")
+
+    conv = await db.conversations.find_one({"id": conversation_id})
+    if conv:
+        await manager.broadcast_to_conversation({
+            "type": "message_deleted",
+            "conversation_id": conversation_id,
+            "message_id": message_id
+        }, conv.get("participant_ids", []))
+
+    return {"id": message_id, "is_deleted": True}
 
 @api_router.post("/chat/upload")
 async def upload_chat_file(
