@@ -8,7 +8,7 @@ import StatusBadge from "@/components/custom/StatusBadge";
 import PriorityIndicator from "@/components/custom/PriorityIndicator";
 import { DateRangePickerWithRange } from "@/components/custom/DateRangePickerWithRange";
 import { Button } from "@/components/ui/button";
-import { startOfWeek, endOfWeek } from "date-fns";
+import { addDays } from "date-fns";
 
 const BACKEND_URL = process.env.REACT_APP_API_URL;
 const API = `${BACKEND_URL}/api`;
@@ -17,10 +17,7 @@ export default function DashboardPage() {
   const [stats, setStats] = useState(null);
   const [dateRange, setDateRange] = useState(() => {
     const today = new Date();
-    return { 
-      from: startOfWeek(today, { weekStartsOn: 1 }), 
-      to: endOfWeek(today, { weekStartsOn: 1 }) 
-    };
+    return { from: addDays(today, -7), to: today };
   });
   const [loading, setLoading] = useState(true);
   const [onlineUsers, setOnlineUsers] = useState([]);
@@ -164,11 +161,11 @@ export default function DashboardPage() {
               variant="outline"
               onClick={() => {
                 const today = new Date();
-                setDateRange({ from: startOfWeek(today, { weekStartsOn: 1 }), to: endOfWeek(today, { weekStartsOn: 1 }) });
+                setDateRange({ from: addDays(today, -7), to: today });
               }}
               className="border-gray-200 dark:border-zinc-700 text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-zinc-800 h-7 px-2 text-xs"
             >
-              Reset to This Week
+              Reset to Last 7 Days
             </Button>
           </div>
         </div>

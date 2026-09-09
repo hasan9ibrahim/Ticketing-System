@@ -190,6 +190,11 @@ export default function RequestsPage() {
   
   // For customer and vendor trunk selection
   const [enterprises, setEnterprises] = useState([]);
+  // Unfiltered enterprise list (all AMs' customers) - only used for the
+  // Investigation request type, where an AM may need to reference another
+  // AM's customer/customer trunk. For non-AM users this is the same as
+  // `enterprises` above, which is already unfiltered.
+  const [investigationEnterprises, setInvestigationEnterprises] = useState([]);
   const [vendorTrunkOptions, setVendorTrunkOptions] = useState([]);
   const [customerTrunkOptions, setCustomerTrunkOptions] = useState([]);
   const [customerTrunkSearch, setCustomerTrunkSearch] = useState("");
@@ -412,19 +417,28 @@ export default function RequestsPage() {
       const isVoiceDept = userDepartment?.startsWith("voice") || userDepartment === "voice";
       const deptType = isSmsDept ? "sms" : isVoiceDept ? "voice" : activeTab;
       
-      // Fetch all data in parallel for faster loading
-      const [entResponse, vendorTrunkResponse, customerTrunkResponse] = await Promise.all([
+      // Fetch all data in parallel for faster loading. AMs also need the
+      // unrestricted client list for Investigation requests (see
+      // investigationEnterprises above); other roles already get the full
+      // list from /clients, so skip the extra request for them.
+      const [entResponse, vendorTrunkResponse, customerTrunkResponse, allEntResponse] = await Promise.all([
         axios.get(`${API}/clients`, { headers }),
         axios.get(`${API}/references/trunks/${deptType}`, { headers }),
-        axios.get(`${API}/trunks/${deptType}`, { headers })
+        axios.get(`${API}/trunks/${deptType}`, { headers }),
+        userRole === "am" ? axios.get(`${API}/clients?include_all=true&department=${deptType}`, { headers }) : Promise.resolve(null)
       ]);
-      
+
       const entData = entResponse.data || [];
-      const filteredEnterprises = entData.filter(e => 
+      const filteredEnterprises = entData.filter(e =>
         e.enterprise_type === deptType || e.enterprise_type === "all"
       );
       setEnterprises(filteredEnterprises);
-      
+
+      const allEntData = allEntResponse ? (allEntResponse.data || []) : entData;
+      setInvestigationEnterprises(allEntData.filter(e =>
+        e.enterprise_type === deptType || e.enterprise_type === "all"
+      ));
+
       setVendorTrunkOptions(vendorTrunkResponse.data.vendor_trunks || []);
       setCustomerTrunkOptions(customerTrunkResponse.data.customer_trunks || []);
     } catch (error) {
@@ -2104,7 +2118,8 @@ export default function RequestsPage() {
 
                       {request.response && (
                         <div className="mt-3 p-2 bg-gray-100 dark:bg-zinc-800 rounded text-sm text-gray-700 dark:text-zinc-300">
-                          <strong>Response:</strong> {request.response}
+                          <strong>Response:</strong>
+                          <div className="whitespace-pre-wrap">{request.response}</div>
                         </div>
                       )}
                     </div>
@@ -3452,18 +3467,18 @@ export default function RequestsPage() {
               <>
                 <div>
                   <Label className="text-gray-500 dark:text-zinc-400">Enterprise</Label>
-                  <SearchableSelect 
-                    options={enterprises.filter(e => e.enterprise_type === displayTab || e.enterprise_type === "all").map(e => ({ value: e.id, label: e.name }))} 
-                    value={formData.customer_id} 
+                  <SearchableSelect
+                    options={investigationEnterprises.filter(e => e.enterprise_type === displayTab || e.enterprise_type === "all").map(e => ({ value: e.id, label: e.name }))}
+                    value={formData.customer_id}
                     onChange={(value) => {
-                      setFormData({ 
-                        ...formData, 
+                      setFormData({
+                        ...formData,
                         customer_id: value,
-                        customer: enterprises.find(e => e.id === value)?.name || "",
+                        customer: investigationEnterprises.find(e => e.id === value)?.name || "",
                         customer_trunk: ""
                       });
-                    }} 
-                    placeholder="Search enterprise..." 
+                    }}
+                    placeholder="Search enterprise..."
                     isRequired={true}
                   />
                 </div>
@@ -3484,8 +3499,8 @@ export default function RequestsPage() {
                       <SelectValue placeholder={formData.customer_id ? "Select customer trunk" : "Select customer first"} />
                     </SelectTrigger>
                     <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
-                      {(formData.customer_id 
-                        ? enterprises.find(e => e.id === formData.customer_id)?.customer_trunks || []
+                      {(formData.customer_id
+                        ? investigationEnterprises.find(e => e.id === formData.customer_id)?.customer_trunks || []
                         : []
                       ).map((trunk) => (
                         <SelectItem key={trunk} value={trunk} className="text-gray-900 dark:text-white">{trunk}</SelectItem>
@@ -4113,7 +4128,7 @@ export default function RequestsPage() {
               {selectedRequest.response && (
                 <div className="border-t border-gray-200 dark:border-zinc-700 pt-4">
                   <Label className="text-gray-500 dark:text-zinc-400">Response</Label>
-                  <p className="text-gray-900 dark:text-white mt-2">{selectedRequest.response}</p>
+                  <p className="text-gray-900 dark:text-white mt-2 whitespace-pre-wrap">{selectedRequest.response}</p>
                 </div>
               )}
 
