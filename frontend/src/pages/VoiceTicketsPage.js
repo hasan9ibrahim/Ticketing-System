@@ -913,35 +913,25 @@ export default function VoiceTicketsPage() {
 
     const lcrText = selectedTicket.is_lcr === "yes" ? "Yes" : selectedTicket.is_lcr === "no" ? "No" : "";
 
-    const template = `Volume:
-${selectedTicket.volume || ""}
+    const template = `Volume: ${selectedTicket.volume || ""}
 
-Customer Trunk:
-${selectedTicket.customer_trunk || ""}
+Customer Trunk: ${selectedTicket.customer_trunk || ""}
 
-Destination:
-${selectedTicket.destination || ""}
+Destination: ${selectedTicket.destination || ""}
 
-ANI:
-${selectedTicket.ani || ""}
+ANI: ${selectedTicket.ani || ""}
 
-Issue:
-${getIssueDisplayText(selectedTicket)}
+Issue: ${getIssueDisplayText(selectedTicket)}
 
-Rate:
-${selectedTicket.rate || ""}
+Rate: ${selectedTicket.rate || ""}
 
-Vendor(s):
-${getVendorTrunkDisplayText(selectedTicket)}
+Vendor(s): ${getVendorTrunkDisplayText(selectedTicket)}
 
-Cost:
-${getVendorCostDisplayText(selectedTicket)}
+Cost: ${getVendorCostDisplayText(selectedTicket)}
 
-LCR:
-${lcrText}
+LCR: ${lcrText}
 
-Root cause:
-${selectedTicket.root_cause || ""}
+Root cause: ${selectedTicket.root_cause || ""}
 
 Alternative route:
 

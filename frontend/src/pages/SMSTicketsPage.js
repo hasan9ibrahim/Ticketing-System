@@ -1033,38 +1033,27 @@ export default function SMSTicketsPage() {
       ? smsDetails.map((d) => d.content).filter(Boolean).join(", ")
       : (selectedTicket.content || "");
 
-    const template = `Volume:
-${selectedTicket.volume || ""}
+    const template = `Volume: ${selectedTicket.volume || ""}
 
-Customer Trunk:
-${selectedTicket.customer_trunk || ""}
+Customer Trunk: ${selectedTicket.customer_trunk || ""}
 
-Destination:
-${selectedTicket.destination || ""}
+Destination: ${selectedTicket.destination || ""}
 
-Issue:
-${getIssueDisplayText(selectedTicket)}
+Issue: ${getIssueDisplayText(selectedTicket)}
 
-SID:
-${sidText}
+SID: ${sidText}
 
-Content:
-${contentText}
+Content: ${contentText}
 
-Rate:
-${selectedTicket.rate || ""}
+Rate: ${selectedTicket.rate || ""}
 
-Vendor(s):
-${getVendorTrunkDisplayText(selectedTicket)}
+Vendor(s): ${getVendorTrunkDisplayText(selectedTicket)}
 
-Cost:
-${getVendorCostDisplayText(selectedTicket)}
+Cost: ${getVendorCostDisplayText(selectedTicket)}
 
-LCR:
-${lcrText}
+LCR: ${lcrText}
 
-Root cause:
-${selectedTicket.root_cause || ""}
+Root cause: ${selectedTicket.root_cause || ""}
 
 Alternative route:
 
