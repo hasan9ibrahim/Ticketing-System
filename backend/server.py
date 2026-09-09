@@ -152,6 +152,11 @@ class GroupConversationCreate(BaseModel):
     name: str
     participant_ids: List[str]  # Member IDs, in addition to the creating admin
 
+class GroupConversationUpdate(BaseModel):
+    """Request model to rename a group and/or replace its member list (admin only)"""
+    name: Optional[str] = None
+    participant_ids: Optional[List[str]] = None  # Full replacement member list
+
 class MessageCreate(BaseModel):
     """Request model to create a message"""
     conversation_id: str
@@ -6157,6 +6162,102 @@ async def create_group_conversation(
         "created_at": conv.created_at,
         "updated_at": conv.updated_at
     }
+
+@api_router.put("/chat/conversations/{conversation_id}/group")
+async def update_group_conversation(
+    conversation_id: str,
+    data: GroupConversationUpdate,
+    current_user: dict = Depends(get_current_admin)
+):
+    """Rename a group and/or replace its member list (admin only)"""
+    conv = await db.conversations.find_one({"id": conversation_id, "is_group": True})
+    if not conv:
+        raise HTTPException(status_code=404, detail="Group not found")
+
+    update_fields = {"updated_at": datetime.now(timezone.utc)}
+
+    if data.name is not None:
+        name = data.name.strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="Group name is required")
+        update_fields["name"] = name
+
+    if data.participant_ids is not None:
+        member_ids = list(dict.fromkeys([pid for pid in data.participant_ids if pid]))
+        if len(member_ids) < 2:
+            raise HTTPException(status_code=400, detail="A group needs at least 2 members")
+        update_fields["participant_ids"] = member_ids
+        # Keep unread counts for members who stayed, start new members at 0
+        existing_unread = conv.get("unread_counts", {})
+        update_fields["unread_counts"] = {pid: existing_unread.get(pid, 0) for pid in member_ids}
+
+    await db.conversations.update_one({"id": conversation_id}, {"$set": update_fields})
+    updated = await db.conversations.find_one({"id": conversation_id}, {"_id": 0})
+
+    member_ids = updated.get("participant_ids", [])
+    members = await db.users.find(
+        {"id": {"$in": member_ids}},
+        {"_id": 0, "id": 1, "username": 1, "name": 1, "last_active": 1}
+    ).to_list(length=len(member_ids))
+    members_by_id = {m["id"]: m for m in members}
+    participants = [build_chat_user_info(members_by_id[pid]) for pid in member_ids if pid != current_user["id"] and pid in members_by_id]
+
+    # Let every member's open chat window pick up the rename/membership change live
+    await manager.broadcast_to_conversation({
+        "type": "group_updated",
+        "conversation_id": conversation_id,
+        "name": updated.get("name"),
+        "participant_ids": member_ids
+    }, member_ids)
+
+    return {
+        "id": updated["id"],
+        "is_group": True,
+        "name": updated.get("name"),
+        "participants": participants,
+        "last_message": updated.get("last_message"),
+        "last_message_time": updated.get("last_message_time"),
+        "last_message_sender_id": updated.get("last_message_sender_id"),
+        "unread_count": updated.get("unread_counts", {}).get(current_user["id"], 0),
+        "created_at": updated.get("created_at"),
+        "updated_at": updated.get("updated_at")
+    }
+
+@api_router.post("/chat/conversations/{conversation_id}/leave")
+async def leave_group_conversation(
+    conversation_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Leave a group conversation"""
+    user_id = current_user["id"]
+    conv = await db.conversations.find_one({
+        "id": conversation_id,
+        "is_group": True,
+        "participant_ids": user_id
+    })
+    if not conv:
+        raise HTTPException(status_code=404, detail="Group not found")
+
+    remaining = [pid for pid in conv.get("participant_ids", []) if pid != user_id]
+    if remaining:
+        await db.conversations.update_one(
+            {"id": conversation_id},
+            {
+                "$set": {"participant_ids": remaining, "updated_at": datetime.now(timezone.utc)},
+                "$unset": {f"unread_counts.{user_id}": ""}
+            }
+        )
+        await manager.broadcast_to_conversation({
+            "type": "group_updated",
+            "conversation_id": conversation_id,
+            "participant_ids": remaining
+        }, remaining)
+    else:
+        # No members left - nothing useful to keep around
+        await db.conversations.delete_one({"id": conversation_id})
+        await db.chat_messages.delete_many({"conversation_id": conversation_id})
+
+    return {"message": "Left group"}
 
 @api_router.get("/chat/conversations/{conversation_id}/messages")
 async def get_conversation_messages(

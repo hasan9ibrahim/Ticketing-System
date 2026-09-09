@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { MessageSquare, X, Send, Paperclip, Image as ImageIcon, Users, Plus, Check, CheckCheck } from "lucide-react";
+import { MessageSquare, X, Send, Paperclip, Image as ImageIcon, Users, Plus, Check, CheckCheck, Info, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import MultiSelect from "@/components/custom/MultiSelect";
 import axios from "axios";
+import { toast } from "sonner";
 
 const API = `${process.env.REACT_APP_API_URL}/api`;
 // Derive the WebSocket origin from the API URL (http->ws, https->wss) instead
@@ -145,8 +146,41 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
       case "message_read":
         handleMessageRead(data);
         break;
+      case "group_updated":
+        handleGroupUpdated(data);
+        break;
       default:
         break;
+    }
+  };
+
+  // A group's name/membership changed (or it was disbanded by the last
+  // member leaving) - refresh it, or close the window if we were removed.
+  const handleGroupUpdated = async (data) => {
+    const { conversation_id, participant_ids } = data;
+    const stillMember = !participant_ids || participant_ids.includes(user?.id);
+    if (!stillMember) {
+      setOpenChats((prev) => prev.filter((c) => c.conversation_id !== conversation_id));
+      setActiveChat((prev) => (prev?.conversation_id === conversation_id ? null : prev));
+      setConversations((prev) => prev.filter((c) => c.id !== conversation_id));
+      return;
+    }
+    try {
+      const response = await axios.get(`${API}/chat/conversations`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setConversations(response.data);
+      const fresh = response.data.find((c) => c.id === conversation_id);
+      if (fresh) {
+        setOpenChats((prev) => prev.map((c) =>
+          c.conversation_id === conversation_id ? { ...c, name: fresh.name, participants: fresh.participants } : c
+        ));
+        setActiveChat((prev) =>
+          prev?.conversation_id === conversation_id ? { ...prev, name: fresh.name, participants: fresh.participants } : prev
+        );
+      }
+    } catch (error) {
+      console.error("Error refreshing group:", error);
     }
   };
 
@@ -264,6 +298,22 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
         return conv;
       });
     });
+
+    // Toast for messages arriving in a conversation whose window isn't open
+    // and expanded right now - mirrors how FB/WhatsApp/Teams surface a
+    // message you'd otherwise miss.
+    if (!isOwnMessage) {
+      const windowChat = openChats.find((c) => c.conversation_id === message.conversation_id);
+      const isFocused = windowChat && !windowChat.minimized;
+      if (!isFocused) {
+        const preview = message.message_type === "image" ? "📷 Photo" : message.message_type === "file" ? `📎 ${message.file_name || "File"}` : message.content;
+        const convForToast = conversations.find((c) => c.id === message.conversation_id);
+        toast(message.sender_name || "New message", {
+          description: preview,
+          action: convForToast ? { label: "Open", onClick: () => openConversationWindow(convForToast) } : undefined,
+        });
+      }
+    }
   };
 
   const handleTyping = (data) => {
@@ -437,6 +487,33 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
     setConversations((prev) => [response.data, ...prev]);
     openConversationWindow(response.data);
     setNewGroupOpen(false);
+  };
+
+  const updateGroup = async (conversationId, name, participantIds) => {
+    const response = await axios.put(
+      `${API}/chat/conversations/${conversationId}/group`,
+      { name, participant_ids: participantIds },
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    const updated = response.data;
+    setOpenChats((prev) => prev.map((c) =>
+      c.conversation_id === conversationId ? { ...c, name: updated.name, participants: updated.participants } : c
+    ));
+    setActiveChat((prev) =>
+      prev?.conversation_id === conversationId ? { ...prev, name: updated.name, participants: updated.participants } : prev
+    );
+    setConversations((prev) => prev.map((c) => (c.id === conversationId ? { ...c, ...updated } : c)));
+  };
+
+  const leaveGroup = async (conversationId) => {
+    await axios.post(
+      `${API}/chat/conversations/${conversationId}/leave`,
+      null,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    setOpenChats((prev) => prev.filter((c) => c.conversation_id !== conversationId));
+    setActiveChat((prev) => (prev?.conversation_id === conversationId ? null : prev));
+    setConversations((prev) => prev.filter((c) => c.id !== conversationId));
   };
 
   const sendMessage = async (content, messageType = "text", fileData = null, conversationId = null) => {
@@ -691,6 +768,7 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
               <ChatWindowView
                 chat={chat}
                 user={user}
+                allUsers={users}
                 onSendMessage={(content, type, fileData) => sendMessage(content, type, fileData, chat.conversation_id)}
                 onRegisterMessageCallback={registerMessageCallback}
                 onTyping={sendTyping}
@@ -701,6 +779,8 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
                 imageInputRef={imageInputRef}
                 onClose={() => closeChatWindow(chat.conversation_id)}
                 onMinimize={() => toggleChatMinimize(chat.conversation_id)}
+                onUpdateGroup={(name, participantIds) => updateGroup(chat.conversation_id, name, participantIds)}
+                onLeaveGroup={() => leaveGroup(chat.conversation_id)}
                 isFloating={true}
               />
             </div>
@@ -1025,6 +1105,7 @@ function ChatListView({
 function ChatWindowView({
   chat,
   user,
+  allUsers,
   onSendMessage,
   onRegisterMessageCallback,
   onTyping,
@@ -1035,11 +1116,14 @@ function ChatWindowView({
   imageInputRef,
   onClose,
   onMinimize,
+  onUpdateGroup,
+  onLeaveGroup,
 }) {
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState([]);
   const [hasLoadedFromApi, setHasLoadedFromApi] = useState(false);
   const [hasMarkedAsRead, setHasMarkedAsRead] = useState(false);
+  const [groupInfoOpen, setGroupInfoOpen] = useState(false);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const [loading, setLoading] = useState(false);
@@ -1290,6 +1374,7 @@ function ChatWindowView({
   };
 
   return (
+    <>
     <div className="flex flex-col flex-1 bg-white dark:bg-black border border-t-0 border-gray-200 dark:border-gray-800 rounded-b-lg overflow-hidden" style={{ minHeight: 0 }}>
       {/* Chat Header */}
       <div className="flex items-center justify-between gap-2 px-2 py-1 border-b border-black/10 dark:border-white/10 bg-white dark:bg-zinc-900">
@@ -1312,6 +1397,17 @@ function ChatWindowView({
           </div>
         </div>
         <div className="flex items-center gap-1">
+          {isGroup && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="p-1 h-6 w-6 text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white"
+              onClick={() => setGroupInfoOpen(true)}
+              title="Group info"
+            >
+              <Info className="w-3.5 h-3.5" />
+            </Button>
+          )}
           {onMinimize && (
             <Button
               variant="ghost"
@@ -1504,5 +1600,141 @@ function ChatWindowView({
         </Button>
       </div>
     </div>
+    {isGroup && (
+      <GroupInfoDialog
+        open={groupInfoOpen}
+        onOpenChange={setGroupInfoOpen}
+        chat={chat}
+        currentUser={user}
+        allUsers={allUsers || []}
+        onSave={onUpdateGroup}
+        onLeave={() => {
+          setGroupInfoOpen(false);
+          onLeaveGroup?.();
+        }}
+      />
+    )}
+    </>
+  );
+}
+
+// Admin can rename the group / add-remove members here; any member can leave.
+function GroupInfoDialog({ open, onOpenChange, chat, currentUser, allUsers, onSave, onLeave }) {
+  const isAdmin = currentUser?.role === "admin";
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState("");
+  const [memberIds, setMemberIds] = useState([]);
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      setName(chat?.name || "");
+      setMemberIds([
+        ...(currentUser?.id ? [currentUser.id] : []),
+        ...((chat?.participants || []).map((p) => p.id)),
+      ]);
+      setEditing(false);
+    }
+  }, [open, chat, currentUser]);
+
+  const handleSave = async () => {
+    if (!name.trim() || memberIds.length < 2) return;
+    setSubmitting(true);
+    try {
+      await onSave(name.trim(), memberIds);
+      setEditing(false);
+    } catch (error) {
+      console.error("Error updating group:", error);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="bg-white dark:bg-zinc-900 border-black/10 dark:border-white/10 text-gray-900 dark:text-white">
+        <DialogHeader>
+          <DialogTitle>{editing ? "Edit Group" : chat?.name || "Group"}</DialogTitle>
+        </DialogHeader>
+
+        {editing ? (
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label className="text-gray-500 dark:text-zinc-400">Group name</Label>
+              <Input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-gray-500 dark:text-zinc-400">Members</Label>
+              <MultiSelect
+                options={allUsers.map((u) => ({ value: u.id, label: u.name || u.username }))}
+                value={memberIds.filter((id) => id !== currentUser?.id)}
+                onValueChange={(ids) => setMemberIds([...(currentUser?.id ? [currentUser.id] : []), ...ids])}
+                placeholder="Select members..."
+              />
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-1 max-h-60 overflow-y-auto">
+            <div className="text-xs text-gray-500 dark:text-zinc-400 mb-1">{(chat?.participants?.length || 0) + 1} members</div>
+            <div className="flex items-center gap-2 p-1.5">
+              <Avatar className="w-7 h-7">
+                <AvatarFallback className="bg-emerald-600 text-gray-900 dark:text-white text-xs">{getInitials(currentUser?.name)}</AvatarFallback>
+              </Avatar>
+              <span className="text-sm">{currentUser?.name} (you)</span>
+            </div>
+            {(chat?.participants || []).map((p) => (
+              <div key={p.id} className="flex items-center gap-2 p-1.5">
+                <div className="relative">
+                  <Avatar className="w-7 h-7">
+                    <AvatarFallback className="bg-emerald-600 text-gray-900 dark:text-white text-xs">{getInitials(p.name)}</AvatarFallback>
+                  </Avatar>
+                  {p.is_online && <div className="absolute -bottom-0.5 -right-0.5 w-2 h-2 bg-green-500 rounded-full border border-white dark:border-black" />}
+                </div>
+                <div>
+                  <div className="text-sm">{p.name}</div>
+                  <div className="text-[10px] text-gray-500 dark:text-zinc-400">{formatPresence(p.is_online, p.last_active)}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <DialogFooter className="flex-row items-center justify-between sm:justify-between w-full">
+          <Button
+            variant="outline"
+            onClick={onLeave}
+            className="border-red-300 dark:border-red-900 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
+          >
+            <LogOut className="w-3.5 h-3.5 mr-1.5" />
+            Leave
+          </Button>
+          <div className="flex gap-2">
+            {isAdmin && !editing && (
+              <Button variant="outline" onClick={() => setEditing(true)} className="border-gray-200 dark:border-zinc-700">
+                Edit
+              </Button>
+            )}
+            {isAdmin && editing && (
+              <>
+                <Button variant="outline" onClick={() => setEditing(false)} className="border-gray-200 dark:border-zinc-700">
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleSave}
+                  disabled={!name.trim() || memberIds.length < 2 || submitting}
+                  className="bg-emerald-500 text-black hover:bg-emerald-400"
+                >
+                  Save
+                </Button>
+              </>
+            )}
+          </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
