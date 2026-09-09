@@ -2394,18 +2394,24 @@ async def get_clients(
     response: Response,
     current_user: dict = Depends(get_current_user),
     if_none_match: Optional[str] = Header(None),
-    include_all: bool = False
+    include_all: bool = False,
+    department: Optional[str] = None
 ):
     """Get all clients - filtered by AM if user is AM.
 
     Pass include_all=true to bypass the AM filter (e.g. Investigation
-    requests, where an AM may need to reference another AM's customer)."""
+    requests, where an AM may need to reference another AM's customer).
+    Pass department=sms|voice to scope results to that department's
+    enterprises (plus enterprise_type "all"), so SMS and Voice
+    enterprises never mix regardless of AM ownership."""
     dept = await get_user_department(current_user)
     role = get_user_role_from_department(dept)
 
     query = {}
     if role == "am" and not include_all:
         query["assigned_am_id"] = current_user["id"]
+    if department:
+        query["enterprise_type"] = {"$in": [department, "all"]}
 
     # This list rarely changes but is fetched by every page that needs
     # enterprise names/dropdowns, repeatedly, via the frontend's shared

@@ -425,7 +425,7 @@ export default function RequestsPage() {
         axios.get(`${API}/clients`, { headers }),
         axios.get(`${API}/references/trunks/${deptType}`, { headers }),
         axios.get(`${API}/trunks/${deptType}`, { headers }),
-        userRole === "am" ? axios.get(`${API}/clients?include_all=true`, { headers }) : Promise.resolve(null)
+        userRole === "am" ? axios.get(`${API}/clients?include_all=true&department=${deptType}`, { headers }) : Promise.resolve(null)
       ]);
 
       const entData = entResponse.data || [];
