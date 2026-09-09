@@ -86,6 +86,16 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
     messageSentRef.current = callback;
   }, []);
 
+  // Ref for swapping a just-sent message's temporary local id for its real,
+  // server-assigned one once the POST resolves. This can't be left to the
+  // WebSocket echo alone (isOwnMessageEcho in handleNewMessage) - if the
+  // socket is down or the echo is missed, the message keeps a fake id
+  // forever and editing/deleting it 404s against the backend.
+  const messageConfirmedRef = useRef(null);
+  const registerMessageConfirmedCallback = useCallback((callback) => {
+    messageConfirmedRef.current = callback;
+  }, []);
+
   // Ask for OS notification permission once, so an incoming message can
   // raise a native notification when the browser tab itself isn't visible
   // (not just the chat widget being minimized, which the in-app toast covers).
@@ -651,9 +661,12 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
       messageSentRef.current(localMessage);
     }
 
-    // Send to API
+    // Send to API, then swap the temp local message for the server-confirmed
+    // one everywhere it's tracked (real id, read_by, etc.) - required for
+    // edit/delete to ever work on it, and more reliable than waiting on the
+    // WebSocket to echo it back.
     try {
-      await axios.post(
+      const response = await axios.post(
         `${API}/chat/messages`,
         {
           conversation_id: targetConversationId,
@@ -666,8 +679,14 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
         },
         { headers: { Authorization: `Bearer ${token}` } }
       );
+      const realMessage = response.data;
+      patchMessage(targetConversationId, localMessage.id, realMessage);
+      if (messageConfirmedRef.current) {
+        messageConfirmedRef.current(localMessage.id, realMessage);
+      }
     } catch (error) {
       console.error("Error sending message:", error);
+      toast.error("Failed to send message");
     }
   };
 
@@ -884,6 +903,7 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
                 allUsers={users}
                 onSendMessage={(content, type, fileData) => sendMessage(content, type, fileData, chat.conversation_id)}
                 onRegisterMessageCallback={registerMessageCallback}
+                onRegisterMessageConfirmedCallback={registerMessageConfirmedCallback}
                 onTyping={sendTyping}
                 onMarkAsRead={() => markAsRead(chat.conversation_id)}
                 typingUser={typingUsers[chat.conversation_id]}
@@ -1224,6 +1244,7 @@ function ChatWindowView({
   allUsers,
   onSendMessage,
   onRegisterMessageCallback,
+  onRegisterMessageConfirmedCallback,
   onTyping,
   onMarkAsRead,
   typingUser,
@@ -1248,6 +1269,8 @@ function ChatWindowView({
   const [editingText, setEditingText] = useState("");
   const [clearChatOpen, setClearChatOpen] = useState(false);
   const [clearingChat, setClearingChat] = useState(false);
+  const [deleteMessageId, setDeleteMessageId] = useState(null);
+  const [deletingMessage, setDeletingMessage] = useState(false);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const [loading, setLoading] = useState(false);
@@ -1268,6 +1291,16 @@ function ChatWindowView({
       });
     }
   }, [onRegisterMessageCallback]);
+
+  // Register callback that swaps a just-sent message's temporary local id
+  // for the real, server-assigned one once the send POST resolves.
+  useEffect(() => {
+    if (onRegisterMessageConfirmedCallback) {
+      onRegisterMessageConfirmedCallback((tempId, realMessage) => {
+        setMessages(prev => prev.map(m => (m.id === tempId ? realMessage : m)));
+      });
+    }
+  }, [onRegisterMessageConfirmedCallback]);
 
   // Load messages function wrapped in useCallback - must be defined before useEffect that uses it
   const loadMessages = useCallback(async () => {
@@ -1435,13 +1468,21 @@ function ChatWindowView({
     }
   };
 
-  const handleDeleteMessage = async (messageId) => {
-    if (!window.confirm("Delete this message?")) return;
+  const handleDeleteMessage = (messageId) => {
+    setDeleteMessageId(messageId);
+  };
+
+  const handleConfirmDeleteMessage = async () => {
+    if (!deleteMessageId) return;
+    setDeletingMessage(true);
     try {
-      await onDeleteMessage?.(messageId);
+      await onDeleteMessage?.(deleteMessageId);
+      setDeleteMessageId(null);
     } catch (error) {
       console.error("Error deleting message:", error);
       toast.error("Failed to delete message");
+    } finally {
+      setDeletingMessage(false);
     }
   };
 
@@ -1929,6 +1970,26 @@ function ChatWindowView({
         </DialogContent>
       </Dialog>
     )}
+    <Dialog open={!!deleteMessageId} onOpenChange={(open) => !deletingMessage && !open && setDeleteMessageId(null)}>
+      <DialogContent className="bg-white dark:bg-zinc-900 border-black/10 dark:border-white/10 text-gray-900 dark:text-white">
+        <DialogHeader>
+          <DialogTitle>Delete message?</DialogTitle>
+        </DialogHeader>
+        <p className="text-sm text-gray-700 dark:text-zinc-300">This can't be undone.</p>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setDeleteMessageId(null)} disabled={deletingMessage} className="border-gray-200 dark:border-zinc-700">
+            Cancel
+          </Button>
+          <Button
+            onClick={handleConfirmDeleteMessage}
+            disabled={deletingMessage}
+            className="bg-red-600 text-white hover:bg-red-700"
+          >
+            {deletingMessage ? "Deleting..." : "Delete"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
     </>
   );
 }
