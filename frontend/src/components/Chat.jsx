@@ -212,9 +212,49 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
       case "message_deleted":
         handleMessageDeleted(data);
         break;
+      case "request_completed":
+        handleRequestCompleted(data);
+        break;
       default:
         break;
     }
+  };
+
+  // An AM's own request was marked completed. This only ever arrives while
+  // they're actually connected (send_personal_message is a no-op otherwise),
+  // so there's nothing further to gate on "online only" - it's inherent.
+  const handleRequestCompleted = (data) => {
+    if (user?.role !== "am") return;
+    playNotificationSound();
+    const goToRequest = () => {
+      window.location.href = `/requests?request=${data.request_id}&t=${Date.now()}`;
+    };
+    toast.custom(
+      (t) => (
+        <div
+          onClick={goToRequest}
+          className="relative w-full max-w-sm cursor-pointer rounded-lg border border-gray-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-3 pr-7 shadow-lg"
+        >
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              toast.dismiss(t);
+            }}
+            className="absolute top-2 right-2 text-gray-400 hover:text-gray-900 dark:hover:text-white"
+            title="Dismiss"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+          <div className="mb-1 text-sm font-medium text-emerald-600 dark:text-emerald-400">
+            {data.request_type_label || "Request"} Completed
+          </div>
+          <div className="line-clamp-4 whitespace-pre-line text-xs text-gray-700 dark:text-zinc-300">
+            {data.message}
+          </div>
+        </div>
+      ),
+      { position: "bottom-right", duration: 8000 }
+    );
   };
 
   // Apply a field update to one message across activeChat/openChats
