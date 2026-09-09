@@ -186,6 +186,9 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
       case "message_deleted":
         handleMessageDeleted(data);
         break;
+      case "conversation_cleared":
+        handleConversationCleared(data);
+        break;
       default:
         break;
     }
@@ -208,6 +211,30 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
 
   const handleMessageDeleted = (data) => {
     patchMessage(data.conversation_id, data.message_id, { is_deleted: true, content: "", file_url: null, file_name: null });
+  };
+
+  // Empty out a conversation's messages - used both right after we clear it
+  // ourselves and when the WS tells us the other participant cleared it.
+  // clearedAt (rather than just messages: []) is what ChatWindowView
+  // actually watches, since replacing an already-empty array wouldn't
+  // otherwise be a detectable change.
+  const resetConversationMessages = (conversationId) => {
+    const clearedAt = Date.now();
+    setActiveChat((prev) =>
+      prev && prev.conversation_id === conversationId ? { ...prev, messages: [], clearedAt } : prev
+    );
+    setOpenChats((prev) =>
+      prev.map((c) => (c.conversation_id === conversationId ? { ...c, messages: [], clearedAt } : c))
+    );
+    setConversations((prev) =>
+      prev.map((c) =>
+        c.id === conversationId ? { ...c, last_message: null, last_message_time: null, unread_count: 0 } : c
+      )
+    );
+  };
+
+  const handleConversationCleared = (data) => {
+    resetConversationMessages(data.conversation_id);
   };
 
   // A group's name/membership changed (or it was disbanded by the last
@@ -728,6 +755,13 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
     patchMessage(conversationId, messageId, { is_deleted: true, content: "", file_url: null, file_name: null });
   };
 
+  const clearChat = async (conversationId) => {
+    await axios.delete(`${API}/chat/conversations/${conversationId}/messages`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    resetConversationMessages(conversationId);
+  };
+
   const handleFileUpload = async (event, type = "file", conversationId = null) => {
     const file = event.target.files[0];
     if (!file) return;
@@ -862,6 +896,7 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
                 onLeaveGroup={() => leaveGroup(chat.conversation_id)}
                 onEditMessage={(messageId, content) => editMessage(chat.conversation_id, messageId, content)}
                 onDeleteMessage={(messageId) => deleteMessage(chat.conversation_id, messageId)}
+                onClearChat={() => clearChat(chat.conversation_id)}
                 isFloating={true}
               />
             </div>
@@ -1201,6 +1236,7 @@ function ChatWindowView({
   onLeaveGroup,
   onEditMessage,
   onDeleteMessage,
+  onClearChat,
 }) {
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState([]);
@@ -1210,6 +1246,8 @@ function ChatWindowView({
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [editingMessageId, setEditingMessageId] = useState(null);
   const [editingText, setEditingText] = useState("");
+  const [clearChatOpen, setClearChatOpen] = useState(false);
+  const [clearingChat, setClearingChat] = useState(false);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const [loading, setLoading] = useState(false);
@@ -1277,6 +1315,17 @@ function ChatWindowView({
     }
   }, [chat.conversation_id]);
 
+  // The chat was just cleared (by us or the other participant) - empty the
+  // local view. clearedAt (a timestamp) rather than chat.messages itself is
+  // what's watched here, since going from some messages to an empty array
+  // needs an explicit signal separate from the regular merge-sync effect
+  // below (which only ever adds messages, never removes them).
+  useEffect(() => {
+    if (chat.clearedAt) {
+      setMessages([]);
+    }
+  }, [chat.clearedAt]);
+
   // Load and sync messages when conversation changes
   useEffect(() => {
     if (!chat.conversation_id) return;
@@ -1302,20 +1351,26 @@ function ChatWindowView({
 
       // Sync if there are new messages or local-only messages
       if (hasNewMessages || hasLocalOnly) {
-        // Merge parent messages with local read status preserved
-        const mergedMessages = chat.messages.map(parentMsg => {
-          const localMsg = messages.find(m => m.id === parentMsg.id);
+        // Merge by id and re-sort chronologically - never assume either
+        // side's array order reflects the full picture. The parent's copy
+        // only ever gets messages appended to it (it never receives the
+        // initially-loaded history), so concatenating "parent's messages"
+        // then "local-only messages" put whatever the parent had first,
+        // shoving the actual older history after it.
+        const byId = new Map(messages.map(m => [m.id, m]));
+        for (const parentMsg of chat.messages) {
+          const localMsg = byId.get(parentMsg.id);
           // If local has is_read=true, preserve it - never overwrite with false
-          if (localMsg?.is_read === true) {
-            return { ...parentMsg, is_read: true };
-          }
-          return { ...parentMsg, is_read: parentMsg.is_read || false };
-        });
+          byId.set(parentMsg.id, {
+            ...parentMsg,
+            is_read: localMsg?.is_read === true ? true : (parentMsg.is_read || false),
+          });
+        }
 
-        // Add any local-only messages (should be rare)
-        const localOnlyMessages = messages.filter(m => !parentIds.has(m.id));
-
-        setMessages([...mergedMessages, ...localOnlyMessages]);
+        const merged = Array.from(byId.values()).sort(
+          (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+        );
+        setMessages(merged);
       }
     }
   }, [chat.conversation_id, chat.messages, hasLoadedFromApi, loadMessages, loading, messages.length]);
@@ -1387,6 +1442,19 @@ function ChatWindowView({
     } catch (error) {
       console.error("Error deleting message:", error);
       toast.error("Failed to delete message");
+    }
+  };
+
+  const handleConfirmClearChat = async () => {
+    setClearingChat(true);
+    try {
+      await onClearChat?.();
+      setClearChatOpen(false);
+    } catch (error) {
+      console.error("Error clearing chat:", error);
+      toast.error("Failed to clear chat");
+    } finally {
+      setClearingChat(false);
     }
   };
 
@@ -1534,6 +1602,17 @@ function ChatWindowView({
               title="Group info"
             >
               <Info className="w-3.5 h-3.5" />
+            </Button>
+          )}
+          {!isGroup && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="p-1 h-6 w-6 text-gray-500 dark:text-zinc-400 hover:text-red-400"
+              onClick={() => setClearChatOpen(true)}
+              title="Clear chat"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
             </Button>
           )}
           {onMinimize && (
@@ -1825,6 +1904,30 @@ function ChatWindowView({
           onLeaveGroup?.();
         }}
       />
+    )}
+    {!isGroup && (
+      <Dialog open={clearChatOpen} onOpenChange={(open) => !clearingChat && setClearChatOpen(open)}>
+        <DialogContent className="bg-white dark:bg-zinc-900 border-black/10 dark:border-white/10 text-gray-900 dark:text-white">
+          <DialogHeader>
+            <DialogTitle>Clear chat?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-gray-700 dark:text-zinc-300">
+            This permanently deletes all messages in this conversation with {chat.participant?.name || "this user"} for both of you. This can't be undone.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setClearChatOpen(false)} disabled={clearingChat} className="border-gray-200 dark:border-zinc-700">
+              Cancel
+            </Button>
+            <Button
+              onClick={handleConfirmClearChat}
+              disabled={clearingChat}
+              className="bg-red-600 text-white hover:bg-red-700"
+            >
+              {clearingChat ? "Clearing..." : "Clear Chat"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     )}
     </>
   );

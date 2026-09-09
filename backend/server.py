@@ -6570,6 +6570,45 @@ async def delete_chat_message(
 
     return {"id": message_id, "is_deleted": True}
 
+@api_router.delete("/chat/conversations/{conversation_id}/messages")
+async def clear_conversation_messages(
+    conversation_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Clear all messages in a 1:1 DM - permanently deletes the message
+    history for both participants (not a per-user hide)."""
+    user_id = current_user["id"]
+    conv = await db.conversations.find_one({
+        "id": conversation_id,
+        "participant_ids": user_id
+    })
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    if conv.get("is_group"):
+        raise HTTPException(status_code=400, detail="Groups can't be cleared this way")
+
+    await db.chat_messages.delete_many({"conversation_id": conversation_id})
+
+    participant_ids = conv.get("participant_ids", [])
+    await db.conversations.update_one(
+        {"id": conversation_id},
+        {"$set": {
+            "last_message": None,
+            "last_message_time": None,
+            "last_message_sender_id": None,
+            "unread_counts": {pid: 0 for pid in participant_ids},
+            "updated_at": datetime.now(timezone.utc)
+        }}
+    )
+
+    for participant_id in participant_ids:
+        await manager.send_personal_message({
+            "type": "conversation_cleared",
+            "conversation_id": conversation_id
+        }, participant_id)
+
+    return {"message": "Conversation cleared"}
+
 @api_router.post("/chat/upload")
 async def upload_chat_file(
     file: UploadFile = File(...),
