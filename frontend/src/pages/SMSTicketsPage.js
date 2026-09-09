@@ -5,7 +5,7 @@ import { startOfWeek, endOfWeek } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { Plus, Search, ArrowUpDown, Calendar, Trash2, MessageSquare, ListChecks, X, Pencil, Bell, User, Copy } from "lucide-react";
+import { Plus, Search, ArrowUpDown, Calendar, Trash2, MessageSquare, ListChecks, X, Pencil, Bell, User, Copy, History } from "lucide-react";
 import { toast } from "sonner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -2209,27 +2209,59 @@ export default function SMSTicketsPage() {
                           ? `Edited: ${new Date(action.edited_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}`
                           : new Date(action.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                       </span>
-                      {/* Show edit/delete buttons only for Admin */}
-                      {currentUser?.role === "admin" && (
-                        <div className="flex gap-1">
+                      <div className="flex gap-1">
+                        {/* History button - only when this action has previous edited versions */}
+                        {action.edit_history?.length > 0 && (
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                title="View edit history"
+                                className="h-6 w-6 p-0 text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white"
+                              >
+                                <History className="h-3 w-3" />
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent align="end" className="w-80 bg-white dark:bg-zinc-900 border-black/10 dark:border-white/10 text-gray-900 dark:text-white p-3">
+                              <p className="text-xs font-medium text-gray-500 dark:text-zinc-400 mb-2">Edit history</p>
+                              <div className="space-y-2 max-h-64 overflow-y-auto">
+                                {[...action.edit_history].reverse().map((version, idx) => (
+                                  <div key={idx} className="text-xs border-l-2 border-gray-300 dark:border-zinc-700 pl-2">
+                                    <p className="text-zinc-500 mb-0.5">
+                                      {new Date(version.edited_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                    </p>
+                                    <p className="text-gray-700 dark:text-zinc-300 whitespace-pre-wrap">{version.text}</p>
+                                  </div>
+                                ))}
+                              </div>
+                            </PopoverContent>
+                          </Popover>
+                        )}
+                        {/* Edit is only available to the user who added the comment */}
+                        {currentUser?.id === action.created_by && (
                           <Button
                             size="sm"
                             variant="ghost"
                             onClick={() => handleEditAction(action)}
+                            title="Edit"
                             className="h-6 w-6 p-0 text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white"
                           >
                             <Pencil className="h-3 w-3" />
                           </Button>
+                        )}
+                        {currentUser?.role === "admin" && (
                           <Button
                             size="sm"
                             variant="ghost"
                             onClick={() => handleDeleteAction(action.id)}
+                            title="Delete"
                             className="h-6 w-6 p-0 text-gray-500 dark:text-zinc-400 hover:text-red-400"
                           >
                             <Trash2 className="h-3 w-3" />
                           </Button>
-                        </div>
-                      )}
+                        )}
+                      </div>
                     </div>
                   </div>
                   {editingAction === action.id ? (

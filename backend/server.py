@@ -970,6 +970,7 @@ class TicketAction(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     edited: bool = False  # Whether this action has been edited
     edited_at: Optional[datetime] = None  # When it was last edited
+    edit_history: List[dict] = Field(default_factory=list)  # Snapshots of previous text, most recent last
 
 
 class SMSTicketCreate(BaseModel):
@@ -4864,7 +4865,13 @@ async def update_sms_ticket_action(
     # Check if user owns this action
     if action.get("created_by") != current_user["id"]:
         raise HTTPException(status_code=403, detail="You can only edit your own actions")
-    
+
+    # Snapshot the current text before overwriting it, so it can be shown in the edit history
+    history_entry = {
+        "text": action.get("text"),
+        "edited_at": datetime.now(timezone.utc).isoformat()
+    }
+
     # Update the action
     result = await db.sms_tickets.find_one_and_update(
         {"id": ticket_id, "actions.id": action_id},
@@ -4874,11 +4881,12 @@ async def update_sms_ticket_action(
                 "actions.$.edited": True,
                 "actions.$.edited_at": datetime.now(timezone.utc).isoformat(),
                 "updated_at": datetime.now(timezone.utc).isoformat()
-            }
+            },
+            "$push": {"actions.$.edit_history": history_entry}
         },
         projection={"_id": 0}
     )
-    
+
     return {"message": "Action updated successfully"}
 
 
@@ -4946,7 +4954,13 @@ async def update_voice_ticket_action(
     # Check if user owns this action
     if action.get("created_by") != current_user["id"]:
         raise HTTPException(status_code=403, detail="You can only edit your own actions")
-    
+
+    # Snapshot the current text before overwriting it, so it can be shown in the edit history
+    history_entry = {
+        "text": action.get("text"),
+        "edited_at": datetime.now(timezone.utc).isoformat()
+    }
+
     # Update the action
     result = await db.voice_tickets.find_one_and_update(
         {"id": ticket_id, "actions.id": action_id},
@@ -4956,11 +4970,12 @@ async def update_voice_ticket_action(
                 "actions.$.edited": True,
                 "actions.$.edited_at": datetime.now(timezone.utc).isoformat(),
                 "updated_at": datetime.now(timezone.utc).isoformat()
-            }
+            },
+            "$push": {"actions.$.edit_history": history_entry}
         },
         projection={"_id": 0}
     )
-    
+
     return {"message": "Action updated successfully"}
 
 
