@@ -26,7 +26,7 @@ import { DateRangePickerWithRange } from "@/components/custom/DateRangePickerWit
 import IssueTypeSelect, { VOICE_ISSUE_TYPES } from "@/components/custom/IssueTypeSelect";
 import OpenedViaSelect from "@/components/custom/OpenedViaSelect";
 import MultiFilter from "@/components/custom/MultiFilter";
-import { startOfWeek, endOfWeek } from "date-fns";
+import { addDays } from "date-fns";
 import { useDebounce } from "@/hooks/useDebounce";
 import { fetchCached } from "@/lib/dataCache";
 
@@ -49,10 +49,7 @@ export default function VoiceTicketsPage() {
   const [assignedToFilter, setAssignedToFilter] = useState("all");
   const [dateRange, setDateRange] = useState(() => {
     const today = new Date();
-    return { 
-      from: startOfWeek(today, { weekStartsOn: 1 }), 
-      to: endOfWeek(today, { weekStartsOn: 1 }) 
-    };
+    return { from: addDays(today, -7), to: today };
   });
   const [multiFilters, setMultiFilters] = useState([]);
 
@@ -1104,11 +1101,11 @@ export default function VoiceTicketsPage() {
               setDestinationFilter("");
               setAssignedToFilter("all");
               const today = new Date();
-              setDateRange({ from: startOfWeek(today, { weekStartsOn: 1 }), to: endOfWeek(today, { weekStartsOn: 1 }) });
+              setDateRange({ from: addDays(today, -7), to: today });
             }}
             className="border-gray-200 dark:border-zinc-700 text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-zinc-800 h-7 px-2 text-xs"
           >
-            Reset to This Week
+            Reset to Last 7 Days
           </Button>
         </div>
       </div>

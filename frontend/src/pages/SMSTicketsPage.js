@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from "react";
 import axios from "axios";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import { startOfWeek, endOfWeek } from "date-fns";
+import { addDays } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -51,10 +51,7 @@ export default function SMSTicketsPage() {
   const [assignedToFilter, setAssignedToFilter] = useState("all");
   const [dateRange, setDateRange] = useState(() => {
     const today = new Date();
-    return { 
-      from: startOfWeek(today, { weekStartsOn: 1 }), 
-      to: endOfWeek(today, { weekStartsOn: 1 }) 
-    };
+    return { from: addDays(today, -7), to: today };
   });
   const [multiFilters, setMultiFilters] = useState([]);
 
@@ -1288,12 +1285,12 @@ export default function SMSTicketsPage() {
               setDestinationFilter("");
               setAssignedToFilter("all");
               const today = new Date();
-              setDateRange({ from: startOfWeek(today, { weekStartsOn: 1 }), to: endOfWeek(today, { weekStartsOn: 1 }) });
+              setDateRange({ from: addDays(today, -7), to: today });
             }}
             className="border-gray-200 dark:border-zinc-700 text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-zinc-800 h-7 px-2 text-xs"
             data-testid="clear-filters-button"
           >
-            Reset to This Week
+            Reset to Last 7 Days
           </Button>
         </div>
       </div>
