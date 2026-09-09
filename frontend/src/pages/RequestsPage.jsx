@@ -2329,7 +2329,7 @@ export default function RequestsPage() {
           setTrunkWithLcr(true);
         }
       }}>
-        <DialogContent disableOutsideClick className="bg-white dark:bg-zinc-900 border-black/10 dark:border-white/10 text-gray-900 dark:text-white max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent disableOutsideClick className="bg-white dark:bg-zinc-900 border-black/10 dark:border-white/10 text-gray-900 dark:text-white max-w-2xl max-h-[90vh] overflow-y-auto overflow-x-hidden p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle>{isEditMode ? "Edit" : "New"} {displayTab.toUpperCase()} Request</DialogTitle>
           </DialogHeader>
@@ -2481,8 +2481,8 @@ export default function RequestsPage() {
                           </SelectContent>
                         </Select>
                         
-                        {/* Two-column layout: Rating Plan | Routing Plan */}
-                        <div className="grid grid-cols-2 gap-4">
+                        {/* Two-column layout: Rating Plan | Routing Plan - stacked on mobile */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                           {/* Rating Plan Section - Compact with multiple destination-rate pairs */}
                           <div className="bg-gray-100/40 dark:bg-zinc-800/40 rounded-lg p-3">
                             <div className="flex items-center gap-2 mb-3">
@@ -2501,7 +2501,7 @@ export default function RequestsPage() {
                                       updateCustomerTrunkConfig(configIndex, "rating_pairs", newPairs);
                                     }}
                                     placeholder="Destination"
-                                    className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-8 flex-1"
+                                    className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-8 flex-1 min-w-0"
                                   />
                                   <Input
                                     value={pair.rate || ""}
@@ -2577,8 +2577,8 @@ export default function RequestsPage() {
                                           </Button>
                                         )}
                                       </div>
-                                      {/* Priority and Destination fields */}
-                                      <div className="grid grid-cols-2 gap-2">
+                                      {/* Priority and Destination fields - stacked on mobile */}
+                                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                         <div className="flex items-center gap-2">
                                           <span className="text-gray-500 dark:text-zinc-400 text-xs whitespace-nowrap">Priority:</span>
                                           <Input
@@ -2589,14 +2589,14 @@ export default function RequestsPage() {
                                             min={1}
                                           />
                                         </div>
-                                        <div className="flex items-center gap-2">
+                                        <div className="flex items-center gap-2 min-w-0">
                                           <span className="text-gray-500 dark:text-zinc-400 text-xs whitespace-nowrap">Dest:</span>
                                           <SearchableSelect
                                             options={[{ value: "All", label: "All" }, { value: "Rest", label: "Rest" }, ...(config.rating_pairs || []).filter(p => p.destination).map(p => ({ value: p.destination, label: p.destination }))]}
                                             value={rule.destination || ""}
                                             onChange={(value) => updateRouteRule(configIndex, ruleIndex, "destination", value)}
                                             placeholder="Select"
-                                            className="text-xs flex-1"
+                                            className="text-xs flex-1 min-w-0"
                                           />
                                         </div>
                                       </div>
@@ -2632,12 +2632,12 @@ export default function RequestsPage() {
                                           </div>
                                           
                                           {/* Cost Configuration - Organized Row */}
-                                          <div className="flex items-center gap-2">
+                                          <div className="flex items-center gap-2 min-w-0">
                                             <Select
                                               value={vendor.cost_type || "fixed"}
                                               onValueChange={(value) => updateVendorInRule(configIndex, ruleIndex, vendorIndex, "cost_type", value)}
                                             >
-                                              <SelectTrigger className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7 w-16">
+                                              <SelectTrigger className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7 w-16 shrink-0">
                                                 <SelectValue />
                                               </SelectTrigger>
                                               <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
@@ -2650,22 +2650,22 @@ export default function RequestsPage() {
                                                 value={vendor.cost_min || ""}
                                                 onChange={(e) => updateVendorInRule(configIndex, ruleIndex, vendorIndex, "cost_min", e.target.value)}
                                                 placeholder="EUR"
-                                                className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7 flex-1"
+                                                className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7 flex-1 min-w-0"
                                               />
                                             ) : (
-                                              <div className="flex items-center gap-1 flex-1">
+                                              <div className="flex items-center gap-1 flex-1 min-w-0">
                                                 <Input
                                                   value={vendor.cost_min || ""}
                                                   onChange={(e) => updateVendorInRule(configIndex, ruleIndex, vendorIndex, "cost_min", e.target.value)}
                                                   placeholder="Min"
-                                                  className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7 w-14"
+                                                  className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7 w-14 min-w-0"
                                                 />
                                                 <span className="text-zinc-500 text-xs">-</span>
                                                 <Input
                                                   value={vendor.cost_max || ""}
                                                   onChange={(e) => updateVendorInRule(configIndex, ruleIndex, vendorIndex, "cost_max", e.target.value)}
                                                   placeholder="Max"
-                                                  className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7 w-14"
+                                                  className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7 w-14 min-w-0"
                                                 />
                                               </div>
                                             )}
@@ -2893,8 +2893,8 @@ export default function RequestsPage() {
                                     </Button>
                                   )}
                                 </div>
-                                {/* Priority and Destination fields */}
-                                <div className="grid grid-cols-2 gap-2">
+                                {/* Priority and Destination fields - stacked on mobile */}
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                   <div className="flex items-center gap-2">
                                     <span className="text-gray-500 dark:text-zinc-400 text-xs whitespace-nowrap">Priority:</span>
                                     <Input
@@ -2905,14 +2905,14 @@ export default function RequestsPage() {
                                       min={1}
                                     />
                                   </div>
-                                  <div className="flex items-center gap-2">
+                                  <div className="flex items-center gap-2 min-w-0">
                                     <span className="text-gray-500 dark:text-zinc-400 text-xs whitespace-nowrap">Dest:</span>
                                     <SearchableSelect
                                       options={[{ value: "All", label: "All" }, { value: "Rest", label: "Rest" }, ...getAllDestinations().map(d => ({ value: d, label: d }))]}
                                       value={rule.destination || ""}
                                       onChange={(value) => updateCommonRouteRule(ruleIndex, "destination", value)}
                                       placeholder="Select"
-                                      className="text-xs flex-1"
+                                      className="text-xs flex-1 min-w-0"
                                     />
                                   </div>
                                 </div>
@@ -2948,12 +2948,12 @@ export default function RequestsPage() {
                                     </div>
                                     
                                     {/* Cost Configuration - Organized Row */}
-                                    <div className="flex items-center gap-2">
+                                    <div className="flex items-center gap-2 min-w-0">
                                       <Select
                                         value={vendor.cost_type || "fixed"}
                                         onValueChange={(value) => updateVendorInCommonRule(ruleIndex, vendorIndex, "cost_type", value)}
                                       >
-                                        <SelectTrigger className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7 w-16">
+                                        <SelectTrigger className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7 w-16 shrink-0">
                                           <SelectValue />
                                         </SelectTrigger>
                                         <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
@@ -2966,22 +2966,22 @@ export default function RequestsPage() {
                                           value={vendor.cost_min || ""}
                                           onChange={(e) => updateVendorInCommonRule(ruleIndex, vendorIndex, "cost_min", e.target.value)}
                                           placeholder="EUR"
-                                          className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7 flex-1"
+                                          className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7 flex-1 min-w-0"
                                         />
                                       ) : (
-                                        <div className="flex items-center gap-1 flex-1">
+                                        <div className="flex items-center gap-1 flex-1 min-w-0">
                                           <Input
                                             value={vendor.cost_min || ""}
                                             onChange={(e) => updateVendorInCommonRule(ruleIndex, vendorIndex, "cost_min", e.target.value)}
                                             placeholder="Min"
-                                            className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7 w-14"
+                                            className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7 w-14 min-w-0"
                                           />
                                           <span className="text-zinc-500 text-xs">-</span>
                                           <Input
                                             value={vendor.cost_max || ""}
                                             onChange={(e) => updateVendorInCommonRule(ruleIndex, vendorIndex, "cost_max", e.target.value)}
                                             placeholder="Max"
-                                            className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7 w-14"
+                                            className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7 w-14 min-w-0"
                                           />
                                         </div>
                                       )}
@@ -3775,13 +3775,13 @@ export default function RequestsPage() {
 
       {/* View Request Details Dialog */}
       <Dialog open={viewRequestDialogOpen} onOpenChange={setViewRequestDialogOpen}>
-        <DialogContent disableOutsideClick className="bg-white dark:bg-zinc-900 border-black/10 dark:border-white/10 text-gray-900 dark:text-white max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent disableOutsideClick className="bg-white dark:bg-zinc-900 border-black/10 dark:border-white/10 text-gray-900 dark:text-white max-w-2xl max-h-[90vh] overflow-y-auto overflow-x-hidden p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle>Request Details</DialogTitle>
           </DialogHeader>
           {selectedRequest && (
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <Label className="text-gray-500 dark:text-zinc-400">Request Type</Label>
                   <p className="text-gray-900 dark:text-white">{selectedRequest.request_type_label}</p>
@@ -3843,8 +3843,8 @@ export default function RequestsPage() {
                             <span className="text-amber-400 font-medium text-sm">Customer Trunk {i + 1}</span>
                           </div>
                           
-                          {/* Two-column layout: Rating Plan | Routing Plan */}
-                          <div className="grid grid-cols-2 gap-3">
+                          {/* Two-column layout: Rating Plan | Routing Plan - stacked on mobile */}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             {/* Rating Plan */}
                             <div className="border border-gray-200/50 dark:border-zinc-700/50 rounded p-2 bg-gray-100/20 dark:bg-zinc-800/20">
                               <div className="text-xs text-amber-300 font-medium mb-1">Rating Plan</div>
