@@ -278,6 +278,12 @@ export default function VoiceTicketsPage() {
     return openedVia || "";
   };
 
+  const getVendorTrunkDisplayText = (ticket) => {
+    const trunks = (ticket.vendor_trunks || []).map((v) => v.trunk).filter(Boolean);
+    if (trunks.length > 0) return trunks.join(", ");
+    return ticket.vendor_trunk || "";
+  };
+
     // Check for same-day identical tickets (Enterprise, Trunk, Destination, Issue)
   const findSameDayIdenticalTickets = (customerId, customerTrunk, destination, issueTypes) => {
     if (!customerId) return [];
@@ -1145,6 +1151,7 @@ export default function VoiceTicketsPage() {
                       <TableHead className="text-gray-500 dark:text-zinc-400">Destination</TableHead>
                       <TableHead className="text-gray-500 dark:text-zinc-400">ANI/Origination</TableHead>
                       <TableHead className="text-gray-500 dark:text-zinc-400">Issue</TableHead>
+                      <TableHead className="text-gray-500 dark:text-zinc-400">Vendor Trunk</TableHead>
                       <TableHead className="text-gray-500 dark:text-zinc-400">Opened Via</TableHead>
                       <TableHead className="text-gray-500 dark:text-zinc-400">Status</TableHead>
                       <TableHead className="text-gray-500 dark:text-zinc-400">Assigned To</TableHead>
@@ -1172,6 +1179,7 @@ export default function VoiceTicketsPage() {
                           <TableCell className="text-gray-700 dark:text-zinc-300">{ticket.destination || "-"}</TableCell>
                           <TableCell className="text-gray-700 dark:text-zinc-300">{ticket.ani ? ticket.ani : "Any"}</TableCell>
                           <TableCell className="text-gray-700 dark:text-zinc-300">{getIssueDisplayText(ticket)}</TableCell>
+                          <TableCell className="text-gray-700 dark:text-zinc-300">{getVendorTrunkDisplayText(ticket) || "-"}</TableCell>
                           <TableCell className="text-gray-700 dark:text-zinc-300">{getOpenedViaDisplayText(ticket) || "-"}</TableCell>
                           <TableCell>
                             {ticket.status === "Resolved" ? (
