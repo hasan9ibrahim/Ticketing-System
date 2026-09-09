@@ -1,19 +1,34 @@
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
 import { X, CheckCircle2, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import useDataUpdates from "@/hooks/useDataUpdates";
 import { playNotificationSound } from "@/lib/notificationSound";
+import { requestNotificationPermission, showNativeNotification } from "@/lib/nativeNotification";
 
 // Renders nothing - listens on the general system WebSocket (/ws/data,
 // separate from Chat.jsx's own /ws/chat socket) and raises toast+sound
 // popups for app-wide events. Mounted once, globally, in DashboardLayout,
 // so it's alive regardless of which page is open and independent of chat.
 export default function SystemNotifications({ user }) {
+  // So a Windows/OS-level notification can fire even when this tab isn't
+  // the visible one - as long as it's still open somewhere.
+  useEffect(() => {
+    requestNotificationPermission();
+  }, []);
+
   const handleRequestStatusChange = useCallback((data, status) => {
     if (user?.role !== "am") return;
 
     const isCompleted = status === "completed";
     playNotificationSound(isCompleted ? "success" : "error");
+
+    const title = `${data.request_type_label || "Request"} ${isCompleted ? "Completed" : "Rejected"}`;
+    const preview = (data.message || "").split("\n")[0] || title;
+    // Only worth a native OS popup when this tab isn't the one they're
+    // looking at - the in-page toast below already covers that case.
+    if (document.hidden) {
+      showNativeNotification(title, preview);
+    }
 
     const goToRequest = () => {
       window.location.href = `/requests?request=${data.request_id}&t=${Date.now()}`;

@@ -11,6 +11,7 @@ import MultiSelect from "@/components/custom/MultiSelect";
 import axios from "axios";
 import { toast } from "sonner";
 import { playNotificationSound } from "@/lib/notificationSound";
+import { requestNotificationPermission, showNativeNotification } from "@/lib/nativeNotification";
 
 // A small curated set rather than a full emoji library/dependency - covers
 // the common reactions people actually reach for in a work chat.
@@ -100,21 +101,8 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
   // raise a native notification when the browser tab itself isn't visible
   // (not just the chat widget being minimized, which the in-app toast covers).
   useEffect(() => {
-    if ("Notification" in window && Notification.permission === "default") {
-      Notification.requestPermission().catch(() => {});
-    }
+    requestNotificationPermission();
   }, []);
-
-  // Native OS notification, for when the browser tab itself isn't visible
-  // (an in-app toast wouldn't be seen at all in that case).
-  const showNativeNotification = (title, body) => {
-    if (!("Notification" in window) || Notification.permission !== "granted") return;
-    try {
-      new Notification(title, { body, icon: "/favicon.ico" });
-    } catch (error) {
-      // Ignore - notification is a nice-to-have, never worth failing chat over
-    }
-  };
 
   // WebSocket for real-time chat
   useEffect(() => {
