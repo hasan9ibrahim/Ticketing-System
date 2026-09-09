@@ -73,28 +73,34 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
   const [newGroupOpen, setNewGroupOpen] = useState(false);
   const fileInputRef = useRef(null);
   const imageInputRef = useRef(null);
+  // Which window's conversation a click on its attach/image button is for -
+  // the file/image <input> elements are shared (one file picker for the
+  // whole widget), so without this, picking a file always uploaded to
+  // activeChat regardless of which window's button was actually clicked.
+  const pendingUploadConversationRef = useRef(null);
 
   // Get token
   const token = localStorage.getItem("token");
   const wsRef = useRef(null);
   const wsConnectedRef = useRef(false);
 
-  // Ref to store callback for direct message addition in ChatWindowView
-  const messageSentRef = useRef(null);
+  // Direct-update callbacks (instant local "add" + temp-id-to-real-id
+  // "confirm") for each ChatWindowView's own message state, keyed by
+  // conversation_id. Keyed by conversation rather than a single shared ref -
+  // with 2+ chat windows open, a single ref only ever points at whichever
+  // window registered *last*, so sending in one window could add the
+  // message into a completely different, unrelated window instead.
+  const messageCallbacksRef = useRef(new Map());
 
-  // Function for ChatWindowView to register its callback
-  const registerMessageCallback = useCallback((callback) => {
-    messageSentRef.current = callback;
-  }, []);
-
-  // Ref for swapping a just-sent message's temporary local id for its real,
-  // server-assigned one once the POST resolves. This can't be left to the
-  // WebSocket echo alone (isOwnMessageEcho in handleNewMessage) - if the
-  // socket is down or the echo is missed, the message keeps a fake id
-  // forever and editing/deleting it 404s against the backend.
-  const messageConfirmedRef = useRef(null);
-  const registerMessageConfirmedCallback = useCallback((callback) => {
-    messageConfirmedRef.current = callback;
+  const registerMessageCallbacks = useCallback((conversationId, addMessage, confirmMessage) => {
+    messageCallbacksRef.current.set(conversationId, { addMessage, confirmMessage });
+    return () => {
+      // Only remove if we're still the registered entry - avoids a mount
+      // race clobbering a newer registration for the same conversation.
+      if (messageCallbacksRef.current.get(conversationId)?.addMessage === addMessage) {
+        messageCallbacksRef.current.delete(conversationId);
+      }
+    };
   }, []);
 
   // Ask for OS notification permission once, so an incoming message can
@@ -644,10 +650,10 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
         : conv
     ));
 
-    // Call the callback for instant update in ChatWindowView
-    if (messageSentRef.current) {
-      messageSentRef.current(localMessage);
-    }
+    // Call this specific conversation's callback for instant update in its
+    // own ChatWindowView
+    const callbacks = messageCallbacksRef.current.get(targetConversationId);
+    callbacks?.addMessage?.(localMessage);
 
     // Send to API, then swap the temp local message for the server-confirmed
     // one everywhere it's tracked (real id, read_by, etc.) - required for
@@ -669,9 +675,7 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
       );
       const realMessage = response.data;
       patchMessage(targetConversationId, localMessage.id, realMessage);
-      if (messageConfirmedRef.current) {
-        messageConfirmedRef.current(localMessage.id, realMessage);
-      }
+      callbacks?.confirmMessage?.(localMessage.id, realMessage);
     } catch (error) {
       console.error("Error sending message:", error);
       toast.error("Failed to send message");
@@ -890,14 +894,18 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
                 user={user}
                 allUsers={users}
                 onSendMessage={(content, type, fileData) => sendMessage(content, type, fileData, chat.conversation_id)}
-                onRegisterMessageCallback={registerMessageCallback}
-                onRegisterMessageConfirmedCallback={registerMessageConfirmedCallback}
+                onRegisterMessageCallbacks={registerMessageCallbacks}
                 onTyping={sendTyping}
                 onMarkAsRead={() => markAsRead(chat.conversation_id)}
                 typingUser={typingUsers[chat.conversation_id]}
-                onFileUpload={(e, t) => handleFileUpload(e, t, chat.conversation_id)}
-                fileInputRef={fileInputRef}
-                imageInputRef={imageInputRef}
+                onAttachFileClick={() => {
+                  pendingUploadConversationRef.current = chat.conversation_id;
+                  fileInputRef.current?.click();
+                }}
+                onAttachImageClick={() => {
+                  pendingUploadConversationRef.current = chat.conversation_id;
+                  imageInputRef.current?.click();
+                }}
                 onClose={() => closeChatWindow(chat.conversation_id)}
                 onMinimize={() => toggleChatMinimize(chat.conversation_id)}
                 onUpdateGroup={(name, participantIds) => updateGroup(chat.conversation_id, name, participantIds)}
@@ -964,19 +972,22 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
         />
       )}
 
-      {/* Hidden file inputs */}
+      {/* Hidden file inputs - shared by every open window, so which
+          conversation an upload belongs to comes from
+          pendingUploadConversationRef (set when a window's attach/image
+          button triggers the click), not activeChat. */}
       <input
         type="file"
         ref={fileInputRef}
         className="hidden"
-        onChange={(e) => handleFileUpload(e, "file")}
+        onChange={(e) => handleFileUpload(e, "file", pendingUploadConversationRef.current)}
         accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar"
       />
       <input
         type="file"
         ref={imageInputRef}
         className="hidden"
-        onChange={(e) => handleFileUpload(e, "image")}
+        onChange={(e) => handleFileUpload(e, "image", pendingUploadConversationRef.current)}
         accept="image/*"
       />
     </div>
@@ -1231,14 +1242,12 @@ function ChatWindowView({
   user,
   allUsers,
   onSendMessage,
-  onRegisterMessageCallback,
-  onRegisterMessageConfirmedCallback,
+  onRegisterMessageCallbacks,
   onTyping,
   onMarkAsRead,
   typingUser,
-  onFileUpload,
-  fileInputRef,
-  imageInputRef,
+  onAttachFileClick,
+  onAttachImageClick,
   onClose,
   onMinimize,
   onUpdateGroup,
@@ -1268,27 +1277,24 @@ function ChatWindowView({
   const isGroup = !!chat.is_group;
   const memberCount = (chat.participants?.length || 0) + 1; // + self
 
-  // Register callback for direct message addition when sending messages.
-  // sendMessage() passes the message object itself (see registerMessageCallback
-  // in the parent), not a {message: ...} wrapper.
+  // Register this window's own instant-add / temp-id-confirm callbacks,
+  // keyed by conversation_id so sending in one window can never land in a
+  // different one. Guard against a message id we already have (the merge-
+  // sync effect below can independently pick up the same message from the
+  // parent's copy) so it's never added twice either.
   useEffect(() => {
-    if (onRegisterMessageCallback) {
-      onRegisterMessageCallback((message) => {
-        // Directly add message to local state for instant display
-        if (message) setMessages(prev => [...prev, message]);
-      });
-    }
-  }, [onRegisterMessageCallback]);
-
-  // Register callback that swaps a just-sent message's temporary local id
-  // for the real, server-assigned one once the send POST resolves.
-  useEffect(() => {
-    if (onRegisterMessageConfirmedCallback) {
-      onRegisterMessageConfirmedCallback((tempId, realMessage) => {
+    if (!onRegisterMessageCallbacks || !chat.conversation_id) return;
+    return onRegisterMessageCallbacks(
+      chat.conversation_id,
+      (message) => {
+        if (!message) return;
+        setMessages(prev => (prev.some(m => m.id === message.id) ? prev : [...prev, message]));
+      },
+      (tempId, realMessage) => {
         setMessages(prev => prev.map(m => (m.id === tempId ? realMessage : m)));
-      });
-    }
-  }, [onRegisterMessageConfirmedCallback]);
+      }
+    );
+  }, [onRegisterMessageCallbacks, chat.conversation_id]);
 
   // Load messages function wrapped in useCallback - must be defined before useEffect that uses it
   const loadMessages = useCallback(async () => {
@@ -1866,7 +1872,7 @@ function ChatWindowView({
           variant="ghost"
           size="sm"
           className="p-1 h-8 w-8"
-          onClick={() => fileInputRef.current?.click()}
+          onClick={onAttachFileClick}
           title="Attach file"
         >
           <Paperclip className="w-4 h-4 text-gray-500 dark:text-zinc-400" />
@@ -1875,7 +1881,7 @@ function ChatWindowView({
           variant="ghost"
           size="sm"
           className="p-1 h-8 w-8"
-          onClick={() => imageInputRef.current?.click()}
+          onClick={onAttachImageClick}
           title="Send image"
         >
           <ImageIcon className="w-4 h-4 text-zinc-500" />
