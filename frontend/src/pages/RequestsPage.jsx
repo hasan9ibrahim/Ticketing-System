@@ -2104,7 +2104,8 @@ export default function RequestsPage() {
 
                       {request.response && (
                         <div className="mt-3 p-2 bg-gray-100 dark:bg-zinc-800 rounded text-sm text-gray-700 dark:text-zinc-300">
-                          <strong>Response:</strong> {request.response}
+                          <strong>Response:</strong>
+                          <div className="whitespace-pre-wrap">{request.response}</div>
                         </div>
                       )}
                     </div>
@@ -4113,7 +4114,7 @@ export default function RequestsPage() {
               {selectedRequest.response && (
                 <div className="border-t border-gray-200 dark:border-zinc-700 pt-4">
                   <Label className="text-gray-500 dark:text-zinc-400">Response</Label>
-                  <p className="text-gray-900 dark:text-white mt-2">{selectedRequest.response}</p>
+                  <p className="text-gray-900 dark:text-white mt-2 whitespace-pre-wrap">{selectedRequest.response}</p>
                 </div>
               )}
 
