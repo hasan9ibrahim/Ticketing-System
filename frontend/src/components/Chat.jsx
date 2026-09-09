@@ -1219,12 +1219,14 @@ function ChatWindowView({
   const isGroup = !!chat.is_group;
   const memberCount = (chat.participants?.length || 0) + 1; // + self
 
-  // Register callback for direct message addition when sending messages
+  // Register callback for direct message addition when sending messages.
+  // sendMessage() passes the message object itself (see registerMessageCallback
+  // in the parent), not a {message: ...} wrapper.
   useEffect(() => {
     if (onRegisterMessageCallback) {
-      onRegisterMessageCallback((messageData) => {
+      onRegisterMessageCallback((message) => {
         // Directly add message to local state for instant display
-        setMessages(prev => [...prev, messageData.message]);
+        if (message) setMessages(prev => [...prev, message]);
       });
     }
   }, [onRegisterMessageCallback]);
@@ -1456,7 +1458,7 @@ function ChatWindowView({
     const groups = [];
     let currentDate = null;
 
-    messages.forEach((msg) => {
+    messages.filter(Boolean).forEach((msg) => {
       const msgDate = new Date(msg.created_at).toDateString();
       if (msgDate !== currentDate) {
         currentDate = msgDate;
