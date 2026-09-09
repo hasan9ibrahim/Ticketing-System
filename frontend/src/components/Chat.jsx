@@ -1259,7 +1259,9 @@ function ChatWindowView({
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState([]);
   const [hasLoadedFromApi, setHasLoadedFromApi] = useState(false);
-  const [hasMarkedAsRead, setHasMarkedAsRead] = useState(false);
+  // Comma-joined ids of the unread messages onMarkAsRead was last called
+  // for, for the current conversation - see the mark-as-read effect below.
+  const lastMarkedUnreadRef = useRef("");
   const [groupInfoOpen, setGroupInfoOpen] = useState(false);
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [editingMessageId, setEditingMessageId] = useState(null);
@@ -1338,7 +1340,7 @@ function ChatWindowView({
   useEffect(() => {
     if (chat.conversation_id) {
       setHasLoadedFromApi(false);
-      setHasMarkedAsRead(false);
+      lastMarkedUnreadRef.current = "";
     }
   }, [chat.conversation_id]);
 
@@ -1402,24 +1404,28 @@ function ChatWindowView({
     }
   }, [chat.conversation_id, chat.messages, hasLoadedFromApi, loadMessages, loading, messages.length]);
 
-  // Mark as read after messages are loaded - only mark as read when there are UNREAD messages
+  // Mark as read whenever the set of unread messages changes - not just
+  // once per window lifetime. A boolean latch here would mean a message
+  // that arrives while the window is already open (after the first check
+  // already ran) never gets marked read until the window is closed and
+  // reopened, since the latch permanently blocked any further checks.
+  // Track *which* unread ids we last acted on instead, so a genuinely new
+  // unread message re-triggers this, but re-renders with the same unread
+  // set don't spam onMarkAsRead redundantly.
   useEffect(() => {
-    if (chat.conversation_id && messages.length > 0 && !hasMarkedAsRead && hasLoadedFromApi) {
-      // Check if there are any unread messages from other users
-      const hasUnreadMessages = messages.some(msg =>
-        msg.sender_id !== user?.id && msg.is_read !== true
-      );
-
-      // Only mark as read if there are unread messages
-      if (hasUnreadMessages) {
-        setHasMarkedAsRead(true);
-        onMarkAsRead?.();
-      } else {
-        // Already all read, just mark as done
-        setHasMarkedAsRead(true);
-      }
+    if (!chat.conversation_id || !hasLoadedFromApi) return;
+    const unreadIds = messages
+      .filter(msg => msg.sender_id !== user?.id && msg.is_read !== true)
+      .map(msg => msg.id)
+      .sort()
+      .join(",");
+    if (unreadIds && unreadIds !== lastMarkedUnreadRef.current) {
+      lastMarkedUnreadRef.current = unreadIds;
+      onMarkAsRead?.();
+    } else if (!unreadIds) {
+      lastMarkedUnreadRef.current = "";
     }
-  }, [chat.conversation_id, messages.length, hasLoadedFromApi, hasMarkedAsRead, user, onMarkAsRead]);
+  }, [chat.conversation_id, messages, hasLoadedFromApi, user, onMarkAsRead]);
 
   // Scroll to bottom when new messages arrive
   useEffect(() => {
