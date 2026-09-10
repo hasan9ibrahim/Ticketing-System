@@ -32,6 +32,11 @@ export function playNotificationSound(variant = "default") {
   try {
     const ctx = getContext();
     if (!ctx) return;
+    // Browsers create a new AudioContext in "suspended" state until a user
+    // gesture resumes it - without this, the very first notification sound
+    // (and sometimes every one, depending on the browser) silently plays
+    // nothing.
+    if (ctx.state === "suspended") ctx.resume();
     const now = ctx.currentTime;
     if (variant === "success") {
       playTone(ctx, 660, now, 0.18);

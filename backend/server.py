@@ -138,6 +138,12 @@ class ChatMessage(BaseModel):
     edited_at: Optional[datetime] = None
     is_deleted: bool = False
     client_id: Optional[str] = None
+    # A denormalized snapshot of the message being replied to (if any), taken
+    # at send time - kept inline so rendering a reply's quote never needs an
+    # extra fetch, and it still shows correctly even if the original message
+    # is later edited or deleted.
+    reply_to: Optional[dict] = None
+    is_forwarded: bool = False
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class EditMessageData(BaseModel):
@@ -187,6 +193,8 @@ class MessageCreate(BaseModel):
     file_size: Optional[int] = None
     file_mime_type: Optional[str] = None
     client_id: Optional[str] = None
+    reply_to_id: Optional[str] = None  # id of the message being replied to, within the same conversation
+    is_forwarded: bool = False  # true when this message is a copy forwarded from another conversation
 
 class ChatUser(BaseModel):
     """User info as shown in chat lists"""
@@ -6178,6 +6186,42 @@ async def update_group_conversation(
         "updated_at": updated.get("updated_at")
     }
 
+@api_router.delete("/chat/conversations/{conversation_id}/group")
+async def delete_group_conversation(
+    conversation_id: str,
+    current_user: dict = Depends(get_current_admin)
+):
+    """Delete a group conversation entirely (admin only) - removes the
+    conversation, its messages, and any files attached to those messages."""
+    conv = await db.conversations.find_one({"id": conversation_id, "is_group": True})
+    if not conv:
+        raise HTTPException(status_code=404, detail="Group not found")
+
+    member_ids = conv.get("participant_ids", [])
+
+    messages = await db.chat_messages.find(
+        {"conversation_id": conversation_id, "file_url": {"$regex": r"^/api/chat/files/"}},
+        {"_id": 0, "file_url": 1}
+    ).to_list(length=None)
+    file_ids = [m["file_url"].rsplit("/", 1)[-1] for m in messages if m.get("file_url")]
+    if file_ids:
+        await db.chat_files.delete_many({"id": {"$in": file_ids}})
+
+    await db.chat_messages.delete_many({"conversation_id": conversation_id})
+    await db.conversations.delete_one({"id": conversation_id})
+
+    # Every member's open chat window closes itself on this event, the same
+    # way it already does when a member is removed from the group - an empty
+    # participant list means "you're no longer in this conversation" for
+    # everyone, including the admin who just deleted it (other open tabs).
+    await manager.broadcast_to_conversation({
+        "type": "group_updated",
+        "conversation_id": conversation_id,
+        "participant_ids": []
+    }, member_ids)
+
+    return {"message": "Group deleted"}
+
 @api_router.post("/chat/conversations/{conversation_id}/leave")
 async def leave_group_conversation(
     conversation_id: str,
@@ -6257,6 +6301,41 @@ async def get_conversation_messages(
 
     return messages
 
+@api_router.get("/chat/conversations/{conversation_id}/search")
+async def search_conversation_messages(
+    conversation_id: str,
+    q: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Search this conversation's non-deleted messages by content or file
+    name (case-insensitive substring match), most recent first."""
+    user_id = current_user["id"]
+    conv = await db.conversations.find_one({"id": conversation_id, "participant_ids": user_id})
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    query_text = q.strip()
+    if not query_text:
+        return []
+
+    pattern = re.escape(query_text)
+    messages = await db.chat_messages.find({
+        "conversation_id": conversation_id,
+        "is_deleted": {"$ne": True},
+        "$or": [
+            {"content": {"$regex": pattern, "$options": "i"}},
+            {"file_name": {"$regex": pattern, "$options": "i"}}
+        ]
+    }).sort("created_at", -1).limit(100).to_list(length=100)
+
+    for msg in messages:
+        if "_id" in msg:
+            msg["_id"] = str(msg["_id"])
+        if isinstance(msg.get("created_at"), datetime):
+            msg["created_at"] = msg["created_at"].isoformat()
+
+    return messages
+
 @api_router.post("/chat/messages/read")
 async def mark_messages_as_read(
     data: MarkReadRequest,
@@ -6294,6 +6373,20 @@ async def create_message(
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
+    reply_to = None
+    if data.reply_to_id:
+        original = await db.chat_messages.find_one({"id": data.reply_to_id, "conversation_id": data.conversation_id})
+        if original:
+            reply_to = {
+                "id": original["id"],
+                "sender_id": original.get("sender_id"),
+                "sender_name": original.get("sender_name"),
+                "content": original.get("content"),
+                "message_type": original.get("message_type"),
+                "file_name": original.get("file_name"),
+                "is_deleted": original.get("is_deleted", False)
+            }
+
     msg_obj = ChatMessage(
         conversation_id=data.conversation_id,
         sender_id=user_id,
@@ -6304,7 +6397,9 @@ async def create_message(
         file_name=data.file_name,
         file_size=data.file_size,
         file_mime_type=data.file_mime_type,
-        client_id=data.client_id
+        client_id=data.client_id,
+        reply_to=reply_to,
+        is_forwarded=data.is_forwarded
     )
     await db.chat_messages.insert_one(msg_obj.model_dump())
 
@@ -6342,6 +6437,8 @@ async def create_message(
         "edited": False,
         "is_deleted": False,
         "client_id": data.client_id,
+        "reply_to": reply_to,
+        "is_forwarded": data.is_forwarded,
         "created_at": msg_obj.created_at.isoformat()
     }
 

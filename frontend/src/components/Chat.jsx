@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import {
   MessageSquare, X, Send, Paperclip, Image as ImageIcon, Users, Plus,
   Check, CheckCheck, Info, LogOut, Smile, Pencil, Trash2, Loader2, Minus,
+  Reply, Forward, ChevronDown, Maximize2, Minimize2, Search,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -125,6 +126,12 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
   const [minimized, setMinimized] = useState(true);
   const [typingUsers, setTypingUsers] = useState({});
   const [newGroupOpen, setNewGroupOpen] = useState(false);
+  // Full-screen "pop out" mode - a Teams-style conversation list + single
+  // main pane, replacing the floating widget/windows entirely while active.
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [expandedConversationId, setExpandedConversationId] = useState(null);
+  // The message currently staged for the "forward to..." dialog, or null.
+  const [forwardMessage, setForwardMessage] = useState(null);
   // Single source of truth for every conversation's messages, keyed by
   // conversation_id: { items, loaded, loading, loadingOlder, hasMore }.
   // Every previous version of this feature kept a second (or third) copy of
@@ -210,11 +217,12 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
   // longer actually visible.
   const isConversationFocused = useCallback(
     (conversationId) => {
+      if (isExpanded) return expandedConversationId === conversationId;
       if (!activeChat || activeChat.conversation_id !== conversationId) return false;
       const entry = openChats.find((c) => c.conversation_id === conversationId);
       return !!entry && !entry.minimized;
     },
-    [activeChat, openChats]
+    [isExpanded, expandedConversationId, activeChat, openChats]
   );
 
   const markAsRead = useCallback(
@@ -284,6 +292,18 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
     [openChats, setOpenChats, setActiveChat, markAsRead]
   );
 
+  // Selects a conversation in the full-screen pane (the Teams-like layout's
+  // equivalent of opening a floating window).
+  const selectExpandedConversation = useCallback(
+    (conv) => {
+      setExpandedConversationId(conv.id);
+      ensureMessagesLoaded(conv.id);
+      markAsRead(conv.id);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [markAsRead]
+  );
+
   const applyIncomingMessage = useCallback(
     (message) => {
       const isOwn = message.sender_id === user?.id;
@@ -346,12 +366,13 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
           )
         );
         const convForToast = conversations.find((c) => c.id === message.conversation_id);
-        toast(message.sender_name || "New message", {
+        const senderName = message.sender_name || "Someone";
+        toast(`${senderName} sent you a message`, {
           description: preview,
           action: convForToast ? { label: "Open", onClick: () => openConversationWindow(convForToast) } : undefined,
         });
         playNotificationSound();
-        if (document.hidden) showNativeNotification(message.sender_name || "New message", preview);
+        if (document.hidden) showNativeNotification(`${senderName} sent you a message`, preview);
       } else {
         markAsRead(message.conversation_id);
       }
@@ -385,6 +406,7 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
       if (!stillMember) {
         setOpenChats((prev) => prev.filter((c) => c.conversation_id !== conversation_id));
         setActiveChat((prev) => (prev?.conversation_id === conversation_id ? null : prev));
+        setExpandedConversationId((prev) => (prev === conversation_id ? null : prev));
         setConversations((prev) => prev.filter((c) => c.id !== conversation_id));
         return;
       }
@@ -575,6 +597,16 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
     }
   };
 
+  const startConversationExpanded = async (otherUser) => {
+    try {
+      const response = await axios.post(`${API}/chat/conversations`, { participant_id: otherUser.id }, { headers: authHeaders() });
+      setConversations((prev) => (prev.some((c) => c.id === response.data.id) ? prev : [response.data, ...prev]));
+      selectExpandedConversation(response.data);
+    } catch (error) {
+      console.error("Error creating conversation:", error);
+    }
+  };
+
   const createGroup = async (name, participantIds) => {
     const response = await axios.post(`${API}/chat/conversations/group`, { name, participant_ids: participantIds }, { headers: authHeaders() });
     setConversations((prev) => [response.data, ...prev]);
@@ -605,7 +637,7 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
     setConversations((prev) => prev.filter((c) => c.id !== conversationId));
   };
 
-  const sendMessage = async (conversationId, content, messageType = "text", fileData = null) => {
+  const sendMessage = async (conversationId, content, messageType = "text", fileData = null, extra = {}) => {
     const trimmed = content.trim();
     if (!trimmed && !fileData) return;
 
@@ -625,6 +657,8 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
       read_by: [],
       edited: false,
       is_deleted: false,
+      reply_to: extra.reply_to || null,
+      is_forwarded: !!extra.is_forwarded,
       created_at: new Date().toISOString(),
     };
 
@@ -658,6 +692,8 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
           file_size: fileData?.file_size,
           file_mime_type: fileData?.file_mime_type,
           client_id: clientId,
+          reply_to_id: extra.reply_to_id || undefined,
+          is_forwarded: !!extra.is_forwarded,
         },
         { headers: authHeaders() }
       );
@@ -689,7 +725,7 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
     sendSocket({ type: "typing", conversation_id: conversationId });
   };
 
-  const uploadFile = async (file, type, conversationId) => {
+  const uploadFile = async (file, type, conversationId, extra = {}) => {
     if (!file || !conversationId) return;
     const formData = new FormData();
     formData.append("file", file);
@@ -699,7 +735,7 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
       });
       const fileData = response.data;
       const messageType = type === "image" || fileData.is_image ? "image" : "file";
-      sendMessage(conversationId, file.name, messageType, fileData);
+      sendMessage(conversationId, file.name, messageType, fileData, extra);
     } catch (error) {
       console.error("Error uploading file:", error);
       toast.error(error.response?.status === 413 ? "That file is too large (8MB max)." : "Could not upload the file.");
@@ -733,14 +769,65 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
 
   // Uploads every staged attachment (each as its own message, in the order
   // added) and then sends the typed text, if any, as a separate message.
-  const sendComposedMessage = async (conversationId, text, attachments) => {
+  // replyToMessage (if set) is attached to whichever of those ends up being
+  // the first thing actually sent.
+  const sendComposedMessage = async (conversationId, text, attachments, replyToMessage) => {
     setPendingAttachmentsByConv((prev) => ({ ...prev, [conversationId]: [] }));
+    const trimmed = text.trim();
+    const replySnapshot = replyToMessage
+      ? {
+          id: replyToMessage.id,
+          sender_id: replyToMessage.sender_id,
+          sender_name: replyToMessage.sender_name,
+          content: replyToMessage.content,
+          message_type: replyToMessage.message_type,
+          file_name: replyToMessage.file_name,
+          is_deleted: replyToMessage.is_deleted,
+        }
+      : null;
+    let replyConsumed = !replySnapshot;
     for (const att of attachments) {
-      await uploadFile(att.file, att.isImage ? "image" : "file", conversationId);
+      const extra = !replyConsumed && !trimmed ? { reply_to_id: replySnapshot.id, reply_to: replySnapshot } : {};
+      if (extra.reply_to_id) replyConsumed = true;
+      await uploadFile(att.file, att.isImage ? "image" : "file", conversationId, extra);
       if (att.previewUrl) URL.revokeObjectURL(att.previewUrl);
     }
-    const trimmed = text.trim();
-    if (trimmed) sendMessage(conversationId, trimmed, "text");
+    if (trimmed) {
+      const extra = replySnapshot ? { reply_to_id: replySnapshot.id, reply_to: replySnapshot } : {};
+      sendMessage(conversationId, trimmed, "text", null, extra);
+    }
+  };
+
+  // Sends a copy of an existing message into a different conversation.
+  const forwardMessageTo = (targetConversationId, message) => {
+    if (!message) return;
+    const fileData = message.file_url
+      ? {
+          file_url: message.file_url,
+          file_name: message.file_name,
+          file_size: message.file_size,
+          file_mime_type: message.file_mime_type,
+        }
+      : null;
+    sendMessage(targetConversationId, message.content || "", message.message_type, fileData, { is_forwarded: true });
+    setForwardMessage(null);
+    toast.success("Message forwarded");
+  };
+
+  const searchConversation = async (conversationId, query) => {
+    const response = await axios.get(`${API}/chat/conversations/${conversationId}/search`, {
+      params: { q: query },
+      headers: authHeaders(),
+    });
+    return response.data;
+  };
+
+  const deleteGroup = async (conversationId) => {
+    await axios.delete(`${API}/chat/conversations/${conversationId}/group`, { headers: authHeaders() });
+    setOpenChats((prev) => prev.filter((c) => c.conversation_id !== conversationId));
+    setActiveChat((prev) => (prev?.conversation_id === conversationId ? null : prev));
+    setExpandedConversationId((prev) => (prev === conversationId ? null : prev));
+    setConversations((prev) => prev.filter((c) => c.id !== conversationId));
   };
 
   const totalUnread = conversations.reduce((sum, c) => sum + (c.unread_count || 0), 0);
@@ -769,181 +856,290 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
 
   const isAdmin = user?.role === "admin";
 
+  // A conversation, shaped the way ChatWindowView expects its `chat` prop -
+  // shared by the floating windows and the full-screen pane so they can't
+  // drift apart.
+  const toWindowChat = (conv) => ({
+    conversation_id: conv.id,
+    is_group: !!conv.is_group,
+    name: conv.name || null,
+    participants: conv.participants || [],
+    participant: conv.participants?.[0] || null,
+  });
+
+  // Every prop ChatWindowView needs, keyed off a conversation id - reused by
+  // both the floating windows and the full-screen pane's single main pane.
+  const renderChatWindow = (chatShape, { fullScreen = false, onClose, onMinimize } = {}) => {
+    const conversationId = chatShape.conversation_id;
+    const entry = messagesByConv[conversationId] || { items: [], loaded: false, loading: false, hasMore: false };
+    return (
+      <ChatWindowView
+        key={conversationId}
+        fullScreen={fullScreen}
+        chat={chatShape}
+        user={user}
+        allUsers={users}
+        messages={entry.items}
+        loaded={entry.loaded}
+        loading={entry.loading}
+        hasMore={entry.hasMore}
+        loadingOlder={entry.loadingOlder}
+        onLoadOlder={() => loadOlderMessages(conversationId)}
+        onSend={(text, attachments, replyToMessage) => sendComposedMessage(conversationId, text, attachments, replyToMessage)}
+        onTyping={() => sendTyping(conversationId)}
+        typingUser={typingUsers[conversationId]}
+        pendingAttachments={pendingAttachmentsByConv[conversationId] || []}
+        onAddFiles={(files) => addPendingFiles(conversationId, files)}
+        onRemoveAttachment={(id) => removePendingAttachment(conversationId, id)}
+        onAttachFileClick={() => {
+          pendingUploadConversationRef.current = conversationId;
+          fileInputRef.current?.click();
+        }}
+        onAttachImageClick={() => {
+          pendingUploadConversationRef.current = conversationId;
+          imageInputRef.current?.click();
+        }}
+        onClose={onClose}
+        onMinimize={onMinimize}
+        onUpdateGroup={(name, ids) => updateGroup(conversationId, name, ids)}
+        onLeaveGroup={() => leaveGroup(conversationId)}
+        onDeleteGroup={() => deleteGroup(conversationId)}
+        onEditMessage={(messageId, content) => editMessage(conversationId, messageId, content)}
+        onDeleteMessage={(messageId) => deleteMessage(conversationId, messageId)}
+        onForwardMessage={(msg) => setForwardMessage(msg)}
+        onSearchMessages={(q) => searchConversation(conversationId, q)}
+      />
+    );
+  };
+
+  const expandedConv = conversations.find((c) => c.id === expandedConversationId);
+
   return (
     <>
-      {/* Floating Chat Windows - positioned to the left of the main button */}
-      {openChats.map((chat, index) => {
-        const mainTabWidth = minimized ? 60 : 380;
-        const chatsAfter = openChats.slice(index + 1);
-        const offsetAfter = chatsAfter.reduce((sum, c) => sum + (c.minimized ? 158 : 388), 0);
-        const rightPos = 16 + mainTabWidth + 4 + offsetAfter;
-        const entry = messagesByConv[chat.conversation_id] || { items: [], loaded: false, loading: false, hasMore: false };
-
-        return (
-          <div
-            key={chat.conversation_id}
-            className="fixed z-40 flex flex-col bg-white dark:bg-black border border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white transition-all duration-300 bottom-2"
-            style={{ right: `${rightPos}px`, width: chat.minimized ? "150px" : "380px", height: chat.minimized ? "50px" : "500px" }}
-          >
-            {chat.minimized && (
-              <div
-                className="flex items-center justify-between px-3 py-2 bg-white dark:bg-zinc-900 border-b border-gray-200 dark:border-zinc-700 cursor-pointer hover:bg-gray-100 dark:hover:bg-zinc-800"
-                onClick={() => toggleChatMinimize(chat.conversation_id)}
-              >
-                <div className="flex items-center gap-2 min-w-0 flex-1">
-                  <span className="font-medium truncate text-sm flex items-center gap-1 mr-6">
-                    {chatTitle(chat)}
-                    {chat.unreadCount > 0 && (
-                      <Badge className="bg-red-500 text-white text-xs min-w-[18px] h-[18px] flex items-center justify-center p-0">
-                        {chat.unreadCount > 99 ? "99+" : chat.unreadCount}
-                      </Badge>
-                    )}
-                  </span>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="p-1 h-6 w-6 text-gray-500 dark:text-zinc-400 hover:text-red-400"
-                  onClick={(e) => closeChatWindow(chat.conversation_id, e)}
-                >
-                  <X className="w-3 h-3" />
+      {isExpanded ? (
+        <div className="fixed inset-0 z-[70] flex flex-col bg-white dark:bg-black text-gray-900 dark:text-white">
+          <div className="flex items-center justify-between px-4 py-2 border-b border-black/10 dark:border-white/10 flex-shrink-0">
+            <div className="flex items-center gap-2 font-medium">
+              <MessageSquare className="w-5 h-5" /> Chat
+            </div>
+            <div className="flex items-center gap-1">
+              {isAdmin && (
+                <Button variant="ghost" size="sm" className="p-1 h-8 w-8" onClick={() => setNewGroupOpen(true)} title="New group">
+                  <Plus className="w-4 h-4" />
                 </Button>
-              </div>
-            )}
-
-            {!chat.minimized && (
-              <div className="flex-1 overflow-hidden flex flex-col" style={{ minHeight: 0 }}>
-                <ChatWindowView
-                  chat={chat}
-                  user={user}
-                  allUsers={users}
-                  messages={entry.items}
-                  loaded={entry.loaded}
-                  loading={entry.loading}
-                  hasMore={entry.hasMore}
-                  loadingOlder={entry.loadingOlder}
-                  onLoadOlder={() => loadOlderMessages(chat.conversation_id)}
-                  onSend={(text, attachments) => sendComposedMessage(chat.conversation_id, text, attachments)}
-                  onTyping={() => sendTyping(chat.conversation_id)}
-                  typingUser={typingUsers[chat.conversation_id]}
-                  pendingAttachments={pendingAttachmentsByConv[chat.conversation_id] || []}
-                  onAddFiles={(files) => addPendingFiles(chat.conversation_id, files)}
-                  onRemoveAttachment={(id) => removePendingAttachment(chat.conversation_id, id)}
-                  onAttachFileClick={() => {
-                    pendingUploadConversationRef.current = chat.conversation_id;
-                    fileInputRef.current?.click();
-                  }}
-                  onAttachImageClick={() => {
-                    pendingUploadConversationRef.current = chat.conversation_id;
-                    imageInputRef.current?.click();
-                  }}
-                  onClose={() => closeChatWindow(chat.conversation_id)}
-                  onMinimize={() => toggleChatMinimize(chat.conversation_id)}
-                  onUpdateGroup={(name, ids) => updateGroup(chat.conversation_id, name, ids)}
-                  onLeaveGroup={() => leaveGroup(chat.conversation_id)}
-                  onEditMessage={(messageId, content) => editMessage(chat.conversation_id, messageId, content)}
-                  onDeleteMessage={(messageId) => deleteMessage(chat.conversation_id, messageId)}
-                />
-              </div>
-            )}
+              )}
+              <Button variant="ghost" size="sm" className="p-1 h-8 w-8" onClick={() => setIsExpanded(false)} title="Exit full screen">
+                <Minimize2 className="w-4 h-4" />
+              </Button>
+            </div>
           </div>
-        );
-      })}
-
-      {/* Main Chat Widget */}
-      <div
-        className={`fixed bottom-0 right-4 z-50 flex flex-col bg-white dark:bg-black border border-gray-200 dark:border-zinc-800 ${
-          minimized ? "h-12" : "h-[500px]"
-        } transition-all duration-300 text-gray-900 dark:text-white`}
-        style={{ width: minimized ? "60px" : "380px" }}
-      >
-        <div
-          className="flex items-center justify-between px-3 py-2 bg-white dark:bg-zinc-900 border-b border-black/10 dark:border-white/10 rounded-t-lg cursor-pointer hover:bg-gray-100 dark:hover:bg-zinc-800"
-          onClick={() => setMinimized(!minimized)}
-        >
-          <div className="flex items-center gap-2">
-            <div className="relative">
-              <MessageSquare className="w-5 h-5" />
-              {minimized && totalUnread > 0 && (
-                <Badge className="absolute -top-2 -right-2 bg-red-500 text-white text-xs min-w-[18px] h-[18px] flex items-center justify-center p-0">
-                  {totalUnread > 99 ? "99+" : totalUnread}
-                </Badge>
+          <div className="flex flex-1 overflow-hidden">
+            <div className="w-80 flex-shrink-0 border-r border-black/10 dark:border-white/10 flex flex-col overflow-hidden">
+              <ChatListView
+                conversations={conversations}
+                users={users}
+                loading={initialLoading}
+                error={loadError}
+                onRetry={() => {
+                  setInitialLoading(true);
+                  Promise.all([fetchConversations(), fetchUsers()])
+                    .then(() => setLoadError(false))
+                    .catch(() => setLoadError(true))
+                    .finally(() => setInitialLoading(false));
+                }}
+                onSelectConversation={selectExpandedConversation}
+                onStartConversation={startConversationExpanded}
+                userId={user?.id}
+                activeConversationId={expandedConversationId}
+              />
+            </div>
+            <div className="flex-1 flex flex-col overflow-hidden">
+              {expandedConv ? (
+                renderChatWindow(toWindowChat(expandedConv), {
+                  fullScreen: true,
+                  onClose: () => setExpandedConversationId(null),
+                })
+              ) : (
+                <div className="flex-1 flex items-center justify-center text-gray-400 text-sm">
+                  Select a conversation to start chatting
+                </div>
               )}
             </div>
-            {!minimized && <span className="font-medium">Messages</span>}
-          </div>
-          <div className="flex items-center gap-1">
-            {!minimized && isAdmin && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="p-1 h-7 w-7 text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white"
-                title="New group"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setNewGroupOpen(true);
-                }}
-              >
-                <Plus className="w-4 h-4" />
-              </Button>
-            )}
           </div>
         </div>
+      ) : (
+        <>
+          {/* Floating Chat Windows - positioned to the left of the main button */}
+          {openChats.map((chat, index) => {
+            const mainTabWidth = minimized ? 60 : 380;
+            const chatsAfter = openChats.slice(index + 1);
+            const offsetAfter = chatsAfter.reduce((sum, c) => sum + (c.minimized ? 158 : 388), 0);
+            const rightPos = 16 + mainTabWidth + 4 + offsetAfter;
 
-        {!minimized && (
-          <ChatListView
-            conversations={conversations}
-            users={users}
-            loading={initialLoading}
-            error={loadError}
-            onRetry={() => {
-              setInitialLoading(true);
-              Promise.all([fetchConversations(), fetchUsers()])
-                .then(() => setLoadError(false))
-                .catch(() => setLoadError(true))
-                .finally(() => setInitialLoading(false));
-            }}
-            onSelectConversation={openConversationWindow}
-            onStartConversation={startConversation}
-            userId={user?.id}
-          />
-        )}
+            return (
+              <div
+                key={chat.conversation_id}
+                className="fixed z-40 flex flex-col bg-white dark:bg-black border border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white transition-all duration-300 bottom-2"
+                style={{ right: `${rightPos}px`, width: chat.minimized ? "150px" : "380px", height: chat.minimized ? "50px" : "500px" }}
+              >
+                {chat.minimized && (
+                  <div
+                    className="flex items-center justify-between px-3 py-2 bg-white dark:bg-zinc-900 border-b border-gray-200 dark:border-zinc-700 cursor-pointer hover:bg-gray-100 dark:hover:bg-zinc-800"
+                    onClick={() => toggleChatMinimize(chat.conversation_id)}
+                  >
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      <span className="font-medium truncate text-sm flex items-center gap-1 mr-6">
+                        {chatTitle(chat)}
+                        {chat.unreadCount > 0 && (
+                          <Badge className="bg-red-500 text-white text-xs min-w-[18px] h-[18px] flex items-center justify-center p-0">
+                            {chat.unreadCount > 99 ? "99+" : chat.unreadCount}
+                          </Badge>
+                        )}
+                      </span>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="p-1 h-6 w-6 text-gray-500 dark:text-zinc-400 hover:text-red-400"
+                      onClick={(e) => closeChatWindow(chat.conversation_id, e)}
+                    >
+                      <X className="w-3 h-3" />
+                    </Button>
+                  </div>
+                )}
 
-        {/* Hidden file inputs - shared by every open window, so which
-            conversation an upload belongs to comes from
-            pendingUploadConversationRef (set when a window's attach/image
-            button triggers the click), not activeChat. */}
-        <input
-          type="file"
-          ref={fileInputRef}
-          className="hidden"
-          onChange={(e) => {
-            const file = e.target.files[0];
-            e.target.value = "";
-            if (file && pendingUploadConversationRef.current) addPendingFiles(pendingUploadConversationRef.current, [file]);
-          }}
-          accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar"
-        />
-        <input
-          type="file"
-          ref={imageInputRef}
-          className="hidden"
-          onChange={(e) => {
-            const file = e.target.files[0];
-            e.target.value = "";
-            if (file && pendingUploadConversationRef.current) addPendingFiles(pendingUploadConversationRef.current, [file]);
-          }}
-          accept="image/*"
-        />
-      </div>
+                {!chat.minimized && (
+                  <div className="flex-1 overflow-hidden flex flex-col" style={{ minHeight: 0 }}>
+                    {renderChatWindow(chat, {
+                      onClose: () => closeChatWindow(chat.conversation_id),
+                      onMinimize: () => toggleChatMinimize(chat.conversation_id),
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          {/* Main Chat Widget */}
+          <div
+            className={`fixed bottom-0 right-4 z-50 flex flex-col bg-white dark:bg-black border border-gray-200 dark:border-zinc-800 ${
+              minimized ? "h-12" : "h-[500px]"
+            } transition-all duration-300 text-gray-900 dark:text-white`}
+            style={{ width: minimized ? "60px" : "380px" }}
+          >
+            <div
+              className="flex items-center justify-between px-3 py-2 bg-white dark:bg-zinc-900 border-b border-black/10 dark:border-white/10 rounded-t-lg cursor-pointer hover:bg-gray-100 dark:hover:bg-zinc-800"
+              onClick={() => setMinimized(!minimized)}
+            >
+              <div className="flex items-center gap-2">
+                <div className="relative">
+                  <MessageSquare className="w-5 h-5" />
+                  {minimized && totalUnread > 0 && (
+                    <Badge className="absolute -top-2 -right-2 bg-red-500 text-white text-xs min-w-[18px] h-[18px] flex items-center justify-center p-0">
+                      {totalUnread > 99 ? "99+" : totalUnread}
+                    </Badge>
+                  )}
+                </div>
+                {!minimized && <span className="font-medium">Messages</span>}
+              </div>
+              <div className="flex items-center gap-1">
+                {!minimized && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="p-1 h-7 w-7 text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white"
+                    title="Open full screen"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsExpanded(true);
+                    }}
+                  >
+                    <Maximize2 className="w-4 h-4" />
+                  </Button>
+                )}
+                {!minimized && isAdmin && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="p-1 h-7 w-7 text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white"
+                    title="New group"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setNewGroupOpen(true);
+                    }}
+                  >
+                    <Plus className="w-4 h-4" />
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            {!minimized && (
+              <ChatListView
+                conversations={conversations}
+                users={users}
+                loading={initialLoading}
+                error={loadError}
+                onRetry={() => {
+                  setInitialLoading(true);
+                  Promise.all([fetchConversations(), fetchUsers()])
+                    .then(() => setLoadError(false))
+                    .catch(() => setLoadError(true))
+                    .finally(() => setInitialLoading(false));
+                }}
+                onSelectConversation={openConversationWindow}
+                onStartConversation={startConversation}
+                userId={user?.id}
+              />
+            )}
+          </div>
+        </>
+      )}
+
+      {/* Hidden file inputs - shared by every open window (and the
+          full-screen pane), so which conversation an upload belongs to
+          comes from pendingUploadConversationRef (set when a window's
+          attach/image button triggers the click), not activeChat. */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files[0];
+          e.target.value = "";
+          if (file && pendingUploadConversationRef.current) addPendingFiles(pendingUploadConversationRef.current, [file]);
+        }}
+        accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar"
+      />
+      <input
+        type="file"
+        ref={imageInputRef}
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files[0];
+          e.target.value = "";
+          if (file && pendingUploadConversationRef.current) addPendingFiles(pendingUploadConversationRef.current, [file]);
+        }}
+        accept="image/*"
+      />
 
       {isAdmin && <NewGroupDialog open={newGroupOpen} onOpenChange={setNewGroupOpen} users={users} onCreate={createGroup} />}
+
+      <ForwardDialog
+        open={!!forwardMessage}
+        onOpenChange={(open) => !open && setForwardMessage(null)}
+        conversations={conversations}
+        onForward={(targetConversationId) => forwardMessageTo(targetConversationId, forwardMessage)}
+      />
     </>
   );
 }
 
-function ChatListView({ conversations, users, loading, error, onRetry, onSelectConversation, onStartConversation, userId }) {
+function ChatListView({ conversations, users, loading, error, onRetry, onSelectConversation, onStartConversation, userId, activeConversationId }) {
   const [searchQuery, setSearchQuery] = useState("");
+  // Collapsed by default - the list of everyone you haven't messaged yet
+  // can be long and isn't what most people are scanning for on open.
+  const [otherUsersExpanded, setOtherUsersExpanded] = useState(false);
 
   const filteredConversations = conversations.filter((conv) => {
     if (!searchQuery) return true;
@@ -1000,7 +1196,9 @@ function ChatListView({ conversations, users, loading, error, onRetry, onSelectC
               return (
                 <div
                   key={conv.id}
-                  className="flex items-center gap-3 p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg cursor-pointer"
+                  className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer ${
+                    conv.id === activeConversationId ? "bg-gray-100 dark:bg-gray-800" : "hover:bg-gray-100 dark:hover:bg-gray-800"
+                  }`}
                   onClick={() => onSelectConversation(conv)}
                 >
                   <div className="relative">
@@ -1036,8 +1234,14 @@ function ChatListView({ conversations, users, loading, error, onRetry, onSelectC
 
             {usersWithoutConversations.length > 0 && (
               <>
-                {filteredConversations.length > 0 && <div className="text-xs text-gray-500 mt-4 mb-2 px-2">Other Users</div>}
-                {usersWithoutConversations.map((u) => (
+                <button
+                  className="w-full flex items-center justify-between text-xs text-gray-500 dark:text-zinc-400 mt-4 mb-1 px-2 py-1 hover:text-gray-700 dark:hover:text-gray-300"
+                  onClick={() => setOtherUsersExpanded((v) => !v)}
+                >
+                  <span>Other Users ({usersWithoutConversations.length})</span>
+                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${otherUsersExpanded || searchQuery ? "rotate-180" : ""}`} />
+                </button>
+                {(otherUsersExpanded || searchQuery) && usersWithoutConversations.map((u) => (
                   <div
                     key={u.id}
                     className="flex items-center gap-3 p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg cursor-pointer"
@@ -1136,21 +1340,109 @@ function NewGroupDialog({ open, onOpenChange, users, onCreate }) {
   );
 }
 
+function ForwardDialog({ open, onOpenChange, conversations, onForward }) {
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedId, setSelectedId] = useState(null);
+
+  useEffect(() => {
+    if (!open) {
+      setSearchQuery("");
+      setSelectedId(null);
+    }
+  }, [open]);
+
+  const filtered = conversations.filter((conv) => {
+    if (!searchQuery) return true;
+    const title = conv.is_group ? conv.name : conv.participants?.[0]?.name;
+    return title?.toLowerCase().includes(searchQuery.toLowerCase());
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="bg-white dark:bg-zinc-900 border-black/10 dark:border-white/10 text-gray-900 dark:text-white">
+        <DialogHeader>
+          <DialogTitle>Forward message</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-2">
+          <Input
+            placeholder="Search chats..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white"
+          />
+          <div className="max-h-60 overflow-y-auto space-y-1">
+            {filtered.length === 0 && <div className="text-sm text-gray-400 py-4 text-center">No chats found.</div>}
+            {filtered.map((conv) => {
+              const participant = conv.participants?.[0];
+              const title = conv.is_group ? conv.name : participant?.name;
+              return (
+                <div
+                  key={conv.id}
+                  onClick={() => setSelectedId(conv.id)}
+                  className={`flex items-center gap-2 p-2 rounded-lg cursor-pointer ${
+                    selectedId === conv.id ? "bg-emerald-100 dark:bg-emerald-900/30" : "hover:bg-gray-100 dark:hover:bg-zinc-800"
+                  }`}
+                >
+                  <Avatar className="w-8 h-8">
+                    <AvatarFallback className={conv.is_group ? "bg-blue-600 text-white text-xs" : "bg-emerald-600 text-white text-xs"}>
+                      {conv.is_group ? <Users className="w-4 h-4" /> : getInitials(title)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <span className="text-sm truncate">{title}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} className="border-gray-200 dark:border-zinc-700">
+            Cancel
+          </Button>
+          <Button
+            onClick={() => onForward(selectedId)}
+            disabled={!selectedId}
+            className="bg-emerald-500 text-black hover:bg-emerald-400"
+          >
+            Forward
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // Admin can rename the group / add-remove members here; any member can leave.
-function GroupInfoDialog({ open, onOpenChange, chat, currentUser, allUsers, onSave, onLeave }) {
+function GroupInfoDialog({ open, onOpenChange, chat, currentUser, allUsers, onSave, onLeave, onDeleteGroup }) {
   const isAdmin = currentUser?.role === "admin";
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState("");
   const [memberIds, setMemberIds] = useState([]);
   const [submitting, setSubmitting] = useState(false);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [deletingGroup, setDeletingGroup] = useState(false);
 
   useEffect(() => {
     if (open) {
       setName(chat?.name || "");
       setMemberIds([...(currentUser?.id ? [currentUser.id] : []), ...(chat?.participants || []).map((p) => p.id)]);
       setEditing(false);
+      setConfirmDeleteOpen(false);
     }
   }, [open, chat, currentUser]);
+
+  const handleDeleteGroup = async () => {
+    setDeletingGroup(true);
+    try {
+      await onDeleteGroup?.();
+      setConfirmDeleteOpen(false);
+      onOpenChange(false);
+    } catch (error) {
+      console.error("Error deleting group:", error);
+      toast.error("Failed to delete group");
+    } finally {
+      setDeletingGroup(false);
+    }
+  };
 
   const handleSave = async () => {
     if (!name.trim() || memberIds.length < 2) return;
@@ -1215,10 +1507,18 @@ function GroupInfoDialog({ open, onOpenChange, chat, currentUser, allUsers, onSa
         )}
 
         <DialogFooter className="flex-row items-center justify-between sm:justify-between w-full">
-          <Button variant="outline" onClick={onLeave} className="border-red-300 dark:border-red-900 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20">
-            <LogOut className="w-3.5 h-3.5 mr-1.5" />
-            Leave
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={onLeave} className="border-red-300 dark:border-red-900 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20">
+              <LogOut className="w-3.5 h-3.5 mr-1.5" />
+              Leave
+            </Button>
+            {isAdmin && !editing && (
+              <Button variant="outline" onClick={() => setConfirmDeleteOpen(true)} className="border-red-300 dark:border-red-900 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20">
+                <Trash2 className="w-3.5 h-3.5 mr-1.5" />
+                Delete Group
+              </Button>
+            )}
+          </div>
           <div className="flex gap-2">
             {isAdmin && !editing && (
               <Button variant="outline" onClick={() => setEditing(true)} className="border-gray-200 dark:border-zinc-700">
@@ -1238,6 +1538,25 @@ function GroupInfoDialog({ open, onOpenChange, chat, currentUser, allUsers, onSa
           </div>
         </DialogFooter>
       </DialogContent>
+
+      <Dialog open={confirmDeleteOpen} onOpenChange={(v) => !deletingGroup && setConfirmDeleteOpen(v)}>
+        <DialogContent className="bg-white dark:bg-zinc-900 border-black/10 dark:border-white/10 text-gray-900 dark:text-white">
+          <DialogHeader>
+            <DialogTitle>Delete this group?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-gray-700 dark:text-zinc-300">
+            This permanently deletes "{chat?.name}" and all its messages for every member. This can't be undone.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmDeleteOpen(false)} disabled={deletingGroup} className="border-gray-200 dark:border-zinc-700">
+              Cancel
+            </Button>
+            <Button onClick={handleDeleteGroup} disabled={deletingGroup} className="bg-red-600 text-white hover:bg-red-700">
+              {deletingGroup ? "Deleting..." : "Delete Group"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Dialog>
   );
 }
@@ -1264,8 +1583,12 @@ function ChatWindowView({
   onMinimize,
   onUpdateGroup,
   onLeaveGroup,
+  onDeleteGroup,
   onEditMessage,
   onDeleteMessage,
+  onForwardMessage,
+  onSearchMessages,
+  fullScreen,
 }) {
   const [message, setMessage] = useState("");
   const [groupInfoOpen, setGroupInfoOpen] = useState(false);
@@ -1276,6 +1599,11 @@ function ChatWindowView({
   const [deletingMessage, setDeletingMessage] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const [lightboxUrl, setLightboxUrl] = useState(null);
+  const [replyTo, setReplyTo] = useState(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
+  const [searching, setSearching] = useState(false);
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
   const inputRef = useRef(null);
@@ -1336,8 +1664,9 @@ function ChatWindowView({
       return;
     }
     if (!message.trim() && pendingAttachments.length === 0) return;
-    onSend(message, pendingAttachments);
+    onSend(message, pendingAttachments, replyTo);
     setMessage("");
+    setReplyTo(null);
   };
 
   // dragenter/dragleave fire for every child element as the cursor moves
@@ -1431,12 +1760,53 @@ function ChatWindowView({
   const startEditingMessage = (msg) => {
     setEditingMessageId(msg.id);
     setEditingText(msg.content);
+    setReplyTo(null);
     inputRef.current?.focus();
   };
 
   const cancelEditingMessage = () => {
     setEditingMessageId(null);
     setEditingText("");
+  };
+
+  const startReplyingTo = (msg) => {
+    setReplyTo(msg);
+    setEditingMessageId(null);
+    setEditingText("");
+    inputRef.current?.focus();
+  };
+
+  const cancelReply = () => setReplyTo(null);
+
+  // Briefly highlights and scrolls to a message already present in the
+  // loaded window - clicking a reply quote or a search result that's
+  // further back than what's loaded is a no-op rather than an error, since
+  // pulling in arbitrary older history just to jump to one message is out
+  // of scope here.
+  const scrollToMessage = (id) => {
+    const el = messagesContainerRef.current?.querySelector(`[data-message-id="${id}"]`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    el.classList.add("ring-2", "ring-emerald-400");
+    setTimeout(() => el.classList.remove("ring-2", "ring-emerald-400"), 1500);
+  };
+
+  const runSearch = async () => {
+    const q = searchQuery.trim();
+    if (!q) {
+      setSearchResults([]);
+      return;
+    }
+    setSearching(true);
+    try {
+      const results = await onSearchMessages?.(q);
+      setSearchResults(results || []);
+    } catch (error) {
+      console.error("Error searching messages:", error);
+      toast.error("Search failed");
+    } finally {
+      setSearching(false);
+    }
   };
 
   const saveEditingMessage = async () => {
@@ -1515,19 +1885,93 @@ function ChatWindowView({
             </div>
           </div>
           <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              className={`p-1 h-6 w-6 text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white ${searchOpen ? "bg-gray-100 dark:bg-zinc-800" : ""}`}
+              onClick={() => setSearchOpen((v) => !v)}
+              title="Search in chat"
+            >
+              <Search className="w-3.5 h-3.5" />
+            </Button>
             {isGroup && (
               <Button variant="ghost" size="sm" className="p-1 h-6 w-6 text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white" onClick={() => setGroupInfoOpen(true)} title="Group info">
                 <Info className="w-3.5 h-3.5" />
               </Button>
             )}
-            <Button variant="ghost" size="sm" className="p-1 h-6 w-6 text-gray-500 dark:text-zinc-400" onClick={onMinimize} title="Minimize">
-              <Minus className="w-3 h-3" />
-            </Button>
-            <Button variant="ghost" size="sm" className="p-1 h-6 w-6 text-gray-500 dark:text-zinc-400 hover:text-red-400" onClick={onClose} title="Close">
-              <X className="w-3 h-3" />
-            </Button>
+            {!fullScreen && (
+              <Button variant="ghost" size="sm" className="p-1 h-6 w-6 text-gray-500 dark:text-zinc-400" onClick={onMinimize} title="Minimize">
+                <Minus className="w-3 h-3" />
+              </Button>
+            )}
+            {!fullScreen && (
+              <Button variant="ghost" size="sm" className="p-1 h-6 w-6 text-gray-500 dark:text-zinc-400 hover:text-red-400" onClick={onClose} title="Close">
+                <X className="w-3 h-3" />
+              </Button>
+            )}
           </div>
         </div>
+
+        {searchOpen && (
+          <div className="border-b border-black/10 dark:border-white/10 bg-white dark:bg-zinc-900 flex-shrink-0">
+            <div className="flex items-center gap-1 px-2 py-1.5">
+              <Input
+                autoFocus
+                placeholder="Search in this chat..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") runSearch();
+                  if (e.key === "Escape") {
+                    setSearchOpen(false);
+                    setSearchQuery("");
+                    setSearchResults([]);
+                  }
+                }}
+                className="flex-1 h-7 text-xs bg-gray-200 dark:bg-zinc-700 border-gray-300 dark:border-zinc-600 text-gray-900 dark:text-white"
+              />
+              <Button variant="ghost" size="sm" className="p-1 h-7 w-7" onClick={runSearch} title="Search">
+                <Search className="w-3.5 h-3.5" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="p-1 h-7 w-7"
+                onClick={() => {
+                  setSearchOpen(false);
+                  setSearchQuery("");
+                  setSearchResults([]);
+                }}
+                title="Close search"
+              >
+                <X className="w-3.5 h-3.5" />
+              </Button>
+            </div>
+            {searching && <div className="px-2 pb-2 text-xs text-gray-400">Searching...</div>}
+            {!searching && searchQuery.trim() && (
+              <div className="max-h-48 overflow-y-auto border-t border-black/5 dark:border-white/5">
+                {searchResults.length === 0 ? (
+                  <div className="px-2 py-2 text-xs text-gray-400">No matches.</div>
+                ) : (
+                  searchResults.map((r) => (
+                    <button
+                      key={r.id}
+                      onClick={() => scrollToMessage(r.id)}
+                      className="w-full text-left px-2 py-1.5 hover:bg-gray-100 dark:hover:bg-zinc-800 border-b border-black/5 dark:border-white/5 last:border-0"
+                    >
+                      <div className="text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+                        {r.sender_name} · {formatTimeLabel(r.created_at)}
+                      </div>
+                      <div className="text-xs truncate text-gray-700 dark:text-zinc-300">
+                        {r.message_type === "image" ? "📷 Photo" : r.message_type === "file" ? `📎 ${r.file_name || "File"}` : r.content}
+                      </div>
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="flex-1 p-2 overflow-y-auto" style={{ flex: "1 1 auto", minHeight: "0" }} ref={messagesContainerRef} onScroll={handleScroll}>
           {loadingOlder && (
@@ -1567,7 +2011,11 @@ function ChatWindowView({
             const readByNames = isGroup ? (msg.read_by || []).map((id) => chat.participants?.find((p) => p.id === id)?.name).filter(Boolean) : [];
 
             return (
-              <div key={msg.id} className={`group flex mb-1 items-end gap-1 ${isOwn ? "justify-end" : "justify-start"}`}>
+              <div
+                key={msg.id}
+                data-message-id={msg.id}
+                className={`group flex mb-1 items-end gap-1 ${isOwn ? "justify-end" : "justify-start"}`}
+              >
                 {isOwn && !msg.is_deleted && !isEditingThis && (
                   <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                     {msg.message_type === "text" && (
@@ -1575,6 +2023,12 @@ function ChatWindowView({
                         <Pencil className="w-3 h-3" />
                       </button>
                     )}
+                    <button onClick={() => startReplyingTo(msg)} className="p-1 text-gray-400 hover:text-gray-900 dark:hover:text-white" title="Reply">
+                      <Reply className="w-3 h-3" />
+                    </button>
+                    <button onClick={() => onForwardMessage?.(msg)} className="p-1 text-gray-400 hover:text-gray-900 dark:hover:text-white" title="Forward">
+                      <Forward className="w-3 h-3" />
+                    </button>
                     <button onClick={() => setDeleteMessageId(msg.id)} className="p-1 text-gray-400 hover:text-red-400" title="Delete message">
                       <Trash2 className="w-3 h-3" />
                     </button>
@@ -1593,6 +2047,30 @@ function ChatWindowView({
                     <>
                       {isEditingThis && (
                         <div className="text-[10px] italic opacity-80 mb-0.5">Editing - use the box below</div>
+                      )}
+                      {msg.is_forwarded && (
+                        <div className="text-[10px] italic opacity-75 mb-0.5 flex items-center gap-1">
+                          <Forward className="w-2.5 h-2.5" /> Forwarded
+                        </div>
+                      )}
+                      {msg.reply_to && (
+                        <div
+                          onClick={() => scrollToMessage(msg.reply_to.id)}
+                          className={`mb-1 px-1.5 py-1 rounded border-l-2 text-xs cursor-pointer ${
+                            isOwn ? "border-white/60 bg-black/10 hover:bg-black/20" : "border-emerald-500 bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10"
+                          }`}
+                        >
+                          <div className="font-medium opacity-90 truncate">{msg.reply_to.sender_name}</div>
+                          <div className="truncate opacity-75">
+                            {msg.reply_to.is_deleted
+                              ? "Message deleted"
+                              : msg.reply_to.message_type === "image"
+                              ? "📷 Photo"
+                              : msg.reply_to.message_type === "file"
+                              ? `📎 ${msg.reply_to.file_name || "File"}`
+                              : msg.reply_to.content}
+                          </div>
+                        </div>
                       )}
                       {isImage && msg.file_url && (
                         <div className="mb-1">
@@ -1656,6 +2134,16 @@ function ChatWindowView({
                     )}
                   </div>
                 </div>
+                {!isOwn && !msg.is_deleted && (
+                  <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button onClick={() => startReplyingTo(msg)} className="p-1 text-gray-400 hover:text-gray-900 dark:hover:text-white" title="Reply">
+                      <Reply className="w-3 h-3" />
+                    </button>
+                    <button onClick={() => onForwardMessage?.(msg)} className="p-1 text-gray-400 hover:text-gray-900 dark:hover:text-white" title="Forward">
+                      <Forward className="w-3 h-3" />
+                    </button>
+                  </div>
+                )}
               </div>
             );
           })}
@@ -1704,6 +2192,22 @@ function ChatWindowView({
               <Pencil className="w-3 h-3" /> Editing message - press Enter to save
             </span>
             <button onClick={cancelEditingMessage} className="hover:text-emerald-900 dark:hover:text-emerald-100" title="Cancel edit">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+
+        {!isEditing && replyTo && (
+          <div className="flex items-center justify-between gap-2 px-2 py-1 border-t border-black/10 dark:border-white/10 bg-gray-50 dark:bg-zinc-800/60 text-xs">
+            <div className="min-w-0">
+              <div className="flex items-center gap-1 font-medium text-gray-700 dark:text-zinc-300">
+                <Reply className="w-3 h-3" /> Replying to {replyTo.sender_name}
+              </div>
+              <div className="truncate text-gray-500 dark:text-zinc-400">
+                {replyTo.message_type === "image" ? "📷 Photo" : replyTo.message_type === "file" ? `📎 ${replyTo.file_name || "File"}` : replyTo.content}
+              </div>
+            </div>
+            <button onClick={cancelReply} className="text-gray-400 hover:text-gray-900 dark:hover:text-white flex-shrink-0" title="Cancel reply">
               <X className="w-3.5 h-3.5" />
             </button>
           </div>
@@ -1807,6 +2311,7 @@ function ChatWindowView({
             setGroupInfoOpen(false);
             onLeaveGroup?.();
           }}
+          onDeleteGroup={onDeleteGroup}
         />
       )}
 
