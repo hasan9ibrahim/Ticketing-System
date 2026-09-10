@@ -83,6 +83,16 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
   const token = localStorage.getItem("token");
   const wsRef = useRef(null);
   const wsConnectedRef = useRef(false);
+  const reconnectAttemptRef = useRef(0);
+  const reconnectTimeoutRef = useRef(null);
+  // Always points at the latest render's handleWebSocketMessage (assigned
+  // below, right after it's defined). The socket connection below is only
+  // ever set up once per token/user - reading through this ref instead of
+  // calling handleWebSocketMessage directly means it still sees current
+  // activeChat/openChats/conversations instead of whatever they were the
+  // moment the effect first ran (which was the root cause of read receipts,
+  // unread badges and toasts going stale after the first message).
+  const handleWebSocketMessageRef = useRef(null);
 
   // Direct-update callbacks (instant local "add" + temp-id-to-real-id
   // "confirm") for each ChatWindowView's own message state, keyed by
@@ -110,55 +120,70 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
     requestNotificationPermission();
   }, []);
 
-  // WebSocket for real-time chat
+  // WebSocket for real-time chat. connect() is reusable so a reconnect gets
+  // a fully-wired socket (onopen/onmessage/onerror/onclose all reattached) -
+  // the previous version only ever wired handlers onto the *first* socket;
+  // on any drop (which happens routinely - e.g. Render's free tier idling
+  // the backend) it silently replaced wsRef.current with a bare, handler-less
+  // WebSocket, so live updates (and read receipts, unread counts, toasts)
+  // simply stopped until the page was reloaded.
   useEffect(() => {
     if (!token || !user?.id) return;
-
-    // Connect to WebSocket
+    let cancelled = false;
     const wsUrl = `${WS_BASE}/api/ws/chat/${token}`;
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
 
-    ws.onopen = () => {
-      wsConnectedRef.current = true;
-    };
+    const connect = () => {
+      if (cancelled) return;
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
 
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        handleWebSocketMessage(data);
-      } catch (error) {
-        console.error('Error parsing WebSocket message:', error);
-      }
-    };
+      ws.onopen = () => {
+        wsConnectedRef.current = true;
+        reconnectAttemptRef.current = 0;
+      };
 
-    ws.onerror = (error) => {
-      console.error('WebSocket error:', error);
-    };
-
-    ws.onclose = () => {
-      wsConnectedRef.current = false;
-      // Reconnect after 3 seconds
-      setTimeout(() => {
-        if (!wsConnectedRef.current && token && user?.id) {
-          const reconnectWs = new WebSocket(wsUrl);
-          wsRef.current = reconnectWs;
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          handleWebSocketMessageRef.current?.(data);
+        } catch (error) {
+          console.error('Error parsing WebSocket message:', error);
         }
-      }, 3000);
+      };
+
+      ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+      };
+
+      ws.onclose = () => {
+        wsConnectedRef.current = false;
+        if (cancelled) return;
+        const attempt = reconnectAttemptRef.current + 1;
+        reconnectAttemptRef.current = attempt;
+        const delay = Math.min(3000 * attempt, 15000);
+        reconnectTimeoutRef.current = setTimeout(connect, delay);
+      };
     };
+
+    connect();
 
     // Heartbeat so "last active"/online status stays fresh while the tab is
-    // open even if the user isn't triggering any HTTP requests.
+    // open even if the user isn't triggering any HTTP requests. Reads
+    // wsRef.current (not a closed-over socket) so it keeps working across
+    // reconnects instead of only pinging the very first connection.
     const heartbeat = setInterval(() => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: "ping" }));
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ type: "ping" }));
       }
     }, 60000);
 
     return () => {
+      cancelled = true;
       clearInterval(heartbeat);
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.close();
+      clearTimeout(reconnectTimeoutRef.current);
+      if (wsRef.current) {
+        wsRef.current.onclose = null;
+        if (wsRef.current.readyState === WebSocket.OPEN) wsRef.current.close();
       }
     };
   }, [token, user?.id]);
@@ -190,13 +215,12 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
       case "message_deleted":
         handleMessageDeleted(data);
         break;
-      case "conversation_cleared":
-        handleConversationCleared(data);
-        break;
       default:
         break;
     }
   };
+  // Keep the ref in sync every render (see declaration above for why).
+  handleWebSocketMessageRef.current = handleWebSocketMessage;
 
   // Apply a field update to one message across activeChat/openChats
   const patchMessage = (conversationId, messageId, patch) => {
@@ -215,30 +239,6 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
 
   const handleMessageDeleted = (data) => {
     patchMessage(data.conversation_id, data.message_id, { is_deleted: true, content: "", file_url: null, file_name: null });
-  };
-
-  // Empty out a conversation's messages - used both right after we clear it
-  // ourselves and when the WS tells us the other participant cleared it.
-  // clearedAt (rather than just messages: []) is what ChatWindowView
-  // actually watches, since replacing an already-empty array wouldn't
-  // otherwise be a detectable change.
-  const resetConversationMessages = (conversationId) => {
-    const clearedAt = Date.now();
-    setActiveChat((prev) =>
-      prev && prev.conversation_id === conversationId ? { ...prev, messages: [], clearedAt } : prev
-    );
-    setOpenChats((prev) =>
-      prev.map((c) => (c.conversation_id === conversationId ? { ...c, messages: [], clearedAt } : c))
-    );
-    setConversations((prev) =>
-      prev.map((c) =>
-        c.id === conversationId ? { ...c, last_message: null, last_message_time: null, unread_count: 0 } : c
-      )
-    );
-  };
-
-  const handleConversationCleared = (data) => {
-    resetConversationMessages(data.conversation_id);
   };
 
   // A group's name/membership changed (or it was disbanded by the last
@@ -367,6 +367,14 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
       })
     );
 
+    // A conversation only counts as "currently being looked at" if its
+    // floating window is open AND expanded - not just "this is whatever
+    // activeChat last pointed at", which used to stay stale (still naming
+    // the just-minimized conversation) because minimizing a window never
+    // clears/updates activeChat, only its entry in openChats.
+    const windowChat = openChats.find((c) => c.conversation_id === message.conversation_id);
+    const isFocused = !!windowChat && !windowChat.minimized;
+
     // Update conversations list - don't increment unread count for own messages
     const isOwnMessage = message.sender_id === user?.id;
     setConversations((prev) => {
@@ -377,22 +385,28 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
             last_message: message.content,
             last_message_time: message.created_at,
             last_message_sender_id: message.sender_id,
-            unread_count: isOwnMessage || activeChat?.conversation_id === message.conversation_id
-              ? 0
-              : (conv.unread_count || 0) + 1,
+            unread_count: isOwnMessage || isFocused ? 0 : (conv.unread_count || 0) + 1,
           };
         }
         return conv;
       });
     });
 
+    // Same for each floating window's own minimized-tab badge - previously
+    // only ever reset to 0, never incremented, so it permanently read 0/stale.
+    if (!isOwnMessage && !isFocused) {
+      setOpenChats((prev) =>
+        prev.map((c) =>
+          c.conversation_id === message.conversation_id ? { ...c, unreadCount: (c.unreadCount || 0) + 1 } : c
+        )
+      );
+    }
+
     // Toast + sound (+ native notification if the tab itself isn't visible)
     // for messages arriving in a conversation whose window isn't open and
     // expanded right now - mirrors how FB/WhatsApp/Teams surface a message
     // you'd otherwise miss.
     if (!isOwnMessage) {
-      const windowChat = openChats.find((c) => c.conversation_id === message.conversation_id);
-      const isFocused = windowChat && !windowChat.minimized;
       if (!isFocused) {
         const preview = message.message_type === "image" ? "📷 Photo" : message.message_type === "file" ? `📎 ${message.file_name || "File"}` : message.content;
         const convForToast = conversations.find((c) => c.id === message.conversation_id);
@@ -766,13 +780,6 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
     patchMessage(conversationId, messageId, { is_deleted: true, content: "", file_url: null, file_name: null });
   };
 
-  const clearChat = async (conversationId) => {
-    await axios.delete(`${API}/chat/conversations/${conversationId}/messages`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    resetConversationMessages(conversationId);
-  };
-
   const handleFileUpload = async (event, type = "file", conversationId = null) => {
     const file = event.target.files[0];
     if (!file) return;
@@ -912,7 +919,6 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
                 onLeaveGroup={() => leaveGroup(chat.conversation_id)}
                 onEditMessage={(messageId, content) => editMessage(chat.conversation_id, messageId, content)}
                 onDeleteMessage={(messageId) => deleteMessage(chat.conversation_id, messageId)}
-                onClearChat={() => clearChat(chat.conversation_id)}
                 isFloating={true}
               />
             </div>
@@ -1254,7 +1260,6 @@ function ChatWindowView({
   onLeaveGroup,
   onEditMessage,
   onDeleteMessage,
-  onClearChat,
 }) {
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState([]);
@@ -1266,8 +1271,6 @@ function ChatWindowView({
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [editingMessageId, setEditingMessageId] = useState(null);
   const [editingText, setEditingText] = useState("");
-  const [clearChatOpen, setClearChatOpen] = useState(false);
-  const [clearingChat, setClearingChat] = useState(false);
   const [deleteMessageId, setDeleteMessageId] = useState(null);
   const [deletingMessage, setDeletingMessage] = useState(false);
   const messagesEndRef = useRef(null);
@@ -1344,23 +1347,18 @@ function ChatWindowView({
     }
   }, [chat.conversation_id]);
 
-  // The chat was just cleared (by us or the other participant) - empty the
-  // local view. clearedAt (a timestamp) rather than chat.messages itself is
-  // what's watched here, since going from some messages to an empty array
-  // needs an explicit signal separate from the regular merge-sync effect
-  // below (which only ever adds messages, never removes them).
-  useEffect(() => {
-    if (chat.clearedAt) {
-      setMessages([]);
-    }
-  }, [chat.clearedAt]);
-
   // Load and sync messages when conversation changes
   useEffect(() => {
     if (!chat.conversation_id) return;
 
-    // Load from API if we haven't loaded yet
-    if (!loading && messages.length === 0) {
+    // Load from API exactly once per conversation. This used to gate on
+    // messages.length === 0 instead of hasLoadedFromApi, which meant a
+    // conversation that genuinely has zero messages never satisfied
+    // "loaded" - loadMessages() would resolve, find 0 messages, and this
+    // effect would immediately re-fire and call it again forever (visible
+    // as a "Loading..." state that never went away, and a request storm
+    // against the backend for that conversation).
+    if (!loading && !hasLoadedFromApi) {
       loadMessages();
       return;
     }
@@ -1483,19 +1481,6 @@ function ChatWindowView({
       toast.error("Failed to delete message");
     } finally {
       setDeletingMessage(false);
-    }
-  };
-
-  const handleConfirmClearChat = async () => {
-    setClearingChat(true);
-    try {
-      await onClearChat?.();
-      setClearChatOpen(false);
-    } catch (error) {
-      console.error("Error clearing chat:", error);
-      toast.error("Failed to clear chat");
-    } finally {
-      setClearingChat(false);
     }
   };
 
@@ -1643,17 +1628,6 @@ function ChatWindowView({
               title="Group info"
             >
               <Info className="w-3.5 h-3.5" />
-            </Button>
-          )}
-          {!isGroup && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="p-1 h-6 w-6 text-gray-500 dark:text-zinc-400 hover:text-red-400"
-              onClick={() => setClearChatOpen(true)}
-              title="Clear chat"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
             </Button>
           )}
           {onMinimize && (
@@ -1945,30 +1919,6 @@ function ChatWindowView({
           onLeaveGroup?.();
         }}
       />
-    )}
-    {!isGroup && (
-      <Dialog open={clearChatOpen} onOpenChange={(open) => !clearingChat && setClearChatOpen(open)}>
-        <DialogContent className="bg-white dark:bg-zinc-900 border-black/10 dark:border-white/10 text-gray-900 dark:text-white">
-          <DialogHeader>
-            <DialogTitle>Clear chat?</DialogTitle>
-          </DialogHeader>
-          <p className="text-sm text-gray-700 dark:text-zinc-300">
-            This permanently deletes all messages in this conversation with {chat.participant?.name || "this user"} for both of you. This can't be undone.
-          </p>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setClearChatOpen(false)} disabled={clearingChat} className="border-gray-200 dark:border-zinc-700">
-              Cancel
-            </Button>
-            <Button
-              onClick={handleConfirmClearChat}
-              disabled={clearingChat}
-              className="bg-red-600 text-white hover:bg-red-700"
-            >
-              {clearingChat ? "Clearing..." : "Clear Chat"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     )}
     <Dialog open={!!deleteMessageId} onOpenChange={(open) => !deletingMessage && !open && setDeleteMessageId(null)}>
       <DialogContent className="bg-white dark:bg-zinc-900 border-black/10 dark:border-white/10 text-gray-900 dark:text-white">

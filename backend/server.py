@@ -6570,94 +6570,70 @@ async def delete_chat_message(
 
     return {"id": message_id, "is_deleted": True}
 
-@api_router.delete("/chat/conversations/{conversation_id}/messages")
-async def clear_conversation_messages(
-    conversation_id: str,
-    current_user: dict = Depends(get_current_user)
-):
-    """Clear all messages in a 1:1 DM - permanently deletes the message
-    history for both participants (not a per-user hide)."""
-    user_id = current_user["id"]
-    conv = await db.conversations.find_one({
-        "id": conversation_id,
-        "participant_ids": user_id
-    })
-    if not conv:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-    if conv.get("is_group"):
-        raise HTTPException(status_code=400, detail="Groups can't be cleared this way")
-
-    await db.chat_messages.delete_many({"conversation_id": conversation_id})
-
-    participant_ids = conv.get("participant_ids", [])
-    await db.conversations.update_one(
-        {"id": conversation_id},
-        {"$set": {
-            "last_message": None,
-            "last_message_time": None,
-            "last_message_sender_id": None,
-            "unread_counts": {pid: 0 for pid in participant_ids},
-            "updated_at": datetime.now(timezone.utc)
-        }}
-    )
-
-    for participant_id in participant_ids:
-        await manager.send_personal_message({
-            "type": "conversation_cleared",
-            "conversation_id": conversation_id
-        }, participant_id)
-
-    return {"message": "Conversation cleared"}
+CHAT_FILE_MAX_BYTES = 8 * 1024 * 1024  # keep well under Mongo's 16MB document limit
 
 @api_router.post("/chat/upload")
 async def upload_chat_file(
     file: UploadFile = File(...),
     current_user: dict = Depends(get_current_user)
 ):
-    """Upload a file for chat"""
-    # Create uploads directory
-    upload_dir = Path(__file__).parent / "uploads" / "chat"
-    upload_dir.mkdir(parents=True, exist_ok=True)
+    """Upload a file for chat.
 
-    # Generate unique filename
-    file_id = str(uuid.uuid4())
-    file_ext = Path(file.filename).suffix if file.filename else ""
-    safe_filename = f"{file_id}{file_ext}"
-    file_path = upload_dir / safe_filename
-
-    # Save file
+    Stored in Mongo, not local disk - the backend container's filesystem is
+    ephemeral (no persistent disk is provisioned for it in render.yaml,
+    unlike the mongodb service), so every uploaded attachment was silently
+    wiped out on the next restart or redeploy, leaving every image/file
+    message broken with a 404 shortly after being sent.
+    """
     content = await file.read()
-    with open(file_path, "wb") as f:
-        f.write(content)
+    if len(content) > CHAT_FILE_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="File exceeds the 8MB chat attachment limit")
 
-    # Get file size
-    file_size = len(content)
-
-    # Determine if it's an image
+    file_id = str(uuid.uuid4())
     content_type = file.content_type or "application/octet-stream"
     is_image = content_type.startswith("image/")
 
-    # Return file URL (relative to backend)
+    await db.chat_files.insert_one({
+        "id": file_id,
+        "filename": file.filename or "file",
+        "content_type": content_type,
+        "size": len(content),
+        "data": content,
+        "uploaded_by": current_user["id"],
+        "created_at": datetime.now(timezone.utc)
+    })
+
     return {
-        "file_url": f"/api/chat/files/{safe_filename}",
+        "file_url": f"/api/chat/files/{file_id}",
         "file_name": file.filename,
-        "file_size": file_size,
+        "file_size": len(content),
         "file_mime_type": content_type,
         "is_image": is_image
     }
 
-@api_router.get("/chat/files/{filename}")
-async def get_chat_file(filename: str):
-    """Serve uploaded chat files"""
-    file_path = Path(__file__).parent / "uploads" / "chat" / filename
-    if not file_path.exists():
+@api_router.get("/chat/files/{file_id}")
+async def get_chat_file(file_id: str):
+    """Serve an uploaded chat file from Mongo.
+
+    Unauthenticated by design - the frontend renders these via plain
+    <img>/<a> tags, which can't attach an Authorization header, so the
+    random UUID id is the access secret, same as when files lived on disk.
+    """
+    doc = await db.chat_files.find_one({"id": file_id}, {"_id": 0, "data": 1, "content_type": 1, "filename": 1})
+    if not doc:
         raise HTTPException(status_code=404, detail="File not found")
 
-    from fastapi.responses import FileResponse
-    # Uploaded filenames are content-unique (random suffix), so the browser can
-    # cache them indefinitely instead of re-downloading the same attachment
+    # The id is content-unique (random uuid, never reused), so the browser can
+    # cache it indefinitely instead of re-downloading the same attachment
     # every time a conversation is reopened or the page reloads.
-    return FileResponse(file_path, headers={"Cache-Control": "public, max-age=31536000, immutable"})
+    return Response(
+        content=doc["data"],
+        media_type=doc.get("content_type") or "application/octet-stream",
+        headers={
+            "Cache-Control": "public, max-age=31536000, immutable",
+            "Content-Disposition": f'inline; filename="{doc.get("filename", "file")}"'
+        }
+    )
 
 
 # =====================
@@ -7155,7 +7131,12 @@ async def startup_init():
             await db.create_collection("chat_messages")
         await db.chat_messages.create_index("conversation_id")
         await db.chat_messages.create_index("created_at")
-        
+
+        # Create chat_files collection (Mongo-backed attachment storage) with an index
+        if "chat_files" not in await db.list_collection_names():
+            await db.create_collection("chat_files")
+        await db.chat_files.create_index("id", unique=True)
+
         # Create audit_logs collection if it doesn't exist
         if "audit_logs" not in await db.list_collection_names():
             await db.create_collection("audit_logs")
