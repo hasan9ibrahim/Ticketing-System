@@ -1328,7 +1328,13 @@ function ChatWindowView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const isEditing = !!editingMessageId;
+
   const handleSend = () => {
+    if (isEditing) {
+      saveEditingMessage();
+      return;
+    }
     if (!message.trim() && pendingAttachments.length === 0) return;
     onSend(message, pendingAttachments);
     setMessage("");
@@ -1371,10 +1377,17 @@ function ChatWindowView({
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSend();
+    } else if (e.key === "Escape" && isEditing) {
+      e.preventDefault();
+      cancelEditingMessage();
     }
   };
 
   const handleChange = (e) => {
+    if (isEditing) {
+      setEditingText(e.target.value);
+      return;
+    }
     setMessage(e.target.value);
     if (!typingTimeoutRef.current) {
       onTyping();
@@ -1406,7 +1419,11 @@ function ChatWindowView({
   };
 
   const insertEmoji = (emoji) => {
-    setMessage((prev) => prev + emoji);
+    if (isEditing) {
+      setEditingText((prev) => prev + emoji);
+    } else {
+      setMessage((prev) => prev + emoji);
+    }
     setEmojiOpen(false);
     inputRef.current?.focus();
   };
@@ -1414,6 +1431,7 @@ function ChatWindowView({
   const startEditingMessage = (msg) => {
     setEditingMessageId(msg.id);
     setEditingText(msg.content);
+    inputRef.current?.focus();
   };
 
   const cancelEditingMessage = () => {
@@ -1543,14 +1561,14 @@ function ChatWindowView({
             const msg = item.data;
             const isOwn = msg.sender_id === user.id;
             const isImage = msg.message_type === "image";
-            const isEditing = editingMessageId === msg.id;
+            const isEditingThis = editingMessageId === msg.id;
             const otherCount = chat.participants?.length || 0;
             const readByCount = (msg.read_by || []).length;
             const readByNames = isGroup ? (msg.read_by || []).map((id) => chat.participants?.find((p) => p.id === id)?.name).filter(Boolean) : [];
 
             return (
               <div key={msg.id} className={`group flex mb-1 items-end gap-1 ${isOwn ? "justify-end" : "justify-start"}`}>
-                {isOwn && !msg.is_deleted && !isEditing && (
+                {isOwn && !msg.is_deleted && !isEditingThis && (
                   <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                     {msg.message_type === "text" && (
                       <button onClick={() => startEditingMessage(msg)} className="p-1 text-gray-400 hover:text-gray-900 dark:hover:text-white" title="Edit message">
@@ -1562,34 +1580,20 @@ function ChatWindowView({
                     </button>
                   </div>
                 )}
-                <div className={`max-w-[70%] rounded px-2 py-1 text-sm ${isOwn ? "bg-emerald-600 text-white" : "bg-gray-200 dark:bg-zinc-700 text-gray-900 dark:text-zinc-100"}`}>
+                <div
+                  className={`max-w-[70%] rounded px-2 py-1 text-sm ${isOwn ? "bg-emerald-600 text-white" : "bg-gray-200 dark:bg-zinc-700 text-gray-900 dark:text-zinc-100"} ${
+                    isEditingThis ? "ring-2 ring-emerald-400 ring-offset-1 ring-offset-white dark:ring-offset-black" : ""
+                  }`}
+                >
                   {isGroup && !isOwn && <div className="text-[10px] font-medium text-emerald-500 mb-0.5">{msg.sender_name}</div>}
 
                   {msg.is_deleted ? (
                     <div className="italic text-xs opacity-70">This message was deleted</div>
-                  ) : isEditing ? (
-                    <div className="space-y-1 min-w-[160px]">
-                      <Input
-                        autoFocus
-                        value={editingText}
-                        onChange={(e) => setEditingText(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" && !e.shiftKey) {
-                            e.preventDefault();
-                            saveEditingMessage();
-                          } else if (e.key === "Escape") {
-                            cancelEditingMessage();
-                          }
-                        }}
-                        className="h-7 text-sm bg-white/20 border-white/30 text-white placeholder:text-gray-300"
-                      />
-                      <div className="flex justify-end gap-2 text-[10px]">
-                        <button onClick={cancelEditingMessage} className="underline opacity-80 hover:opacity-100">Cancel</button>
-                        <button onClick={saveEditingMessage} disabled={!editingText.trim()} className="underline font-medium disabled:opacity-50">Save</button>
-                      </div>
-                    </div>
                   ) : (
                     <>
+                      {isEditingThis && (
+                        <div className="text-[10px] italic opacity-80 mb-0.5">Editing - use the box below</div>
+                      )}
                       {isImage && msg.file_url && (
                         <div className="mb-1">
                           <img
@@ -1636,23 +1640,21 @@ function ChatWindowView({
                     </>
                   )}
 
-                  {!isEditing && (
-                    <div className={`flex items-center justify-end gap-1 text-[10px] mt-0.5 ${isOwn ? "text-emerald-100" : "text-gray-500 dark:text-zinc-400"}`}>
-                      <span>{formatTimeLabel(msg.created_at)}</span>
-                      {msg.edited && !msg.is_deleted && <span className="italic">(edited)</span>}
-                      {isOwn && msg.failed && <span>Failed to send</span>}
-                      {isOwn && !msg.failed && !msg.is_deleted && (
-                        readByCount === 0 ? (
-                          <Check className="w-3 h-3" title="Sent" />
-                        ) : (
-                          <CheckCheck
-                            className={`w-3 h-3 ${isGroup && readByCount < otherCount ? "opacity-60" : ""}`}
-                            title={isGroup ? (readByNames.length ? `Read by ${readByNames.join(", ")}` : "Read") : "Read"}
-                          />
-                        )
-                      )}
-                    </div>
-                  )}
+                  <div className={`flex items-center justify-end gap-1 text-[10px] mt-0.5 ${isOwn ? "text-emerald-100" : "text-gray-500 dark:text-zinc-400"}`}>
+                    <span>{formatTimeLabel(msg.created_at)}</span>
+                    {msg.edited && !msg.is_deleted && <span className="italic">(edited)</span>}
+                    {isOwn && msg.failed && <span>Failed to send</span>}
+                    {isOwn && !msg.failed && !msg.is_deleted && (
+                      readByCount === 0 ? (
+                        <Check className="w-3 h-3" title="Sent" />
+                      ) : (
+                        <CheckCheck
+                          className={`w-3 h-3 ${isGroup && readByCount < otherCount ? "opacity-60" : ""}`}
+                          title={isGroup ? (readByNames.length ? `Read by ${readByNames.join(", ")}` : "Read") : "Read"}
+                        />
+                      )
+                    )}
+                  </div>
                 </div>
               </div>
             );
@@ -1696,11 +1698,36 @@ function ChatWindowView({
           </div>
         )}
 
+        {isEditing && (
+          <div className="flex items-center justify-between px-2 py-1 border-t border-black/10 dark:border-white/10 bg-emerald-50 dark:bg-emerald-900/20 text-xs text-emerald-700 dark:text-emerald-300">
+            <span className="flex items-center gap-1 font-medium">
+              <Pencil className="w-3 h-3" /> Editing message - press Enter to save
+            </span>
+            <button onClick={cancelEditingMessage} className="hover:text-emerald-900 dark:hover:text-emerald-100" title="Cancel edit">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+
         <div className="flex items-center gap-1 px-2 py-1 border-t border-black/10 dark:border-white/10 bg-white dark:bg-zinc-900">
-          <Button variant="ghost" size="sm" className="p-1 h-8 w-8" onClick={onAttachFileClick} title="Attach file">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="p-1 h-8 w-8"
+            onClick={onAttachFileClick}
+            disabled={isEditing}
+            title={isEditing ? "Finish editing to attach a file" : "Attach file"}
+          >
             <Paperclip className="w-4 h-4 text-gray-500 dark:text-zinc-400" />
           </Button>
-          <Button variant="ghost" size="sm" className="p-1 h-8 w-8" onClick={onAttachImageClick} title="Send image">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="p-1 h-8 w-8"
+            onClick={onAttachImageClick}
+            disabled={isEditing}
+            title={isEditing ? "Finish editing to send an image" : "Send image"}
+          >
             <ImageIcon className="w-4 h-4 text-zinc-500" />
           </Button>
           <Popover open={emojiOpen} onOpenChange={setEmojiOpen}>
@@ -1721,21 +1748,28 @@ function ChatWindowView({
           </Popover>
           <Input
             ref={inputRef}
-            placeholder="Type a message..."
-            value={message}
+            placeholder={isEditing ? "Edit your message..." : "Type a message..."}
+            value={isEditing ? editingText : message}
             onChange={handleChange}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
-            className="flex-1 h-8 text-sm bg-gray-200 dark:bg-zinc-700 border-gray-300 dark:border-zinc-600 text-gray-900 dark:text-white placeholder:text-gray-500 dark:placeholder:text-zinc-400"
+            className={`flex-1 h-8 text-sm bg-gray-200 dark:bg-zinc-700 border-gray-300 dark:border-zinc-600 text-gray-900 dark:text-white placeholder:text-gray-500 dark:placeholder:text-zinc-400 ${
+              isEditing ? "ring-1 ring-emerald-400" : ""
+            }`}
           />
           <Button
             variant="ghost"
             size="sm"
             className="p-1 h-8 w-8"
             onClick={handleSend}
-            disabled={!message.trim() && pendingAttachments.length === 0}
+            disabled={isEditing ? !editingText.trim() : !message.trim() && pendingAttachments.length === 0}
+            title={isEditing ? "Save" : "Send"}
           >
-            <Send className={`w-4 h-4 ${message.trim() || pendingAttachments.length > 0 ? "text-emerald-500" : "text-gray-400"}`} />
+            {isEditing ? (
+              <Check className={`w-4 h-4 ${editingText.trim() ? "text-emerald-500" : "text-gray-400"}`} />
+            ) : (
+              <Send className={`w-4 h-4 ${message.trim() || pendingAttachments.length > 0 ? "text-emerald-500" : "text-gray-400"}`} />
+            )}
           </Button>
         </div>
       </div>
