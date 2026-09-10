@@ -659,6 +659,7 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
       is_deleted: false,
       reply_to: extra.reply_to || null,
       is_forwarded: !!extra.is_forwarded,
+      forwarded_from: extra.is_forwarded ? extra.forwarded_from || null : null,
       created_at: new Date().toISOString(),
     };
 
@@ -694,6 +695,7 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
           client_id: clientId,
           reply_to_id: extra.reply_to_id || undefined,
           is_forwarded: !!extra.is_forwarded,
+          forwarded_from: extra.is_forwarded ? extra.forwarded_from || undefined : undefined,
         },
         { headers: authHeaders() }
       );
@@ -809,7 +811,13 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
           file_mime_type: message.file_mime_type,
         }
       : null;
-    sendMessage(targetConversationId, message.content || "", message.message_type, fileData, { is_forwarded: true });
+    // If this message was itself already forwarded, keep pointing at the
+    // true original author rather than whoever forwarded it last.
+    const originalSender = message.is_forwarded && message.forwarded_from ? message.forwarded_from : message.sender_name;
+    sendMessage(targetConversationId, message.content || "", message.message_type, fileData, {
+      is_forwarded: true,
+      forwarded_from: originalSender,
+    });
     setForwardMessage(null);
     toast.success("Message forwarded");
   };
@@ -2050,7 +2058,8 @@ function ChatWindowView({
                       )}
                       {msg.is_forwarded && (
                         <div className="text-[10px] italic opacity-75 mb-0.5 flex items-center gap-1">
-                          <Forward className="w-2.5 h-2.5" /> Forwarded
+                          <Forward className="w-2.5 h-2.5" />
+                          {msg.forwarded_from ? `Forwarded from ${msg.forwarded_from}` : "Forwarded"}
                         </div>
                       )}
                       {msg.reply_to && (

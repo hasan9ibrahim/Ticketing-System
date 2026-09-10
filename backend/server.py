@@ -144,6 +144,7 @@ class ChatMessage(BaseModel):
     # is later edited or deleted.
     reply_to: Optional[dict] = None
     is_forwarded: bool = False
+    forwarded_from: Optional[str] = None  # original sender's display name, if forwarded
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class EditMessageData(BaseModel):
@@ -195,6 +196,7 @@ class MessageCreate(BaseModel):
     client_id: Optional[str] = None
     reply_to_id: Optional[str] = None  # id of the message being replied to, within the same conversation
     is_forwarded: bool = False  # true when this message is a copy forwarded from another conversation
+    forwarded_from: Optional[str] = None  # original sender's display name, if forwarded
 
 class ChatUser(BaseModel):
     """User info as shown in chat lists"""
@@ -6399,7 +6401,8 @@ async def create_message(
         file_mime_type=data.file_mime_type,
         client_id=data.client_id,
         reply_to=reply_to,
-        is_forwarded=data.is_forwarded
+        is_forwarded=data.is_forwarded,
+        forwarded_from=data.forwarded_from if data.is_forwarded else None
     )
     await db.chat_messages.insert_one(msg_obj.model_dump())
 
@@ -6439,6 +6442,7 @@ async def create_message(
         "client_id": data.client_id,
         "reply_to": reply_to,
         "is_forwarded": data.is_forwarded,
+        "forwarded_from": msg_obj.forwarded_from,
         "created_at": msg_obj.created_at.isoformat()
     }
 
