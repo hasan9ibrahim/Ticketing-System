@@ -1,5 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { MessageSquare, X, Send, Paperclip, Image as ImageIcon, Users, Plus, Check, CheckCheck, Info, LogOut, Smile, Pencil, Trash2 } from "lucide-react";
+import {
+  MessageSquare, X, Send, Paperclip, Image as ImageIcon, Users, Plus,
+  Check, CheckCheck, Info, LogOut, Smile, Pencil, Trash2, Loader2, Minus,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,6 +15,7 @@ import axios from "axios";
 import { toast } from "sonner";
 import { playNotificationSound } from "@/lib/notificationSound";
 import { requestNotificationPermission, showNativeNotification } from "@/lib/nativeNotification";
+import { useChatSocket } from "@/hooks/useChatSocket";
 
 // A small curated set rather than a full emoji library/dependency - covers
 // the common reactions people actually reach for in a work chat.
@@ -23,12 +27,22 @@ const EMOJI_OPTIONS = [
 ];
 
 const API = `${process.env.REACT_APP_API_URL}/api`;
-// Derive the WebSocket origin from the API URL (http->ws, https->wss) instead
-// of relying on a separate REACT_APP_WS_URL env var, which isn't set in
-// production and would silently fall back to a dead ws://localhost:8000.
-const WS_BASE = (process.env.REACT_APP_API_URL || "http://localhost:8000").replace(/^http/, "ws");
+// Attachments live on the backend's own origin, not the /api-suffixed API
+// base - build that separately rather than string-munging API at render
+// time (a previous version did `API.replace("/api", "")`, which silently
+// breaks if the configured URL ever contains "/api" more than once).
+const FILE_ORIGIN = process.env.REACT_APP_API_URL || "";
 
-const getInitials = (name) => {
+function authHeaders() {
+  return { Authorization: `Bearer ${localStorage.getItem("token")}` };
+}
+
+function makeClientId() {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
+  return `local-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function getInitials(name) {
   if (!name) return "?";
   return name
     .split(" ")
@@ -36,11 +50,10 @@ const getInitials = (name) => {
     .join("")
     .toUpperCase()
     .slice(0, 2);
-};
+}
 
-// "Active now" / "Active 5m ago" / "Last seen yesterday" style presence text,
-// the way Facebook/WhatsApp show it.
-const formatPresence = (isOnline, lastActive) => {
+// "Active now" / "Active 5m ago" / "Last seen yesterday" style presence text.
+function formatPresence(isOnline, lastActive) {
   if (isOnline) return "Active now";
   if (!lastActive) return "Offline";
   let dateStr = lastActive;
@@ -57,558 +70,438 @@ const formatPresence = (isOnline, lastActive) => {
   if (days === 1) return "Active yesterday";
   if (days < 7) return `Active ${days}d ago`;
   return `Last seen ${date.toLocaleDateString()}`;
-};
+}
 
 // A group's own name, or a DM partner's name/username.
-const chatTitle = (chat) => {
+function chatTitle(chat) {
   if (chat.is_group) return chat.name || "Group";
   return chat.participant?.name || chat.participant?.username || "Unknown";
-};
+}
+
+function withTz(dateStr) {
+  if (!dateStr) return null;
+  return dateStr.endsWith("Z") || dateStr.includes("+") ? dateStr : `${dateStr}Z`;
+}
+
+function formatRelativeTime(dateStr) {
+  const iso = withTz(dateStr);
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (isNaN(date.getTime())) return "";
+  const diff = Date.now() - date.getTime();
+  const minutes = Math.floor(diff / 60000);
+  const hours = Math.floor(diff / 3600000);
+  const days = Math.floor(diff / 86400000);
+  if (minutes < 1) return "now";
+  if (minutes < 60) return `${minutes}m`;
+  if (hours < 24) return `${hours}h`;
+  if (days < 7) return `${days}d`;
+  return date.toLocaleDateString();
+}
+
+function formatTimeLabel(dateStr) {
+  const iso = withTz(dateStr);
+  if (!iso) return "";
+  return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function formatDateLabel(dateStr) {
+  const iso = withTz(dateStr);
+  if (!iso) return "";
+  const date = new Date(iso);
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (date.toDateString() === today.toDateString()) return "Today";
+  if (date.toDateString() === yesterday.toDateString()) return "Yesterday";
+  return date.toLocaleDateString();
+}
 
 export default function Chat({ user, openChats, setOpenChats, activeChat, setActiveChat }) {
   const [conversations, setConversations] = useState([]);
   const [users, setUsers] = useState([]);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [minimized, setMinimized] = useState(true);
   const [typingUsers, setTypingUsers] = useState({});
   const [newGroupOpen, setNewGroupOpen] = useState(false);
-  // Bumped on every chat-socket reconnect (see handleSocketReconnectedRef
-  // below) so every currently-open ChatWindowView re-fetches its messages
-  // and catches up on anything missed while the connection was down.
-  const [resyncKey, setResyncKey] = useState(0);
+  // Single source of truth for every conversation's messages, keyed by
+  // conversation_id: { items, loaded, loading, loadingOlder, hasMore }.
+  // Every previous version of this feature kept a second (or third) copy of
+  // this same data inside openChats/activeChat, and the sync logic between
+  // those copies is exactly where the "message shows late", "read receipt
+  // doesn't update", and "unread count is stale" bugs kept coming from.
+  // There is nowhere else in this file that owns message state.
+  const [messagesByConv, setMessagesByConv] = useState({});
   const fileInputRef = useRef(null);
   const imageInputRef = useRef(null);
   // Which window's conversation a click on its attach/image button is for -
   // the file/image <input> elements are shared (one file picker for the
   // whole widget), so without this, picking a file always uploaded to
-  // activeChat regardless of which window's button was actually clicked.
+  // whichever conversation happened to be active instead of the window
+  // whose button was actually clicked.
   const pendingUploadConversationRef = useRef(null);
+  // Tracks in-flight/completed loads synchronously so re-opening or
+  // reconnecting can't fire two overlapping fetches for the same
+  // conversation (React state updates are async, so checking
+  // messagesByConv itself here would race).
+  const loadedConvsRef = useRef(new Set());
 
-  // Get token
-  const token = localStorage.getItem("token");
-  const wsRef = useRef(null);
-  const wsConnectedRef = useRef(false);
-  const reconnectAttemptRef = useRef(0);
-  const reconnectTimeoutRef = useRef(null);
-  // Always points at the latest render's handleWebSocketMessage (assigned
-  // below, right after it's defined). The socket connection below is only
-  // ever set up once per token/user - reading through this ref instead of
-  // calling handleWebSocketMessage directly means it still sees current
-  // activeChat/openChats/conversations instead of whatever they were the
-  // moment the effect first ran (which was the root cause of read receipts,
-  // unread badges and toasts going stale after the first message).
-  const handleWebSocketMessageRef = useRef(null);
-  // Same "always latest" trick, for the socket's onopen. The connection can
-  // legitimately drop and reconnect any number of times for reasons outside
-  // this app's control (a flaky network, a host that idles/restarts the
-  // backend); whatever caused it, anything that happened while it was down
-  // was missed entirely, and previously only surfaced once the user closed
-  // and reopened a chat window (which forces a fresh fetch). Re-syncing on
-  // every reconnect - not just once at mount - means a dropped connection
-  // catches back up within moments on its own instead of silently going
-  // stale until the user notices and manually reopens something.
-  const handleSocketReconnectedRef = useRef(null);
-  const hasConnectedBeforeRef = useRef(false);
-
-  // Direct-update callbacks (instant local "add" + temp-id-to-real-id
-  // "confirm") for each ChatWindowView's own message state, keyed by
-  // conversation_id. Keyed by conversation rather than a single shared ref -
-  // with 2+ chat windows open, a single ref only ever points at whichever
-  // window registered *last*, so sending in one window could add the
-  // message into a completely different, unrelated window instead.
-  const messageCallbacksRef = useRef(new Map());
-
-  const registerMessageCallbacks = useCallback((conversationId, addMessage, confirmMessage) => {
-    messageCallbacksRef.current.set(conversationId, { addMessage, confirmMessage });
-    return () => {
-      // Only remove if we're still the registered entry - avoids a mount
-      // race clobbering a newer registration for the same conversation.
-      if (messageCallbacksRef.current.get(conversationId)?.addMessage === addMessage) {
-        messageCallbacksRef.current.delete(conversationId);
-      }
-    };
-  }, []);
-
-  // Ask for OS notification permission once, so an incoming message can
-  // raise a native notification when the browser tab itself isn't visible
-  // (not just the chat widget being minimized, which the in-app toast covers).
   useEffect(() => {
     requestNotificationPermission();
   }, []);
 
-  // WebSocket for real-time chat. connect() is reusable so a reconnect gets
-  // a fully-wired socket (onopen/onmessage/onerror/onclose all reattached) -
-  // the previous version only ever wired handlers onto the *first* socket;
-  // on any drop (which happens routinely - e.g. Render's free tier idling
-  // the backend) it silently replaced wsRef.current with a bare, handler-less
-  // WebSocket, so live updates (and read receipts, unread counts, toasts)
-  // simply stopped until the page was reloaded.
+  const fetchConversations = useCallback(async () => {
+    const response = await axios.get(`${API}/chat/conversations`, { headers: authHeaders() });
+    setConversations(response.data);
+  }, []);
+
+  const fetchUsers = useCallback(async () => {
+    const response = await axios.get(`${API}/chat/users`, { headers: authHeaders() });
+    setUsers(response.data);
+  }, []);
+
   useEffect(() => {
-    if (!token || !user?.id) return;
     let cancelled = false;
-    const wsUrl = `${WS_BASE}/api/ws/chat/${token}`;
-
-    const connect = () => {
-      if (cancelled) return;
-      const ws = new WebSocket(wsUrl);
-      wsRef.current = ws;
-
-      ws.onopen = () => {
-        wsConnectedRef.current = true;
-        reconnectAttemptRef.current = 0;
-        if (hasConnectedBeforeRef.current) {
-          handleSocketReconnectedRef.current?.();
-        }
-        hasConnectedBeforeRef.current = true;
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          handleWebSocketMessageRef.current?.(data);
-        } catch (error) {
-          console.error('Error parsing WebSocket message:', error);
-        }
-      };
-
-      ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
-      };
-
-      ws.onclose = () => {
-        wsConnectedRef.current = false;
-        if (cancelled) return;
-        const attempt = reconnectAttemptRef.current + 1;
-        reconnectAttemptRef.current = attempt;
-        const delay = Math.min(3000 * attempt, 15000);
-        reconnectTimeoutRef.current = setTimeout(connect, delay);
-      };
-    };
-
-    connect();
-
-    // Heartbeat so "last active"/online status stays fresh while the tab is
-    // open even if the user isn't triggering any HTTP requests. Reads
-    // wsRef.current (not a closed-over socket) so it keeps working across
-    // reconnects instead of only pinging the very first connection.
-    const heartbeat = setInterval(() => {
-      if (wsRef.current?.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({ type: "ping" }));
+    (async () => {
+      try {
+        await Promise.all([fetchConversations(), fetchUsers()]);
+        if (!cancelled) setLoadError(false);
+      } catch (error) {
+        console.error("Error loading chat data:", error);
+        if (!cancelled) setLoadError(true);
+      } finally {
+        if (!cancelled) setInitialLoading(false);
       }
-    }, 60000);
-
+    })();
     return () => {
       cancelled = true;
-      clearInterval(heartbeat);
-      clearTimeout(reconnectTimeoutRef.current);
-      if (wsRef.current) {
-        wsRef.current.onclose = null;
-        if (wsRef.current.readyState === WebSocket.OPEN) wsRef.current.close();
+    };
+  }, [fetchConversations, fetchUsers]);
+
+  // Presence refresh - messages/read-receipts/edits arrive over the socket,
+  // this poll only exists to refresh online/offline dots, so it's fine to
+  // keep it slow and only run while the dock is open and the tab is visible.
+  useEffect(() => {
+    if (minimized) return;
+    const interval = setInterval(() => {
+      if (!document.hidden) {
+        fetchConversations().catch(() => {});
+        fetchUsers().catch(() => {});
       }
-    };
-  }, [token, user?.id]);
+    }, 60000);
+    return () => clearInterval(interval);
+  }, [minimized, fetchConversations, fetchUsers]);
 
-  // Send message via WebSocket
-  const sendWebSocketMessage = (message) => {
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify(message));
-    }
-  };
+  // A conversation only counts as "currently being looked at" if its
+  // floating window is open AND expanded. activeChat alone isn't enough -
+  // minimizing a window never clears/updates activeChat (only its entry in
+  // openChats), so activeChat can keep naming a conversation that's no
+  // longer actually visible.
+  const isConversationFocused = useCallback(
+    (conversationId) => {
+      if (!activeChat || activeChat.conversation_id !== conversationId) return false;
+      const entry = openChats.find((c) => c.conversation_id === conversationId);
+      return !!entry && !entry.minimized;
+    },
+    [activeChat, openChats]
+  );
 
-  const handleWebSocketMessage = (data) => {
-    switch (data.type) {
-      case "new_message":
-        handleNewMessage(data.message);
-        break;
-      case "typing":
-        handleTyping(data);
-        break;
-      case "message_read":
-        handleMessageRead(data);
-        break;
-      case "group_updated":
-        handleGroupUpdated(data);
-        break;
-      case "message_edited":
-        handleMessageEdited(data);
-        break;
-      case "message_deleted":
-        handleMessageDeleted(data);
-        break;
-      default:
-        break;
-    }
-  };
-  // Keep the ref in sync every render (see declaration above for why).
-  handleWebSocketMessageRef.current = handleWebSocketMessage;
-
-  // Apply a field update to one message across activeChat/openChats
-  const patchMessage = (conversationId, messageId, patch) => {
-    const apply = (msgs) => (msgs || []).map((m) => (m.id === messageId ? { ...m, ...patch } : m));
-    setActiveChat((prev) =>
-      prev && prev.conversation_id === conversationId ? { ...prev, messages: apply(prev.messages) } : prev
-    );
-    setOpenChats((prev) =>
-      prev.map((c) => (c.conversation_id === conversationId ? { ...c, messages: apply(c.messages) } : c))
-    );
-  };
-
-  const handleMessageEdited = (data) => {
-    patchMessage(data.conversation_id, data.message_id, { content: data.content, edited: true, edited_at: data.edited_at });
-  };
-
-  const handleMessageDeleted = (data) => {
-    patchMessage(data.conversation_id, data.message_id, { is_deleted: true, content: "", file_url: null, file_name: null });
-  };
-
-  // A group's name/membership changed (or it was disbanded by the last
-  // member leaving) - refresh it, or close the window if we were removed.
-  const handleGroupUpdated = async (data) => {
-    const { conversation_id, participant_ids } = data;
-    const stillMember = !participant_ids || participant_ids.includes(user?.id);
-    if (!stillMember) {
-      setOpenChats((prev) => prev.filter((c) => c.conversation_id !== conversation_id));
-      setActiveChat((prev) => (prev?.conversation_id === conversation_id ? null : prev));
-      setConversations((prev) => prev.filter((c) => c.id !== conversation_id));
-      return;
-    }
-    try {
-      const response = await axios.get(`${API}/chat/conversations`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      setConversations(response.data);
-      const fresh = response.data.find((c) => c.id === conversation_id);
-      if (fresh) {
-        setOpenChats((prev) => prev.map((c) =>
-          c.conversation_id === conversation_id ? { ...c, name: fresh.name, participants: fresh.participants } : c
-        ));
-        setActiveChat((prev) =>
-          prev?.conversation_id === conversation_id ? { ...prev, name: fresh.name, participants: fresh.participants } : prev
-        );
-      }
-    } catch (error) {
-      console.error("Error refreshing group:", error);
-    }
-  };
-
-  const handleNewMessage = (message) => {
-    // Prevent duplicate messages - check if message already exists by ID or by content+sender+time
-    const isDuplicate = (msg) => {
-      // Check by ID first - handle both string and number IDs
-      if (String(msg.id) === String(message.id)) return true;
-      // Check for duplicate local messages (within 5 seconds) - same sender, same conversation, same content
-      const msgTime = new Date(msg.created_at).getTime();
-      const newMsgTime = new Date(message.created_at).getTime();
-      const timeDiff = Math.abs(msgTime - newMsgTime);
-      // Also check if it's the same message based on content + sender + conversation
-      return (
-        msg.sender_id === message.sender_id &&
-        msg.conversation_id === message.conversation_id &&
-        msg.content === message.content &&
-        timeDiff < 5000 // Within 5 seconds
-      );
-    };
-
-    // Check if this is an echo of our own message (sent by us, within last 5 seconds)
-    // If so, we want to replace the local temp message with the server's version
-    const isOwnMessageEcho = () => {
-      const msgTime = new Date(message.created_at).getTime();
-      const now = Date.now();
-      const timeDiff = Math.abs(msgTime - now);
-      return (
-        message.sender_id === user?.id &&
-        timeDiff < 10000 // Within 10 seconds
-      );
-    };
-
-    // Add message to the conversation if it's open
-    if (activeChat && message.conversation_id === activeChat.conversation_id) {
-      setActiveChat((prev) => {
-        // Check if message already exists
-        const exists = (prev.messages || []).some(isDuplicate);
-        if (exists) {
-          // Check if this is an echo of our own message - replace the temp message with server version
-          if (isOwnMessageEcho()) {
-            const updatedMessages = (prev.messages || []).map((msg) => {
-              // Find the local message that matches this server message
-              const isLocalVersion = (
-                msg.sender_id === message.sender_id &&
-                msg.conversation_id === message.conversation_id &&
-                msg.content === message.content &&
-                !msg.id?.includes('-') // Local temp IDs are numeric strings, server IDs are UUIDs
-              );
-              if (isLocalVersion) {
-                return message; // Replace with server version
-              }
-              return msg;
-            });
-            return { ...prev, messages: updatedMessages };
-          }
-          return prev;
-        }
+  const markAsRead = useCallback(
+    async (conversationId) => {
+      if (!conversationId) return;
+      setConversations((prev) => prev.map((c) => (c.id === conversationId ? { ...c, unread_count: 0 } : c)));
+      setOpenChats((prev) => prev.map((c) => (c.conversation_id === conversationId ? { ...c, unreadCount: 0 } : c)));
+      setMessagesByConv((prev) => {
+        const entry = prev[conversationId];
+        if (!entry) return prev;
         return {
           ...prev,
-          messages: [...(prev.messages || []), message],
+          [conversationId]: {
+            ...entry,
+            items: entry.items.map((m) =>
+              m.sender_id !== user?.id && !(m.read_by || []).includes(user?.id)
+                ? { ...m, read_by: [...(m.read_by || []), user.id] }
+                : m
+            ),
+          },
         };
       });
-    }
+      try {
+        await axios.post(`${API}/chat/messages/read`, { conversation_id: conversationId }, { headers: authHeaders() });
+      } catch (error) {
+        console.error("Error marking messages as read:", error);
+      }
+    },
+    [user?.id, setOpenChats]
+  );
 
-    // Also update the message in openChats for consistency
-    setOpenChats((prev) =>
-      prev.map((chat) => {
-        if (chat.conversation_id === message.conversation_id) {
-          // Check if message already exists
-          const exists = (chat.messages || []).some(isDuplicate);
-          if (exists) {
-            // Check if this is an echo of our own message
-            if (isOwnMessageEcho()) {
-              const updatedMessages = (chat.messages || []).map((msg) => {
-                const isLocalVersion = (
-                  msg.sender_id === message.sender_id &&
-                  msg.conversation_id === message.conversation_id &&
-                  msg.content === message.content &&
-                  !msg.id?.includes('-')
-                );
-                if (isLocalVersion) {
-                  return message;
-                }
-                return msg;
-              });
-              return { ...chat, messages: updatedMessages };
-            }
-            return chat;
-          }
-          return {
-            ...chat,
-            messages: [...(chat.messages || []), message],
-          };
-        }
-        return chat;
-      })
-    );
-
-    // A conversation only counts as "currently being looked at" if its
-    // floating window is open AND expanded - not just "this is whatever
-    // activeChat last pointed at", which used to stay stale (still naming
-    // the just-minimized conversation) because minimizing a window never
-    // clears/updates activeChat, only its entry in openChats.
-    const windowChat = openChats.find((c) => c.conversation_id === message.conversation_id);
-    const isFocused = !!windowChat && !windowChat.minimized;
-
-    // Update conversations list - don't increment unread count for own messages
-    const isOwnMessage = message.sender_id === user?.id;
-    setConversations((prev) => {
-      return prev.map((conv) => {
-        if (conv.id === message.conversation_id) {
-          return {
-            ...conv,
-            last_message: message.content,
-            last_message_time: message.created_at,
-            last_message_sender_id: message.sender_id,
-            unread_count: isOwnMessage || isFocused ? 0 : (conv.unread_count || 0) + 1,
-          };
-        }
-        return conv;
-      });
+  const patchMessage = useCallback((conversationId, messageId, patch) => {
+    setMessagesByConv((prev) => {
+      const entry = prev[conversationId];
+      if (!entry) return prev;
+      return {
+        ...prev,
+        [conversationId]: { ...entry, items: entry.items.map((m) => (m.id === messageId ? { ...m, ...patch } : m)) },
+      };
     });
+  }, []);
 
-    // Same for each floating window's own minimized-tab badge - previously
-    // only ever reset to 0, never incremented, so it permanently read 0/stale.
-    if (!isOwnMessage && !isFocused) {
-      setOpenChats((prev) =>
+  const openConversationWindow = useCallback(
+    (conv) => {
+      const participant = conv.participants?.[0];
+      const existingChat = openChats.find((c) => c.conversation_id === conv.id);
+      if (existingChat) {
+        setOpenChats((prev) => prev.map((c) => (c.conversation_id === conv.id ? { ...c, minimized: false } : c)));
+        setActiveChat({ ...existingChat, minimized: false });
+      } else {
+        const newChat = {
+          conversation_id: conv.id,
+          is_group: !!conv.is_group,
+          name: conv.name || null,
+          participants: conv.participants || [],
+          participant: participant || null,
+          minimized: false,
+          unreadCount: 0,
+        };
+        setOpenChats((prev) => [...prev, newChat]);
+        setActiveChat(newChat);
+      }
+      ensureMessagesLoaded(conv.id);
+      markAsRead(conv.id);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [openChats, setOpenChats, setActiveChat, markAsRead]
+  );
+
+  const applyIncomingMessage = useCallback(
+    (message) => {
+      const isOwn = message.sender_id === user?.id;
+      const focused = isConversationFocused(message.conversation_id);
+
+      setMessagesByConv((prev) => {
+        const entry = prev[message.conversation_id] || { items: [], loaded: false, loading: false, hasMore: true };
+        if (entry.items.some((m) => m.id === message.id)) return prev;
+        const clientIdx = message.client_id
+          ? entry.items.findIndex((m) => m.client_id && m.client_id === message.client_id)
+          : -1;
+        const items =
+          clientIdx >= 0
+            ? entry.items.map((m, i) => (i === clientIdx ? message : m))
+            : [...entry.items, message];
+        return { ...prev, [message.conversation_id]: { ...entry, items } };
+      });
+
+      const preview =
+        message.message_type === "image" ? "📷 Photo" : message.message_type === "file" ? `📎 ${message.file_name || "File"}` : message.content;
+
+      setConversations((prev) =>
         prev.map((c) =>
-          c.conversation_id === message.conversation_id ? { ...c, unreadCount: (c.unreadCount || 0) + 1 } : c
+          c.id === message.conversation_id
+            ? {
+                ...c,
+                last_message: preview,
+                last_message_time: message.created_at,
+                last_message_sender_id: message.sender_id,
+                unread_count: isOwn || focused ? 0 : (c.unread_count || 0) + 1,
+              }
+            : c
         )
       );
-    }
 
-    // Toast + sound (+ native notification if the tab itself isn't visible)
-    // for messages arriving in a conversation whose window isn't open and
-    // expanded right now - mirrors how FB/WhatsApp/Teams surface a message
-    // you'd otherwise miss.
-    if (!isOwnMessage) {
-      if (!isFocused) {
-        const preview = message.message_type === "image" ? "📷 Photo" : message.message_type === "file" ? `📎 ${message.file_name || "File"}` : message.content;
+      if (isOwn) return;
+
+      if (!focused) {
+        setOpenChats((prev) =>
+          prev.map((c) =>
+            c.conversation_id === message.conversation_id ? { ...c, unreadCount: (c.unreadCount || 0) + 1 } : c
+          )
+        );
         const convForToast = conversations.find((c) => c.id === message.conversation_id);
         toast(message.sender_name || "New message", {
           description: preview,
           action: convForToast ? { label: "Open", onClick: () => openConversationWindow(convForToast) } : undefined,
         });
         playNotificationSound();
-        if (document.hidden) {
-          showNativeNotification(message.sender_name || "New message", preview);
-        }
+        if (document.hidden) showNativeNotification(message.sender_name || "New message", preview);
+      } else {
+        markAsRead(message.conversation_id);
       }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [user?.id, isConversationFocused, conversations, markAsRead, setOpenChats, openConversationWindow]
+  );
+
+  const applyReadReceipt = useCallback((conversationId, readBy) => {
+    setMessagesByConv((prev) => {
+      const entry = prev[conversationId];
+      if (!entry) return prev;
+      return {
+        ...prev,
+        [conversationId]: {
+          ...entry,
+          items: entry.items.map((m) =>
+            m.sender_id !== readBy && !(m.read_by || []).includes(readBy)
+              ? { ...m, read_by: [...(m.read_by || []), readBy] }
+              : m
+          ),
+        },
+      };
+    });
+  }, []);
+
+  const handleGroupUpdated = useCallback(
+    async (data) => {
+      const { conversation_id, participant_ids } = data;
+      const stillMember = !participant_ids || participant_ids.includes(user?.id);
+      if (!stillMember) {
+        setOpenChats((prev) => prev.filter((c) => c.conversation_id !== conversation_id));
+        setActiveChat((prev) => (prev?.conversation_id === conversation_id ? null : prev));
+        setConversations((prev) => prev.filter((c) => c.id !== conversation_id));
+        return;
+      }
+      try {
+        const response = await axios.get(`${API}/chat/conversations`, { headers: authHeaders() });
+        setConversations(response.data);
+        const fresh = response.data.find((c) => c.id === conversation_id);
+        if (fresh) {
+          setOpenChats((prev) =>
+            prev.map((c) => (c.conversation_id === conversation_id ? { ...c, name: fresh.name, participants: fresh.participants } : c))
+          );
+          setActiveChat((prev) =>
+            prev?.conversation_id === conversation_id ? { ...prev, name: fresh.name, participants: fresh.participants } : prev
+          );
+        }
+      } catch (error) {
+        console.error("Error refreshing group:", error);
+      }
+    },
+    [user?.id, setOpenChats, setActiveChat]
+  );
+
+  const handleSocketMessage = (data) => {
+    switch (data.type) {
+      case "new_message":
+        applyIncomingMessage(data.message);
+        break;
+      case "typing":
+        setTypingUsers((prev) => ({ ...prev, [data.conversation_id]: data }));
+        setTimeout(() => {
+          setTypingUsers((prev) => {
+            if (prev[data.conversation_id] !== data) return prev;
+            const next = { ...prev };
+            delete next[data.conversation_id];
+            return next;
+          });
+        }, 3000);
+        break;
+      case "message_read":
+        applyReadReceipt(data.conversation_id, data.read_by);
+        break;
+      case "message_edited":
+        patchMessage(data.conversation_id, data.message_id, { content: data.content, edited: true, edited_at: data.edited_at });
+        break;
+      case "message_deleted":
+        patchMessage(data.conversation_id, data.message_id, { is_deleted: true, content: "", file_url: null, file_name: null });
+        break;
+      case "group_updated":
+        handleGroupUpdated(data);
+        break;
+      default:
+        break;
     }
   };
 
-  const handleTyping = (data) => {
-    setTypingUsers((prev) => ({
+  // The chat socket just came back up after a drop (a flaky network, a host
+  // that idles/restarts the backend - it can happen for reasons outside
+  // this app's control). Refresh the conversation list and mark every
+  // currently-open window's messages as stale so they re-fetch, instead of
+  // silently sitting on whatever they last had until the user notices and
+  // manually closes/reopens something.
+  const handleSocketReconnected = () => {
+    fetchConversations().catch(() => {});
+    openChats.forEach((chat) => {
+      loadedConvsRef.current.delete(chat.conversation_id);
+      setMessagesByConv((prev) => {
+        const entry = prev[chat.conversation_id];
+        return entry ? { ...prev, [chat.conversation_id]: { ...entry, loaded: false } } : prev;
+      });
+      ensureMessagesLoaded(chat.conversation_id);
+    });
+  };
+
+  const { send: sendSocket } = useChatSocket(handleSocketMessage, handleSocketReconnected);
+
+  const ensureMessagesLoaded = useCallback(async (conversationId) => {
+    if (loadedConvsRef.current.has(conversationId)) return;
+    loadedConvsRef.current.add(conversationId);
+
+    setMessagesByConv((prev) => ({
       ...prev,
-      [data.conversation_id]: data,
+      [conversationId]: { items: prev[conversationId]?.items || [], loaded: false, loading: true, hasMore: true },
     }));
 
-    // Clear typing after 3 seconds
-    setTimeout(() => {
-      setTypingUsers((prev) => {
-        const newState = { ...prev };
-        delete newState[data.conversation_id];
-        return newState;
+    try {
+      const response = await axios.get(`${API}/chat/conversations/${conversationId}/messages?limit=50`, {
+        headers: authHeaders(),
       });
-    }, 3000);
-  };
-
-  const handleMessageRead = (data) => {
-    // Someone (data.read_by) read the conversation - record them as a
-    // reader on every message NOT authored by them (matches the backend's
-    // "read by anyone but the sender" semantics, and keeps read_by - which
-    // drives the per-message tick/receipt UI - live instead of only is_read).
-    const addReader = (msg) => {
-      if (msg.sender_id === data.read_by) return msg;
-      const currentReadBy = msg.read_by || [];
-      if (currentReadBy.includes(data.read_by)) return msg;
-      return { ...msg, is_read: true, read_by: [...currentReadBy, data.read_by] };
-    };
-
-    if (activeChat && data.conversation_id === activeChat.conversation_id) {
-      setActiveChat((prev) => ({
-        ...prev,
-        messages: prev.messages?.map(addReader) || [],
-      }));
+      const items = response.data;
+      setMessagesByConv((prev) => {
+        // Keep any optimistic message sent locally while this fetch was in flight.
+        const existing = prev[conversationId]?.items || [];
+        const localOnly = existing.filter(
+          (m) => !items.some((fetched) => fetched.id === m.id || (m.client_id && fetched.client_id === m.client_id))
+        );
+        return {
+          ...prev,
+          [conversationId]: { items: [...items, ...localOnly], loaded: true, loading: false, hasMore: items.length === 50 },
+        };
+      });
+    } catch (error) {
+      console.error("Error loading messages:", error);
+      loadedConvsRef.current.delete(conversationId);
+      setMessagesByConv((prev) => {
+        const entry = prev[conversationId] || { items: [], hasMore: true };
+        return { ...prev, [conversationId]: { ...entry, loaded: false, loading: false } };
+      });
     }
+  }, []);
 
-    // Also update messages in openChats for consistency
-    setOpenChats((prev) =>
-      prev.map((chat) => {
-        if (chat.conversation_id === data.conversation_id) {
+  const loadOlderMessages = useCallback(
+    async (conversationId) => {
+      const entry = messagesByConv[conversationId];
+      if (!entry || entry.loadingOlder || !entry.hasMore || entry.items.length === 0) return;
+      setMessagesByConv((prev) => ({ ...prev, [conversationId]: { ...prev[conversationId], loadingOlder: true } }));
+      try {
+        const oldest = entry.items[0];
+        const response = await axios.get(
+          `${API}/chat/conversations/${conversationId}/messages?limit=50&before=${encodeURIComponent(oldest.created_at)}`,
+          { headers: authHeaders() }
+        );
+        setMessagesByConv((prev) => {
+          const current = prev[conversationId];
           return {
-            ...chat,
-            messages: chat.messages?.map(addReader) || [],
+            ...prev,
+            [conversationId]: {
+              ...current,
+              items: [...response.data, ...current.items],
+              hasMore: response.data.length === 50,
+              loadingOlder: false,
+            },
           };
-        }
-        return chat;
-      })
-    );
-
-    // Also update conversations list to reset unread count
-    setConversations((prev) =>
-      prev.map((conv) => {
-        if (conv.id === data.conversation_id) {
-          return { ...conv, unread_count: 0 };
-        }
-        return conv;
-      })
-    );
-  };
-
-  // Fetch conversations and users
-  useEffect(() => {
-    if (token) {
-      fetchConversations();
-      fetchUsers();
-    }
-  }, [token]);
-
-  // Periodic refresh for online status. New messages/read-receipts already
-  // arrive over the WebSocket above, so this poll only exists to refresh
-  // participants' online/offline indicator - only worth doing while the chat
-  // panel is actually open and the tab is in the foreground, and every 60s
-  // is plenty for a presence indicator (was every 30s regardless of state).
-  useEffect(() => {
-    if (!token || minimized) return;
-
-    const interval = setInterval(() => {
-      if (!document.hidden) {
-        fetchConversations();
-        fetchUsers();
-      }
-    }, 60000);
-
-    return () => clearInterval(interval);
-  }, [token, minimized]);
-
-  const fetchConversations = async () => {
-    try {
-      const response = await axios.get(`${API}/chat/conversations`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      // Merge API response with existing local state to preserve local changes (like unread_count: 0)
-      const apiConversations = response.data;
-      setConversations(prevConversations => {
-        // Create a map of existing conversations for quick lookup
-        const existingConvMap = new Map(prevConversations.map(c => [c.id, c]));
-
-        // Merge: use API data but preserve local unread_count if it's 0 (meaning user already read)
-        return apiConversations.map(apiConv => {
-          const existingConv = existingConvMap.get(apiConv.id);
-          if (existingConv && existingConv.unread_count === 0) {
-            // Preserve local unread_count: 0
-            return { ...apiConv, unread_count: 0 };
-          }
-          return apiConv;
         });
-      });
-    } catch (error) {
-      console.error("Error fetching conversations:", error);
-    }
-  };
-
-  const fetchUsers = async () => {
-    try {
-      const response = await axios.get(`${API}/chat/users`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      setUsers(response.data);
-    } catch (error) {
-      console.error("Error fetching users:", error);
-    }
-  };
-
-  // The chat socket just came back up after a drop - refresh the
-  // conversation list (unread counts, previews) and tell every open window
-  // to re-fetch its own messages, so a gap in the connection self-heals
-  // instead of requiring the user to close and reopen a chat to catch up.
-  const handleSocketReconnected = () => {
-    fetchConversations();
-    setResyncKey((k) => k + 1);
-  };
-  handleSocketReconnectedRef.current = handleSocketReconnected;
-
-  // Open (or focus, if already open) a floating window for a conversation
-  // returned by the API - used for a freshly-started DM, a freshly-created
-  // group, and clicking an existing conversation in the list.
-  const openConversationWindow = (conv) => {
-    const existingChat = openChats.find((c) => c.conversation_id === conv.id);
-    if (existingChat) {
-      if (existingChat.minimized) {
-        setOpenChats((prev) => prev.map((chat) =>
-          chat.conversation_id === conv.id ? { ...chat, minimized: false } : chat
-        ));
+      } catch (error) {
+        console.error("Error loading older messages:", error);
+        setMessagesByConv((prev) => ({ ...prev, [conversationId]: { ...prev[conversationId], loadingOlder: false } }));
       }
-      setActiveChat(existingChat);
-      return;
-    }
-
-    const newChat = {
-      conversation_id: conv.id,
-      is_group: !!conv.is_group,
-      name: conv.name || null,
-      participants: conv.participants || [],
-      participant: conv.participants?.[0] || null,
-      messages: [],
-      unreadCount: conv.unread_count || 0,
-      minimized: false,
-    };
-    setOpenChats((prev) => [...prev, newChat]);
-    setActiveChat(newChat);
-  };
+    },
+    [messagesByConv]
+  );
 
   const startConversation = async (otherUser) => {
     try {
-      const response = await axios.post(
-        `${API}/chat/conversations`,
-        { participant_id: otherUser.id },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      const response = await axios.post(`${API}/chat/conversations`, { participant_id: otherUser.id }, { headers: authHeaders() });
+      setConversations((prev) => (prev.some((c) => c.id === response.data.id) ? prev : [response.data, ...prev]));
       openConversationWindow(response.data);
     } catch (error) {
       console.error("Error creating conversation:", error);
@@ -616,11 +509,7 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
   };
 
   const createGroup = async (name, participantIds) => {
-    const response = await axios.post(
-      `${API}/chat/conversations/group`,
-      { name, participant_ids: participantIds },
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
+    const response = await axios.post(`${API}/chat/conversations/group`, { name, participant_ids: participantIds }, { headers: authHeaders() });
     setConversations((prev) => [response.data, ...prev]);
     openConversationWindow(response.data);
     setNewGroupOpen(false);
@@ -630,12 +519,12 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
     const response = await axios.put(
       `${API}/chat/conversations/${conversationId}/group`,
       { name, participant_ids: participantIds },
-      { headers: { Authorization: `Bearer ${token}` } }
+      { headers: authHeaders() }
     );
     const updated = response.data;
-    setOpenChats((prev) => prev.map((c) =>
-      c.conversation_id === conversationId ? { ...c, name: updated.name, participants: updated.participants } : c
-    ));
+    setOpenChats((prev) =>
+      prev.map((c) => (c.conversation_id === conversationId ? { ...c, name: updated.name, participants: updated.participants } : c))
+    );
     setActiveChat((prev) =>
       prev?.conversation_id === conversationId ? { ...prev, name: updated.name, participants: updated.participants } : prev
     );
@@ -643,231 +532,135 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
   };
 
   const leaveGroup = async (conversationId) => {
-    await axios.post(
-      `${API}/chat/conversations/${conversationId}/leave`,
-      null,
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
+    await axios.post(`${API}/chat/conversations/${conversationId}/leave`, null, { headers: authHeaders() });
     setOpenChats((prev) => prev.filter((c) => c.conversation_id !== conversationId));
     setActiveChat((prev) => (prev?.conversation_id === conversationId ? null : prev));
     setConversations((prev) => prev.filter((c) => c.id !== conversationId));
   };
 
-  const sendMessage = async (content, messageType = "text", fileData = null, conversationId = null) => {
-    // Use provided conversationId or fall back to activeChat
-    const targetConversationId = conversationId || (activeChat ? activeChat.conversation_id : null);
+  const sendMessage = async (conversationId, content, messageType = "text", fileData = null) => {
+    const trimmed = content.trim();
+    if (!trimmed && !fileData) return;
 
-    if (!targetConversationId || (!content.trim() && !fileData)) return;
-
-    // Create local message immediately for better UX
+    const clientId = makeClientId();
     const localMessage = {
-      id: Date.now().toString(),
-      conversation_id: targetConversationId,
+      id: clientId,
+      client_id: clientId,
+      conversation_id: conversationId,
       sender_id: user.id,
       sender_name: user.name,
-      content: content.trim(),
+      content: trimmed,
       message_type: messageType,
       file_url: fileData?.file_url,
       file_name: fileData?.file_name,
-      is_read: false,
+      file_size: fileData?.file_size,
+      file_mime_type: fileData?.file_mime_type,
+      read_by: [],
+      edited: false,
+      is_deleted: false,
       created_at: new Date().toISOString(),
     };
 
-    // Update local state immediately
-    if (activeChat && activeChat.conversation_id === targetConversationId) {
-      setActiveChat((prev) => ({
-        ...prev,
-        messages: [...(prev.messages || []), localMessage],
-      }));
-    }
+    setMessagesByConv((prev) => {
+      const entry = prev[conversationId] || { items: [], loaded: true, hasMore: false };
+      return { ...prev, [conversationId]: { ...entry, items: [...entry.items, localMessage] } };
+    });
+    setConversations((prev) =>
+      prev.map((c) =>
+        c.id === conversationId
+          ? {
+              ...c,
+              unread_count: 0,
+              last_message: trimmed || (messageType === "image" ? "📷 Photo" : `📎 ${fileData?.file_name || "File"}`),
+              last_message_time: localMessage.created_at,
+              last_message_sender_id: user.id,
+            }
+          : c
+      )
+    );
 
-    setOpenChats((prev) => prev.map(chat =>
-      chat.conversation_id === targetConversationId
-        ? { ...chat, messages: [...(chat.messages || []), localMessage] }
-        : chat
-    ));
-
-    setConversations((prev) => prev.map(conv =>
-      conv.id === targetConversationId
-        ? { ...conv, unread_count: 0, last_message: content.trim(), last_message_time: localMessage.created_at, last_message_sender_id: user.id }
-        : conv
-    ));
-
-    // Call this specific conversation's callback for instant update in its
-    // own ChatWindowView
-    const callbacks = messageCallbacksRef.current.get(targetConversationId);
-    callbacks?.addMessage?.(localMessage);
-
-    // Send to API, then swap the temp local message for the server-confirmed
-    // one everywhere it's tracked (real id, read_by, etc.) - required for
-    // edit/delete to ever work on it, and more reliable than waiting on the
-    // WebSocket to echo it back.
     try {
       const response = await axios.post(
         `${API}/chat/messages`,
         {
-          conversation_id: targetConversationId,
-          content: content.trim(),
+          conversation_id: conversationId,
+          content: trimmed,
           message_type: messageType,
           file_url: fileData?.file_url,
           file_name: fileData?.file_name,
           file_size: fileData?.file_size,
           file_mime_type: fileData?.file_mime_type,
+          client_id: clientId,
         },
-        { headers: { Authorization: `Bearer ${token}` } }
+        { headers: authHeaders() }
       );
-      const realMessage = response.data;
-      patchMessage(targetConversationId, localMessage.id, realMessage);
-      callbacks?.confirmMessage?.(localMessage.id, realMessage);
+      applyIncomingMessage(response.data);
     } catch (error) {
       console.error("Error sending message:", error);
-      toast.error("Failed to send message");
-    }
-  };
-
-  const sendTyping = (conversationId = null) => {
-    // Send typing indicator via WebSocket
-    const targetConvId = conversationId || (activeChat ? activeChat.conversation_id : null);
-    if (!targetConvId) return;
-
-    sendWebSocketMessage({
-      type: "typing",
-      conversation_id: targetConvId,
-      user_id: user.id,
-    });
-  };
-
-  const markAsRead = async (conversationId = null) => {
-    const targetConvId = conversationId || (activeChat ? activeChat.conversation_id : null);
-    if (!targetConvId) return;
-
-    // Mark as read via API. other_user_id/conversation_id are query params
-    // on the backend, not a JSON body.
-    try {
-      await axios.post(
-        `${API}/chat/messages/read`,
-        null,
-        {
-          params: { conversation_id: targetConvId },
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
-
-      // Notify other participant(s) via WebSocket for real-time update
-      sendWebSocketMessage({
-        type: "read",
-        conversation_id: targetConvId,
-      });
-    } catch (error) {
-      console.error("Error marking as read:", error);
-    }
-
-    // Update local message read status for every message not sent by me
-    const updateMessagesReadStatus = (msgs) =>
-      (msgs || []).map((msg) => (msg.sender_id !== user.id ? { ...msg, is_read: true } : msg));
-
-    // Update activeChat if it's the target conversation
-    if (activeChat && activeChat.conversation_id === targetConvId) {
-      setActiveChat(prev => ({
-        ...prev,
-        messages: updateMessagesReadStatus(prev.messages)
-      }));
-    }
-
-    // Update openChats
-    setOpenChats(prev => prev.map(chat => {
-      if (chat.conversation_id === targetConvId) {
+      setMessagesByConv((prev) => {
+        const entry = prev[conversationId];
+        if (!entry) return prev;
         return {
-          ...chat,
-          unreadCount: 0,
-          messages: updateMessagesReadStatus(chat.messages)
+          ...prev,
+          [conversationId]: { ...entry, items: entry.items.map((m) => (m.id === clientId ? { ...m, failed: true } : m)) },
         };
-      }
-      return chat;
-    }));
-
-    setConversations(prev => prev.map(conv =>
-      conv.id === targetConvId
-        ? { ...conv, unread_count: 0 }
-        : conv
-    ));
+      });
+    }
   };
 
   const editMessage = async (conversationId, messageId, content) => {
-    const response = await axios.put(
-      `${API}/chat/messages/${messageId}`,
-      { content },
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
+    const response = await axios.put(`${API}/chat/messages/${messageId}`, { content }, { headers: authHeaders() });
     patchMessage(conversationId, messageId, { content: response.data.content, edited: true, edited_at: response.data.edited_at });
   };
 
   const deleteMessage = async (conversationId, messageId) => {
-    await axios.delete(`${API}/chat/messages/${messageId}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    await axios.delete(`${API}/chat/messages/${messageId}`, { headers: authHeaders() });
     patchMessage(conversationId, messageId, { is_deleted: true, content: "", file_url: null, file_name: null });
   };
 
-  const handleFileUpload = async (event, type = "file", conversationId = null) => {
-    const file = event.target.files[0];
-    if (!file) return;
-
-    const formData = new FormData();
-    formData.append("file", file);
-
-    try {
-      const response = await axios.post(`${API}/chat/upload`, formData, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "multipart/form-data",
-        },
-      });
-
-      const fileData = response.data;
-      const messageType = type === "image" || fileData.is_image ? "image" : "file";
-      sendMessage(file.name, messageType, fileData, conversationId);
-    } catch (error) {
-      console.error("Error uploading file:", error);
-    }
-
-    // Reset input
-    event.target.value = "";
+  const sendTyping = (conversationId) => {
+    sendSocket({ type: "typing", conversation_id: conversationId });
   };
 
-  // Calculate total unread
+  const uploadFile = async (file, type, conversationId) => {
+    if (!file || !conversationId) return;
+    const formData = new FormData();
+    formData.append("file", file);
+    try {
+      const response = await axios.post(`${API}/chat/upload`, formData, {
+        headers: { ...authHeaders(), "Content-Type": "multipart/form-data" },
+      });
+      const fileData = response.data;
+      const messageType = type === "image" || fileData.is_image ? "image" : "file";
+      sendMessage(conversationId, file.name, messageType, fileData);
+    } catch (error) {
+      console.error("Error uploading file:", error);
+      toast.error(error.response?.status === 413 ? "That file is too large (8MB max)." : "Could not upload the file.");
+    }
+  };
+
   const totalUnread = conversations.reduce((sum, c) => sum + (c.unread_count || 0), 0);
 
-  // Handle minimize/maximize individual chat windows
   const toggleChatMinimize = (conversationId) => {
-    setOpenChats(prev => {
-      const updated = prev.map(chat =>
-        chat.conversation_id === conversationId
-          ? { ...chat, minimized: !chat.minimized }
-          : chat
-      );
-      // Find the chat after update to set activeChat
-      const expanded = updated.find(c => c.conversation_id === conversationId);
-      if (expanded && !expanded.minimized) {
-        // Use callback form to ensure we have latest state
-        setActiveChat(expanded);
+    setOpenChats((prev) => {
+      const updated = prev.map((c) => (c.conversation_id === conversationId ? { ...c, minimized: !c.minimized } : c));
+      const target = updated.find((c) => c.conversation_id === conversationId);
+      if (target && !target.minimized) {
+        setActiveChat(target);
+        ensureMessagesLoaded(conversationId);
+        markAsRead(conversationId);
       }
       return updated;
     });
   };
 
-  // Handle close individual chat window
   const closeChatWindow = (conversationId, e) => {
     if (e) e.stopPropagation();
-    setOpenChats(prev => prev.filter(c => c.conversation_id !== conversationId));
+    setOpenChats((prev) => prev.filter((c) => c.conversation_id !== conversationId));
     if (activeChat?.conversation_id === conversationId) {
-      setActiveChat(openChats.find(c => c.conversation_id !== conversationId) || null);
+      const remaining = openChats.filter((c) => c.conversation_id !== conversationId);
+      setActiveChat(remaining.length ? remaining[remaining.length - 1] : null);
     }
-  };
-
-  // Handle click on chat tab - always toggle minimize/maximize
-  const handleChatTabClick = (chat) => {
-    toggleChatMinimize(chat.conversation_id);
   };
 
   const isAdmin = user?.role === "admin";
@@ -876,40 +669,33 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
     <>
       {/* Floating Chat Windows - positioned to the left of the main button */}
       {openChats.map((chat, index) => {
-        // Calculate right position based on the cumulative width of all chats after this one
-        // Also account for main tab's width (380px maximized, 60px minimized)
         const mainTabWidth = minimized ? 60 : 380;
         const chatsAfter = openChats.slice(index + 1);
         const offsetAfter = chatsAfter.reduce((sum, c) => sum + (c.minimized ? 158 : 388), 0);
         const rightPos = 16 + mainTabWidth + 4 + offsetAfter;
+        const entry = messagesByConv[chat.conversation_id] || { items: [], loaded: false, loading: false, hasMore: false };
 
         return (
-        <div
-          key={chat.conversation_id}
-          className="fixed z-40 flex flex-col bg-white dark:bg-black border border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white transition-all duration-300 bottom-2"
-          style={{
-            right: `${rightPos}px`,
-            width: chat.minimized ? "150px" : "380px",
-            height: chat.minimized ? "50px" : "500px"
-          }}
-        >
-          {/* Chat Header - only show when minimized */}
-          {chat.minimized && (
-            <div
-              className="flex items-center justify-between px-3 py-2 bg-white dark:bg-zinc-900 border-b border-gray-200 dark:border-zinc-700 cursor-pointer hover:bg-gray-100 dark:hover:bg-zinc-800"
-              onClick={() => handleChatTabClick(chat)}
-            >
-              <div className="flex items-center gap-2 min-w-0 flex-1">
-                <span className="font-medium truncate text-sm flex items-center gap-1 mr-6">
-                  {chatTitle(chat)}
-                  {chat.unreadCount > 0 && (
-                    <Badge className="bg-red-500 text-gray-900 dark:text-white text-xs min-w-[18px] h-[18px] flex items-center justify-center p-0">
-                      {chat.unreadCount > 99 ? '99+' : chat.unreadCount}
-                    </Badge>
-                  )}
-                </span>
-              </div>
-              <div className="flex items-center gap-1 flex-shrink-0">
+          <div
+            key={chat.conversation_id}
+            className="fixed z-40 flex flex-col bg-white dark:bg-black border border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white transition-all duration-300 bottom-2"
+            style={{ right: `${rightPos}px`, width: chat.minimized ? "150px" : "380px", height: chat.minimized ? "50px" : "500px" }}
+          >
+            {chat.minimized && (
+              <div
+                className="flex items-center justify-between px-3 py-2 bg-white dark:bg-zinc-900 border-b border-gray-200 dark:border-zinc-700 cursor-pointer hover:bg-gray-100 dark:hover:bg-zinc-800"
+                onClick={() => toggleChatMinimize(chat.conversation_id)}
+              >
+                <div className="flex items-center gap-2 min-w-0 flex-1">
+                  <span className="font-medium truncate text-sm flex items-center gap-1 mr-6">
+                    {chatTitle(chat)}
+                    {chat.unreadCount > 0 && (
+                      <Badge className="bg-red-500 text-white text-xs min-w-[18px] h-[18px] flex items-center justify-center p-0">
+                        {chat.unreadCount > 99 ? "99+" : chat.unreadCount}
+                      </Badge>
+                    )}
+                  </span>
+                </div>
                 <Button
                   variant="ghost"
                   size="sm"
@@ -919,42 +705,43 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
                   <X className="w-3 h-3" />
                 </Button>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Chat Content - shown inside floating window */}
-          {!chat.minimized && (
-            <div className="flex-1 overflow-hidden flex flex-col" style={{ minHeight: 0 }}>
-              <ChatWindowView
-                chat={chat}
-                user={user}
-                allUsers={users}
-                resyncKey={resyncKey}
-                onSendMessage={(content, type, fileData) => sendMessage(content, type, fileData, chat.conversation_id)}
-                onRegisterMessageCallbacks={registerMessageCallbacks}
-                onTyping={sendTyping}
-                onMarkAsRead={() => markAsRead(chat.conversation_id)}
-                typingUser={typingUsers[chat.conversation_id]}
-                onAttachFileClick={() => {
-                  pendingUploadConversationRef.current = chat.conversation_id;
-                  fileInputRef.current?.click();
-                }}
-                onAttachImageClick={() => {
-                  pendingUploadConversationRef.current = chat.conversation_id;
-                  imageInputRef.current?.click();
-                }}
-                onClose={() => closeChatWindow(chat.conversation_id)}
-                onMinimize={() => toggleChatMinimize(chat.conversation_id)}
-                onUpdateGroup={(name, participantIds) => updateGroup(chat.conversation_id, name, participantIds)}
-                onLeaveGroup={() => leaveGroup(chat.conversation_id)}
-                onEditMessage={(messageId, content) => editMessage(chat.conversation_id, messageId, content)}
-                onDeleteMessage={(messageId) => deleteMessage(chat.conversation_id, messageId)}
-                isFloating={true}
-              />
-            </div>
-          )}
-        </div>
-      );
+            {!chat.minimized && (
+              <div className="flex-1 overflow-hidden flex flex-col" style={{ minHeight: 0 }}>
+                <ChatWindowView
+                  chat={chat}
+                  user={user}
+                  allUsers={users}
+                  messages={entry.items}
+                  loaded={entry.loaded}
+                  loading={entry.loading}
+                  hasMore={entry.hasMore}
+                  loadingOlder={entry.loadingOlder}
+                  onLoadOlder={() => loadOlderMessages(chat.conversation_id)}
+                  onSendMessage={(content, type, fileData) => sendMessage(chat.conversation_id, content, type, fileData)}
+                  onTyping={() => sendTyping(chat.conversation_id)}
+                  typingUser={typingUsers[chat.conversation_id]}
+                  onAttachFileClick={() => {
+                    pendingUploadConversationRef.current = chat.conversation_id;
+                    fileInputRef.current?.click();
+                  }}
+                  onAttachImageClick={() => {
+                    pendingUploadConversationRef.current = chat.conversation_id;
+                    imageInputRef.current?.click();
+                  }}
+                  onPasteFile={(file) => uploadFile(file, "image", chat.conversation_id)}
+                  onClose={() => closeChatWindow(chat.conversation_id)}
+                  onMinimize={() => toggleChatMinimize(chat.conversation_id)}
+                  onUpdateGroup={(name, ids) => updateGroup(chat.conversation_id, name, ids)}
+                  onLeaveGroup={() => leaveGroup(chat.conversation_id)}
+                  onEditMessage={(messageId, content) => editMessage(chat.conversation_id, messageId, content)}
+                  onDeleteMessage={(messageId) => deleteMessage(chat.conversation_id, messageId)}
+                />
+              </div>
+            )}
+          </div>
+        );
       })}
 
       {/* Main Chat Widget */}
@@ -964,83 +751,217 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
         } transition-all duration-300 text-gray-900 dark:text-white`}
         style={{ width: minimized ? "60px" : "380px" }}
       >
-      {/* Header */}
-      <div
-        className="flex items-center justify-between px-3 py-2 bg-white dark:bg-zinc-900 border-b border-black/10 dark:border-white/10 rounded-t-lg cursor-pointer hover:bg-gray-100 dark:hover:bg-zinc-800"
-        onClick={() => setMinimized(!minimized)}
-      >
-        <div className="flex items-center gap-2">
-          <div className="relative">
-            <MessageSquare className="w-5 h-5" />
-            {minimized && totalUnread > 0 && (
-              <Badge className="absolute -top-2 -right-2 bg-red-500 text-gray-900 dark:text-white text-xs min-w-[18px] h-[18px] flex items-center justify-center p-0">
-                {totalUnread > 99 ? '99+' : totalUnread}
-              </Badge>
+        <div
+          className="flex items-center justify-between px-3 py-2 bg-white dark:bg-zinc-900 border-b border-black/10 dark:border-white/10 rounded-t-lg cursor-pointer hover:bg-gray-100 dark:hover:bg-zinc-800"
+          onClick={() => setMinimized(!minimized)}
+        >
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <MessageSquare className="w-5 h-5" />
+              {minimized && totalUnread > 0 && (
+                <Badge className="absolute -top-2 -right-2 bg-red-500 text-white text-xs min-w-[18px] h-[18px] flex items-center justify-center p-0">
+                  {totalUnread > 99 ? "99+" : totalUnread}
+                </Badge>
+              )}
+            </div>
+            {!minimized && <span className="font-medium">Messages</span>}
+          </div>
+          <div className="flex items-center gap-1">
+            {!minimized && isAdmin && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="p-1 h-7 w-7 text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white"
+                title="New group"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setNewGroupOpen(true);
+                }}
+              >
+                <Plus className="w-4 h-4" />
+              </Button>
             )}
           </div>
-          {!minimized && <span className="font-medium">Messages</span>}
         </div>
-        <div className="flex items-center gap-1">
-          {!minimized && isAdmin && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="p-1 h-7 w-7 text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white"
-              title="New group"
-              onClick={(e) => {
-                e.stopPropagation();
-                setNewGroupOpen(true);
-              }}
-            >
-              <Plus className="w-4 h-4" />
-            </Button>
-          )}
-        </div>
+
+        {!minimized && (
+          <ChatListView
+            conversations={conversations}
+            users={users}
+            loading={initialLoading}
+            error={loadError}
+            onRetry={() => {
+              setInitialLoading(true);
+              Promise.all([fetchConversations(), fetchUsers()])
+                .then(() => setLoadError(false))
+                .catch(() => setLoadError(true))
+                .finally(() => setInitialLoading(false));
+            }}
+            onSelectConversation={openConversationWindow}
+            onStartConversation={startConversation}
+            userId={user?.id}
+          />
+        )}
+
+        {/* Hidden file inputs - shared by every open window, so which
+            conversation an upload belongs to comes from
+            pendingUploadConversationRef (set when a window's attach/image
+            button triggers the click), not activeChat. */}
+        <input
+          type="file"
+          ref={fileInputRef}
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files[0];
+            e.target.value = "";
+            if (file && pendingUploadConversationRef.current) uploadFile(file, "file", pendingUploadConversationRef.current);
+          }}
+          accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar"
+        />
+        <input
+          type="file"
+          ref={imageInputRef}
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files[0];
+            e.target.value = "";
+            if (file && pendingUploadConversationRef.current) uploadFile(file, "image", pendingUploadConversationRef.current);
+          }}
+          accept="image/*"
+        />
       </div>
 
-      {!minimized && (
-        <ChatListView
-          conversations={conversations}
-          users={users}
-          onSelectConversation={openConversationWindow}
-          onStartConversation={startConversation}
-          userId={user?.id}
-        />
-      )}
-
-      {/* Hidden file inputs - shared by every open window, so which
-          conversation an upload belongs to comes from
-          pendingUploadConversationRef (set when a window's attach/image
-          button triggers the click), not activeChat. */}
-      <input
-        type="file"
-        ref={fileInputRef}
-        className="hidden"
-        onChange={(e) => handleFileUpload(e, "file", pendingUploadConversationRef.current)}
-        accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar"
-      />
-      <input
-        type="file"
-        ref={imageInputRef}
-        className="hidden"
-        onChange={(e) => handleFileUpload(e, "image", pendingUploadConversationRef.current)}
-        accept="image/*"
-      />
-    </div>
-
-      {isAdmin && (
-        <NewGroupDialog
-          open={newGroupOpen}
-          onOpenChange={setNewGroupOpen}
-          users={users}
-          onCreate={createGroup}
-        />
-      )}
+      {isAdmin && <NewGroupDialog open={newGroupOpen} onOpenChange={setNewGroupOpen} users={users} onCreate={createGroup} />}
     </>
   );
 }
 
-// Admin-only dialog to create a group conversation with specific members
+function ChatListView({ conversations, users, loading, error, onRetry, onSelectConversation, onStartConversation, userId }) {
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const filteredConversations = conversations.filter((conv) => {
+    if (!searchQuery) return true;
+    const title = conv.is_group ? conv.name : conv.participants?.[0]?.name;
+    const q = searchQuery.toLowerCase();
+    return title?.toLowerCase().includes(q) || conv.last_message?.toLowerCase().includes(q);
+  });
+
+  const filteredUsers = users.filter((u) => {
+    if (!searchQuery) return true;
+    const q = searchQuery.toLowerCase();
+    return u.name?.toLowerCase().includes(q) || u.username?.toLowerCase().includes(q);
+  });
+
+  // "Other Users" only lists people you haven't DM'd yet - group membership
+  // doesn't count, since you can always start a separate DM with someone
+  // in a group.
+  const conversationUserIds = new Set(conversations.filter((c) => !c.is_group).map((c) => c.participants?.[0]?.id));
+  const usersWithoutConversations = filteredUsers.filter((u) => !conversationUserIds.has(u.id));
+
+  return (
+    <div className="flex flex-col flex-1 bg-white dark:bg-black border border-t-0 border-gray-200 dark:border-gray-800 rounded-b-lg overflow-hidden">
+      <div className="p-2 border-b border-gray-200 dark:border-zinc-800">
+        <Input
+          placeholder="Search messages..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="h-9 bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white placeholder:text-zinc-500"
+        />
+      </div>
+
+      <div className="flex-1 overflow-y-auto">
+        {loading && (
+          <div className="flex flex-col items-center justify-center gap-2 text-gray-400 py-10">
+            <Loader2 className="w-5 h-5 animate-spin" />
+            <span className="text-sm">Loading conversations...</span>
+          </div>
+        )}
+
+        {!loading && error && (
+          <div className="flex flex-col items-center justify-center gap-2 text-gray-400 py-10 px-4 text-center">
+            <span className="text-sm">Couldn't load your messages.</span>
+            <Button variant="outline" size="sm" onClick={onRetry}>
+              Retry
+            </Button>
+          </div>
+        )}
+
+        {!loading && !error && (
+          <div className="p-2">
+            {filteredConversations.map((conv) => {
+              const participant = conv.participants?.[0];
+              const title = conv.is_group ? conv.name : participant?.name;
+              return (
+                <div
+                  key={conv.id}
+                  className="flex items-center gap-3 p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg cursor-pointer"
+                  onClick={() => onSelectConversation(conv)}
+                >
+                  <div className="relative">
+                    <Avatar className="w-10 h-10">
+                      <AvatarFallback className={conv.is_group ? "bg-blue-600 text-white" : "bg-emerald-600 text-white"}>
+                        {conv.is_group ? <Users className="w-5 h-5" /> : getInitials(participant?.name)}
+                      </AvatarFallback>
+                    </Avatar>
+                    {!conv.is_group && participant?.is_online && (
+                      <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 rounded-full border-2 border-white dark:border-black" />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between">
+                      <div className="font-medium truncate text-gray-900 dark:text-white">{title}</div>
+                      <div className="text-xs text-zinc-500">{formatRelativeTime(conv.last_message_time)}</div>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <div className="text-sm text-gray-400 truncate">
+                        {conv.last_message_sender_id === userId && "You: "}
+                        {conv.last_message || (conv.is_group ? `${(conv.participants?.length || 0) + 1} members` : "No messages yet")}
+                      </div>
+                      {conv.unread_count > 0 && (
+                        <Badge className="bg-emerald-600 text-white text-xs min-w-[20px] h-5 flex items-center justify-center">
+                          {conv.unread_count}
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+
+            {usersWithoutConversations.length > 0 && (
+              <>
+                {filteredConversations.length > 0 && <div className="text-xs text-gray-500 mt-4 mb-2 px-2">Other Users</div>}
+                {usersWithoutConversations.map((u) => (
+                  <div
+                    key={u.id}
+                    className="flex items-center gap-3 p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg cursor-pointer"
+                    onClick={() => onStartConversation(u)}
+                  >
+                    <div className="relative">
+                      <Avatar className="w-10 h-10">
+                        <AvatarFallback className="bg-emerald-600 text-white">{getInitials(u.name)}</AvatarFallback>
+                      </Avatar>
+                      {u.is_online && <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 rounded-full border-2 border-white dark:border-black" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium truncate text-gray-900 dark:text-white">{u.name}</div>
+                      <div className="text-xs text-gray-500 truncate">{formatPresence(u.is_online, u.last_active)}</div>
+                    </div>
+                  </div>
+                ))}
+              </>
+            )}
+
+            {filteredConversations.length === 0 && usersWithoutConversations.length === 0 && (
+              <div className="text-center text-gray-400 py-10 px-4 text-sm">{searchQuery ? "No matches." : "No one to message yet."}</div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function NewGroupDialog({ open, onOpenChange, users, onCreate }) {
   const [name, setName] = useState("");
   const [memberIds, setMemberIds] = useState([]);
@@ -1109,182 +1030,128 @@ function NewGroupDialog({ open, onOpenChange, users, onCreate }) {
   );
 }
 
-// Chat List View Component
-function ChatListView({
-  conversations,
-  users,
-  onSelectConversation,
-  onStartConversation,
-  userId,
-}) {
-  const [searchQuery, setSearchQuery] = useState("");
+// Admin can rename the group / add-remove members here; any member can leave.
+function GroupInfoDialog({ open, onOpenChange, chat, currentUser, allUsers, onSave, onLeave }) {
+  const isAdmin = currentUser?.role === "admin";
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState("");
+  const [memberIds, setMemberIds] = useState([]);
+  const [submitting, setSubmitting] = useState(false);
 
-  // Filter conversations by search query
-  const filteredConversations = conversations.filter((conv) => {
-    if (!searchQuery) return true;
-    const title = conv.is_group ? conv.name : conv.participants?.[0]?.name;
-    return (
-      title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      conv.last_message?.toLowerCase().includes(searchQuery.toLowerCase())
-    );
-  });
-
-  const filteredUsers = users.filter((u) => {
-    if (!searchQuery) return true;
-    return (
-      u.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      u.username?.toLowerCase().includes(searchQuery.toLowerCase())
-    );
-  });
-
-  // Get users who already have a 1:1 conversation, so "Other Users" only
-  // lists people you haven't DM'd yet. Group membership doesn't count - you
-  // can always start a separate direct message with someone in a group.
-  const conversationUserIds = new Set(
-    conversations.filter((c) => !c.is_group).map((c) => c.participants?.[0]?.id)
-  );
-  const usersWithoutConversations = filteredUsers.filter(u => !conversationUserIds.has(u.id));
-
-  const formatTime = (dateStr) => {
-    if (!dateStr) return "";
-    // Parse the date - if no timezone info, append 'Z' to treat as UTC
-    // JavaScript will then convert to local time for display
-    let dateStrWithTz = dateStr;
-    if (!dateStr.endsWith('Z') && !dateStr.includes('+') && !dateStr.endsWith('Z')) {
-      dateStrWithTz = dateStr + 'Z';
+  useEffect(() => {
+    if (open) {
+      setName(chat?.name || "");
+      setMemberIds([...(currentUser?.id ? [currentUser.id] : []), ...(chat?.participants || []).map((p) => p.id)]);
+      setEditing(false);
     }
-    const date = new Date(dateStrWithTz);
-    const now = new Date();
+  }, [open, chat, currentUser]);
 
-    // Use local time for comparison
-    const dateTime = date.getTime();
-    const nowTime = now.getTime();
-
-    // Handle invalid dates
-    if (isNaN(dateTime)) return "";
-
-    const diff = nowTime - dateTime;
-    const minutes = Math.floor(diff / 60000);
-    const hours = Math.floor(diff / 3600000);
-    const days = Math.floor(diff / 86400000);
-
-    if (minutes < 1) return "now";
-    if (minutes < 60) return `${minutes}m`;
-    if (hours < 24) return `${hours}h`;
-    if (days < 7) return `${days}d`;
-    return date.toLocaleDateString();
+  const handleSave = async () => {
+    if (!name.trim() || memberIds.length < 2) return;
+    setSubmitting(true);
+    try {
+      await onSave(name.trim(), memberIds);
+      setEditing(false);
+    } catch (error) {
+      console.error("Error updating group:", error);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
-    <div className="flex flex-col flex-1 bg-white dark:bg-black border border-t-0 border-gray-200 dark:border-gray-800 rounded-b-lg overflow-hidden">
-      {/* Search */}
-      <div className="p-2 border-b border-gray-200 dark:border-zinc-800">
-        <Input
-          placeholder="Search messages..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className="h-9 bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white placeholder:text-zinc-500"
-        />
-      </div>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="bg-white dark:bg-zinc-900 border-black/10 dark:border-white/10 text-gray-900 dark:text-white">
+        <DialogHeader>
+          <DialogTitle>{editing ? "Edit Group" : chat?.name || "Group"}</DialogTitle>
+        </DialogHeader>
 
-      {/* List - Combined list showing conversations and users without conversations */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="p-2">
-          {/* Show conversations */}
-          {filteredConversations.length > 0 && filteredConversations.map((conv) => {
-            const participant = conv.participants?.[0];
-            const title = conv.is_group ? conv.name : participant?.name;
-            return (
-              <div
-                key={conv.id}
-                className="flex items-center gap-3 p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg cursor-pointer"
-                onClick={() => onSelectConversation(conv)}
-              >
+        {editing ? (
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label className="text-gray-500 dark:text-zinc-400">Group name</Label>
+              <Input value={name} onChange={(e) => setName(e.target.value)} className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-gray-500 dark:text-zinc-400">Members</Label>
+              <MultiSelect
+                options={allUsers.map((u) => ({ value: u.id, label: u.name || u.username }))}
+                value={memberIds.filter((id) => id !== currentUser?.id)}
+                onValueChange={(ids) => setMemberIds([...(currentUser?.id ? [currentUser.id] : []), ...ids])}
+                placeholder="Select members..."
+              />
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-1 max-h-60 overflow-y-auto">
+            <div className="text-xs text-gray-500 dark:text-zinc-400 mb-1">{(chat?.participants?.length || 0) + 1} members</div>
+            <div className="flex items-center gap-2 p-1.5">
+              <Avatar className="w-7 h-7">
+                <AvatarFallback className="bg-emerald-600 text-white text-xs">{getInitials(currentUser?.name)}</AvatarFallback>
+              </Avatar>
+              <span className="text-sm">{currentUser?.name} (you)</span>
+            </div>
+            {(chat?.participants || []).map((p) => (
+              <div key={p.id} className="flex items-center gap-2 p-1.5">
                 <div className="relative">
-                  <Avatar className="w-10 h-10">
-                    <AvatarFallback className={conv.is_group ? "bg-blue-600 text-gray-900 dark:text-white" : "bg-emerald-600 text-gray-900 dark:text-white"}>
-                      {conv.is_group ? <Users className="w-5 h-5" /> : getInitials(participant?.name)}
-                    </AvatarFallback>
+                  <Avatar className="w-7 h-7">
+                    <AvatarFallback className="bg-emerald-600 text-white text-xs">{getInitials(p.name)}</AvatarFallback>
                   </Avatar>
-                  {!conv.is_group && participant?.is_online && (
-                    <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 rounded-full border-2 border-white dark:border-black" />
-                  )}
+                  {p.is_online && <div className="absolute -bottom-0.5 -right-0.5 w-2 h-2 bg-green-500 rounded-full border border-white dark:border-black" />}
                 </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between">
-                    <div className="font-medium truncate text-gray-900 dark:text-white">{title}</div>
-                    <div className="text-xs text-zinc-500">
-                      {formatTime(conv.last_message_time)}
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div className="text-sm text-gray-400 truncate">
-                      {conv.last_message_sender_id === userId && "You: "}
-                      {conv.last_message || (conv.is_group ? `${(conv.participants?.length || 0) + 1} members` : "No messages yet")}
-                    </div>
-                    {conv.unread_count > 0 && (
-                      <Badge className="bg-emerald-600 text-gray-900 dark:text-white text-xs min-w-[20px] h-5 flex items-center justify-center">
-                        {conv.unread_count}
-                      </Badge>
-                    )}
-                  </div>
+                <div>
+                  <div className="text-sm">{p.name}</div>
+                  <div className="text-[10px] text-gray-500 dark:text-zinc-400">{formatPresence(p.is_online, p.last_active)}</div>
                 </div>
               </div>
-            );
-          })}
-          {filteredConversations.length === 0 && (
-            <div className="text-center text-gray-400 py-8">No conversations yet</div>
-          )}
+            ))}
+          </div>
+        )}
 
-          {/* Show users without conversations */}
-          {usersWithoutConversations.length > 0 && (
-            <>
-              {filteredConversations.length > 0 && (
-                <div className="text-xs text-gray-500 mt-4 mb-2 px-2">Other Users</div>
-              )}
-              {usersWithoutConversations.map((u) => (
-                <div
-                  key={u.id}
-                  className="flex items-center gap-3 p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg cursor-pointer"
-                  onClick={() => onStartConversation(u)}
-                >
-                  <div className="relative">
-                    <Avatar className="w-10 h-10">
-                      <AvatarFallback className="bg-emerald-600 text-gray-900 dark:text-white">
-                        {getInitials(u.name)}
-                      </AvatarFallback>
-                    </Avatar>
-                    {u.is_online && (
-                      <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 rounded-full border-2 border-white dark:border-black" />
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium truncate text-gray-900 dark:text-white">{u.name}</div>
-                    <div className="text-xs text-gray-500 truncate">{formatPresence(u.is_online, u.last_active)}</div>
-                  </div>
-                </div>
-              ))}
-            </>
-          )}
-        </div>
-      </div>
-    </div>
+        <DialogFooter className="flex-row items-center justify-between sm:justify-between w-full">
+          <Button variant="outline" onClick={onLeave} className="border-red-300 dark:border-red-900 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20">
+            <LogOut className="w-3.5 h-3.5 mr-1.5" />
+            Leave
+          </Button>
+          <div className="flex gap-2">
+            {isAdmin && !editing && (
+              <Button variant="outline" onClick={() => setEditing(true)} className="border-gray-200 dark:border-zinc-700">
+                Edit
+              </Button>
+            )}
+            {isAdmin && editing && (
+              <>
+                <Button variant="outline" onClick={() => setEditing(false)} className="border-gray-200 dark:border-zinc-700">
+                  Cancel
+                </Button>
+                <Button onClick={handleSave} disabled={!name.trim() || memberIds.length < 2 || submitting} className="bg-emerald-500 text-black hover:bg-emerald-400">
+                  Save
+                </Button>
+              </>
+            )}
+          </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
-// Chat Window View Component
 function ChatWindowView({
   chat,
   user,
   allUsers,
-  resyncKey,
+  messages,
+  loaded,
+  loading,
+  hasMore,
+  loadingOlder,
+  onLoadOlder,
   onSendMessage,
-  onRegisterMessageCallbacks,
   onTyping,
-  onMarkAsRead,
   typingUser,
   onAttachFileClick,
   onAttachImageClick,
+  onPasteFile,
   onClose,
   onMinimize,
   onUpdateGroup,
@@ -1293,11 +1160,6 @@ function ChatWindowView({
   onDeleteMessage,
 }) {
   const [message, setMessage] = useState("");
-  const [messages, setMessages] = useState([]);
-  const [hasLoadedFromApi, setHasLoadedFromApi] = useState(false);
-  // Comma-joined ids of the unread messages onMarkAsRead was last called
-  // for, for the current conversation - see the mark-as-read effect below.
-  const lastMarkedUnreadRef = useRef("");
   const [groupInfoOpen, setGroupInfoOpen] = useState(false);
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [editingMessageId, setEditingMessageId] = useState(null);
@@ -1305,173 +1167,61 @@ function ChatWindowView({
   const [deleteMessageId, setDeleteMessageId] = useState(null);
   const [deletingMessage, setDeletingMessage] = useState(false);
   const messagesEndRef = useRef(null);
-  const inputRef = useRef(null);
-  const [loading, setLoading] = useState(false);
-  const [hasMore, setHasMore] = useState(true);
   const messagesContainerRef = useRef(null);
+  const inputRef = useRef(null);
+  const typingTimeoutRef = useRef(null);
+  const prevMessageCountRef = useRef(0);
 
   const isGroup = !!chat.is_group;
   const memberCount = (chat.participants?.length || 0) + 1; // + self
 
-  // Register this window's own instant-add / temp-id-confirm callbacks,
-  // keyed by conversation_id so sending in one window can never land in a
-  // different one. Guard against a message id we already have (the merge-
-  // sync effect below can independently pick up the same message from the
-  // parent's copy) so it's never added twice either.
   useEffect(() => {
-    if (!onRegisterMessageCallbacks || !chat.conversation_id) return;
-    return onRegisterMessageCallbacks(
-      chat.conversation_id,
-      (message) => {
-        if (!message) return;
-        setMessages(prev => (prev.some(m => m.id === message.id) ? prev : [...prev, message]));
-      },
-      (tempId, realMessage) => {
-        setMessages(prev => prev.map(m => (m.id === tempId ? realMessage : m)));
-      }
-    );
-  }, [onRegisterMessageCallbacks, chat.conversation_id]);
-
-  // Load messages function wrapped in useCallback - must be defined before useEffect that uses it
-  const loadMessages = useCallback(async () => {
-    if (!chat.conversation_id) return;
-    setLoading(true);
-    try {
-      const response = await axios.get(
-        `${API}/chat/conversations/${chat.conversation_id}/messages?limit=50`,
-        { headers: { Authorization: `Bearer ${localStorage.getItem("token")}` } }
-      );
-      const apiMessages = response.data;
-      setHasMore(apiMessages.length === 50);
-
-      // Merge API messages with any existing local messages (e.g., messages sent while loading)
-      // Use functional update to avoid stale closure
-      setMessages(prevMessages => {
-        if (prevMessages.length === 0) {
-          // No local messages - just use API messages
-          return apiMessages;
-        }
-
-        // There are local messages - need to merge
-        // Get IDs from API messages to check what's already on server
-        const apiMessageIds = new Set(apiMessages.map(m => m.id));
-
-        // Filter local messages that are NOT in API response
-        // These are messages that were sent locally but not yet acknowledged by server
-        const localOnlyMessages = prevMessages.filter(m => !apiMessageIds.has(m.id));
-
-        // Combine API messages with local-only messages
-        return [...apiMessages, ...localOnlyMessages];
-      });
-      setHasLoadedFromApi(true);
-    } catch (error) {
-      console.error("Error loading messages:", error);
+    // Only auto-scroll for genuinely new messages, not while prepending
+    // older history from a scroll-up load.
+    if (messages.length > prevMessageCountRef.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }
-    setLoading(false);
-  }, [chat.conversation_id]);
-
-  // Reset loaded state when conversation changes
-  useEffect(() => {
-    if (chat.conversation_id) {
-      setHasLoadedFromApi(false);
-      lastMarkedUnreadRef.current = "";
-    }
-  }, [chat.conversation_id]);
-
-  // The chat socket just reconnected (resyncKey bumped by the parent) -
-  // re-fetch so anything sent while the connection was down shows up
-  // without the user having to close and reopen this window. Skipped on
-  // the initial mount (guarded by hasLoadedFromApi) since that's already
-  // covered by the normal load-on-open effect below.
-  useEffect(() => {
-    if (!hasLoadedFromApi) return;
-    loadMessages();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resyncKey]);
-
-  // Load and sync messages when conversation changes
-  useEffect(() => {
-    if (!chat.conversation_id) return;
-
-    // Load from API exactly once per conversation. This used to gate on
-    // messages.length === 0 instead of hasLoadedFromApi, which meant a
-    // conversation that genuinely has zero messages never satisfied
-    // "loaded" - loadMessages() would resolve, find 0 messages, and this
-    // effect would immediately re-fire and call it again forever (visible
-    // as a "Loading..." state that never went away, and a request storm
-    // against the backend for that conversation).
-    if (!loading && !hasLoadedFromApi) {
-      loadMessages();
-      return;
-    }
-
-    // Sync messages from parent to local state. This effect only re-runs
-    // when chat.messages (or the other deps) actually change, so there's no
-    // need to separately detect "did anything change" before merging - that
-    // used to gate on id-set differences only (hasNewMessages/hasLocalOnly),
-    // which meant an in-place edit to an EXISTING message (a read receipt
-    // landing on msg.is_read/read_by, an edit, a soft-delete) never got
-    // picked up, since no id was added or removed. Those only ever showed up
-    // after closing and reopening the window, which forces a fresh
-    // loadMessages() call instead of relying on this sync.
-    if (hasLoadedFromApi && chat.messages) {
-      // Merge by id and re-sort chronologically - never assume either
-      // side's array order reflects the full picture. The parent's copy
-      // only ever gets messages appended to it (it never receives the
-      // initially-loaded history), so concatenating "parent's messages"
-      // then "local-only messages" put whatever the parent had first,
-      // shoving the actual older history after it. Seeding the map from
-      // the local messages first (and only overwriting ids the parent also
-      // has) naturally keeps a not-yet-echoed optimistic send around too.
-      const byId = new Map(messages.map(m => [m.id, m]));
-      for (const parentMsg of chat.messages) {
-        const localMsg = byId.get(parentMsg.id);
-        // If local has is_read=true, preserve it - never overwrite with false
-        byId.set(parentMsg.id, {
-          ...parentMsg,
-          is_read: localMsg?.is_read === true ? true : (parentMsg.is_read || false),
-        });
-      }
-
-      const merged = Array.from(byId.values()).sort(
-        (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-      );
-      setMessages(merged);
-    }
-  }, [chat.conversation_id, chat.messages, hasLoadedFromApi, loadMessages, loading, messages.length]);
-
-  // Mark as read whenever the set of unread messages changes - not just
-  // once per window lifetime. A boolean latch here would mean a message
-  // that arrives while the window is already open (after the first check
-  // already ran) never gets marked read until the window is closed and
-  // reopened, since the latch permanently blocked any further checks.
-  // Track *which* unread ids we last acted on instead, so a genuinely new
-  // unread message re-triggers this, but re-renders with the same unread
-  // set don't spam onMarkAsRead redundantly.
-  useEffect(() => {
-    if (!chat.conversation_id || !hasLoadedFromApi) return;
-    const unreadIds = messages
-      .filter(msg => msg.sender_id !== user?.id && msg.is_read !== true)
-      .map(msg => msg.id)
-      .sort()
-      .join(",");
-    if (unreadIds && unreadIds !== lastMarkedUnreadRef.current) {
-      lastMarkedUnreadRef.current = unreadIds;
-      onMarkAsRead?.();
-    } else if (!unreadIds) {
-      lastMarkedUnreadRef.current = "";
-    }
-  }, [chat.conversation_id, messages, hasLoadedFromApi, user, onMarkAsRead]);
-
-  // Scroll to bottom when new messages arrive
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    prevMessageCountRef.current = messages.length;
   }, [messages]);
 
   const handleSend = () => {
     if (!message.trim()) return;
     onSendMessage(message);
     setMessage("");
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  };
+
+  const handleChange = (e) => {
+    setMessage(e.target.value);
+    if (!typingTimeoutRef.current) {
+      onTyping();
+      typingTimeoutRef.current = setTimeout(() => {
+        typingTimeoutRef.current = null;
+      }, 2000);
+    }
+  };
+
+  const handleScroll = () => {
+    if (!messagesContainerRef.current || loadingOlder || !hasMore) return;
+    if (messagesContainerRef.current.scrollTop === 0) onLoadOlder();
+  };
+
+  const handlePaste = (e) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.indexOf("image") !== -1) {
+        e.preventDefault();
+        onPasteFile(items[i].getAsFile());
+        break;
+      }
+    }
   };
 
   const insertEmoji = (emoji) => {
@@ -1504,10 +1254,6 @@ function ChatWindowView({
     }
   };
 
-  const handleDeleteMessage = (messageId) => {
-    setDeleteMessageId(messageId);
-  };
-
   const handleConfirmDeleteMessage = async () => {
     if (!deleteMessageId) return;
     setDeletingMessage(true);
@@ -1522,583 +1268,278 @@ function ChatWindowView({
     }
   };
 
-  const handleKeyPress = (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    } else {
-      // Send typing indicator with debounce
-      clearTimeout(window.typingTimeout);
-      onTyping();
-      window.typingTimeout = setTimeout(() => {}, 500);
+  const groups = [];
+  let currentDate = null;
+  messages.forEach((msg) => {
+    const msgDate = new Date(msg.created_at).toDateString();
+    if (msgDate !== currentDate) {
+      currentDate = msgDate;
+      groups.push({ type: "date", date: msg.created_at });
     }
-  };
-
-  const handleScroll = async () => {
-    if (!messagesContainerRef.current || loading || !hasMore) return;
-
-    const { scrollTop } = messagesContainerRef.current;
-    if (scrollTop === 0) {
-      // Load more messages
-      setLoading(true);
-      try {
-        const oldestMessage = messages[0];
-        const response = await axios.get(
-          `${API}/chat/conversations/${chat.conversation_id}/messages?limit=50&before=${oldestMessage.created_at}`,
-          { headers: { Authorization: `Bearer ${localStorage.getItem("token")}` } }
-        );
-        setMessages((prev) => [...response.data, ...prev]);
-        setHasMore(response.data.length === 50);
-      } catch (error) {
-        console.error("Error loading more messages:", error);
-      }
-      setLoading(false);
-    }
-  };
-
-  const formatTime = (dateStr) => {
-    if (!dateStr) return "";
-    // Parse the date - if no timezone info, append 'Z' to treat as UTC
-    // JavaScript will then convert to local time for display
-    let dateStrWithTz = dateStr;
-    if (!dateStr.endsWith('Z') && !dateStr.includes('+') && !dateStr.endsWith('Z')) {
-      dateStrWithTz = dateStr + 'Z';
-    }
-    const date = new Date(dateStrWithTz);
-    // Use toLocaleTimeString which automatically converts UTC to local timezone
-    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  };
-
-  const formatDate = (dateStr) => {
-    if (!dateStr) return "";
-    // Parse the date - if no timezone info, append 'Z' to treat as UTC
-    let dateStrWithTz = dateStr;
-    if (!dateStr.endsWith('Z') && !dateStr.includes('+') && !dateStr.endsWith('Z')) {
-      dateStrWithTz = dateStr + 'Z';
-    }
-    const date = new Date(dateStrWithTz);
-    const today = new Date();
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-
-    if (date.toDateString() === today.toDateString()) return "Today";
-    if (date.toDateString() === yesterday.toDateString()) return "Yesterday";
-    return date.toLocaleDateString();
-  };
-
-  const groupMessagesByDate = () => {
-    const groups = [];
-    let currentDate = null;
-
-    messages.filter(Boolean).forEach((msg) => {
-      const msgDate = new Date(msg.created_at).toDateString();
-      if (msgDate !== currentDate) {
-        currentDate = msgDate;
-        groups.push({ type: "date", date: msg.created_at });
-      }
-      groups.push({ type: "message", data: msg });
-    });
-
-    return groups;
-  };
-
-  const handlePaste = async (e) => {
-    const items = e.clipboardData?.items;
-    if (!items) return;
-
-    for (let i = 0; i < items.length; i++) {
-      if (items[i].type.indexOf("image") !== -1) {
-        e.preventDefault();
-        const file = items[i].getAsFile();
-        const formData = new FormData();
-        formData.append("file", file);
-
-        try {
-          const response = await axios.post(
-            `${API}/chat/upload`,
-            formData,
-            {
-              headers: {
-                Authorization: `Bearer ${localStorage.getItem("token")}`,
-                "Content-Type": "multipart/form-data",
-              },
-            }
-          );
-          onSendMessage(file.name, "image", response.data);
-        } catch (error) {
-          console.error("Error uploading pasted image:", error);
-        }
-        break;
-      }
-    }
-  };
+    groups.push({ type: "message", data: msg });
+  });
 
   return (
     <>
-    <div className="flex flex-col flex-1 bg-white dark:bg-black border border-t-0 border-gray-200 dark:border-gray-800 rounded-b-lg overflow-hidden" style={{ minHeight: 0 }}>
-      {/* Chat Header */}
-      <div className="flex items-center justify-between gap-2 px-2 py-1 border-b border-black/10 dark:border-white/10 bg-white dark:bg-zinc-900">
-        <div className="flex items-center gap-2 min-w-0">
-          <div className="relative flex-shrink-0">
-            <Avatar className="w-8 h-8">
-              <AvatarFallback className={isGroup ? "bg-blue-600 text-gray-900 dark:text-white text-xs" : "bg-emerald-600 text-gray-900 dark:text-white text-xs"}>
-                {isGroup ? <Users className="w-4 h-4" /> : getInitials(chat.participant?.name)}
-              </AvatarFallback>
-            </Avatar>
-            {!isGroup && chat.participant?.is_online && (
-              <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-white dark:border-gray-800" />
-            )}
-          </div>
-          <div className="min-w-0">
-            <div className="font-medium text-sm text-gray-900 dark:text-white truncate">{chatTitle(chat)}</div>
-            <div className="text-[10px] text-gray-500 dark:text-zinc-400 truncate">
-              {isGroup ? `${memberCount} members` : formatPresence(chat.participant?.is_online, chat.participant?.last_active)}
-            </div>
-          </div>
-        </div>
-        <div className="flex items-center gap-1">
-          {isGroup && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="p-1 h-6 w-6 text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white"
-              onClick={() => setGroupInfoOpen(true)}
-              title="Group info"
-            >
-              <Info className="w-3.5 h-3.5" />
-            </Button>
-          )}
-          {onMinimize && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="p-1 h-6 w-6 text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white"
-              onClick={onMinimize}
-              title="Minimize"
-            >
-              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
-              </svg>
-            </Button>
-          )}
-          {onClose && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="p-1 h-6 w-6 text-gray-500 dark:text-zinc-400 hover:text-red-400"
-              onClick={onClose}
-              title="Close"
-            >
-              <X className="w-3 h-3" />
-            </Button>
-          )}
-        </div>
-      </div>
-
-      {/* Messages */}
-      <div
-        className="flex-1 p-2 overflow-y-auto"
-        style={{ flex: '1 1 auto', minHeight: '0' }}
-        ref={messagesContainerRef}
-        onScroll={handleScroll}
-      >
-        {loading && messages.length === 0 && (
-          <div className="text-center text-gray-500 dark:text-zinc-400 py-4">Loading...</div>
-        )}
-        {groupMessagesByDate().map((item, index) => {
-          if (item.type === "date") {
-            return (
-              <div key={`date-${index}`} className="text-center text-[10px] text-zinc-500 my-1">
-                {formatDate(item.date)}
-              </div>
-            );
-          }
-
-          const msg = item.data;
-          const isOwn = msg.sender_id === user.id;
-          const isImage = msg.message_type === "image";
-          const isEditing = editingMessageId === msg.id;
-
-          // Per-message read receipt: how many OTHER participants have read
-          // it vs. how many there are. For a 1:1 DM otherCount is always 1,
-          // so this collapses to the old binary sent/read behavior; for a
-          // group it distinguishes "read by some" from "read by everyone".
-          const otherCount = chat.participants?.length || 0;
-          const readByCount = (msg.read_by || []).length;
-          const readByNames = isGroup
-            ? (msg.read_by || []).map((id) => chat.participants?.find((p) => p.id === id)?.name).filter(Boolean)
-            : [];
-
-          return (
-            <div
-              key={msg.id}
-              className={`group flex mb-1 items-end gap-1 ${isOwn ? "justify-end" : "justify-start"}`}
-            >
-              {isOwn && !msg.is_deleted && !isEditing && (
-                <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                  {msg.message_type === "text" && (
-                    <button
-                      onClick={() => startEditingMessage(msg)}
-                      className="p-1 text-gray-400 hover:text-gray-900 dark:hover:text-white"
-                      title="Edit message"
-                    >
-                      <Pencil className="w-3 h-3" />
-                    </button>
-                  )}
-                  <button
-                    onClick={() => handleDeleteMessage(msg.id)}
-                    className="p-1 text-gray-400 hover:text-red-400"
-                    title="Delete message"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                  </button>
-                </div>
-              )}
-              <div
-                className={`max-w-[70%] rounded px-2 py-1 text-sm ${
-                  isOwn
-                    ? "bg-emerald-600 text-gray-900 dark:text-white"
-                    : "bg-gray-200 dark:bg-zinc-700 text-gray-900 dark:text-zinc-100"
-                }`}
-              >
-                {/* Sender name - only useful in a group, where messages can come from more than one other person */}
-                {isGroup && !isOwn && (
-                  <div className="text-[10px] font-medium text-emerald-500 mb-0.5">{msg.sender_name}</div>
-                )}
-
-                {msg.is_deleted ? (
-                  <div className="italic text-xs opacity-70">This message was deleted</div>
-                ) : isEditing ? (
-                  <div className="space-y-1 min-w-[160px]">
-                    <Input
-                      autoFocus
-                      value={editingText}
-                      onChange={(e) => setEditingText(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && !e.shiftKey) {
-                          e.preventDefault();
-                          saveEditingMessage();
-                        } else if (e.key === "Escape") {
-                          cancelEditingMessage();
-                        }
-                      }}
-                      className="h-7 text-sm bg-white/20 border-white/30 text-gray-900 dark:text-white placeholder:text-gray-300"
-                    />
-                    <div className="flex justify-end gap-2 text-[10px]">
-                      <button onClick={cancelEditingMessage} className="underline opacity-80 hover:opacity-100">Cancel</button>
-                      <button onClick={saveEditingMessage} disabled={!editingText.trim()} className="underline font-medium disabled:opacity-50">Save</button>
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    {/* Image message */}
-                    {isImage && msg.file_url && (
-                      <div className="mb-1">
-                        <img
-                          src={`${API.replace("/api", "")}${msg.file_url}`}
-                          alt={msg.file_name || "Image"}
-                          className="max-w-full rounded"
-                          loading="lazy"
-                        />
-                      </div>
-                    )}
-
-                    {/* File message */}
-                    {msg.message_type === "file" && msg.file_url && (
-                      <a
-                        href={`${API.replace("/api", "")}${msg.file_url}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className={`flex items-center gap-2 mb-1 ${
-                          isOwn ? "text-emerald-200 hover:text-gray-900 dark:hover:text-white" : "text-emerald-400 hover:text-emerald-300"
-                        }`}
-                      >
-                        <Paperclip className="w-3 h-3" />
-                        <span className="text-xs underline">{msg.file_name || "File"}</span>
-                      </a>
-                    )}
-
-                    {/* Text content - detect links */}
-                    {msg.content && (
-                      <div className="break-words">
-                        {msg.content.split(/(https?:\/\/[^\s]+)/g).map((part, i) =>
-                          part.match(/https?:\/\/[^\s]+/) ? (
-                            <a
-                              key={i}
-                              href={part}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className={`underline ${
-                                isOwn ? "text-emerald-200 hover:text-gray-900 dark:hover:text-white" : "text-emerald-400 hover:text-emerald-300"
-                              }`}
-                            >
-                              {part}
-                            </a>
-                          ) : (
-                            <span key={i}>{part}</span>
-                          )
-                        )}
-                      </div>
-                    )}
-                  </>
-                )}
-
-                {/* Timestamp + edited tag + read receipt (WhatsApp-style ticks, own messages only) */}
-                {!isEditing && (
-                  <div
-                    className={`flex items-center justify-end gap-1 text-[10px] mt-0.5 ${
-                      isOwn ? "text-emerald-200" : "text-gray-400"
-                    }`}
-                  >
-                    <span>{formatTime(msg.created_at)}</span>
-                    {msg.edited && !msg.is_deleted && <span className="italic">(edited)</span>}
-                    {isOwn && !msg.is_deleted && (
-                      readByCount === 0 ? (
-                        <Check className="w-3 h-3" title="Sent" />
-                      ) : (
-                        <CheckCheck
-                          className={`w-3 h-3 ${isGroup && readByCount < otherCount ? "opacity-60" : ""}`}
-                          title={isGroup ? (readByNames.length ? `Read by ${readByNames.join(", ")}` : "Read") : "Read"}
-                        />
-                      )
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        })}
-
-        {/* Typing indicator */}
-        {typingUser && typingUser.user_id !== user.id && (
-          <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-zinc-400 mb-1">
-            <div className="flex gap-1">
-              <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-              <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-              <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
-            </div>
-            <span>{typingUser.user_name} is typing...</span>
-          </div>
-        )}
-
-        <div ref={messagesEndRef} />
-      </div>
-
-      {/* Message Input */}
-      <div className="flex items-center gap-1 px-2 py-1 border-t border-black/10 dark:border-white/10 bg-white dark:bg-zinc-900">
-        <Button
-          variant="ghost"
-          size="sm"
-          className="p-1 h-8 w-8"
-          onClick={onAttachFileClick}
-          title="Attach file"
-        >
-          <Paperclip className="w-4 h-4 text-gray-500 dark:text-zinc-400" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="p-1 h-8 w-8"
-          onClick={onAttachImageClick}
-          title="Send image"
-        >
-          <ImageIcon className="w-4 h-4 text-zinc-500" />
-        </Button>
-        <Popover open={emojiOpen} onOpenChange={setEmojiOpen}>
-          <PopoverTrigger asChild>
-            <Button variant="ghost" size="sm" className="p-1 h-8 w-8" title="Emoji">
-              <Smile className="w-4 h-4 text-zinc-500" />
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent align="end" className="w-64 p-2 bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700">
-            <div className="grid grid-cols-8 gap-1">
-              {EMOJI_OPTIONS.map((emoji, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => insertEmoji(emoji)}
-                  className="text-lg leading-none p-1 rounded hover:bg-gray-100 dark:hover:bg-zinc-800"
-                >
-                  {emoji}
-                </button>
-              ))}
-            </div>
-          </PopoverContent>
-        </Popover>
-        <Input
-          ref={inputRef}
-          placeholder="Type a message..."
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
-          onKeyPress={handleKeyPress}
-          onPaste={handlePaste}
-          className="flex-1 h-8 text-sm bg-gray-200 dark:bg-zinc-700 border-gray-300 dark:border-zinc-600 text-gray-900 dark:text-white placeholder:text-gray-500 dark:placeholder:text-zinc-400"
-        />
-        <Button
-          variant="ghost"
-          size="sm"
-          className="p-1 h-8 w-8"
-          onClick={handleSend}
-          disabled={!message.trim()}
-        >
-          <Send className={`w-4 h-4 ${message.trim() ? "text-emerald-400" : "text-gray-500"}`} />
-        </Button>
-      </div>
-    </div>
-    {isGroup && (
-      <GroupInfoDialog
-        open={groupInfoOpen}
-        onOpenChange={setGroupInfoOpen}
-        chat={chat}
-        currentUser={user}
-        allUsers={allUsers || []}
-        onSave={onUpdateGroup}
-        onLeave={() => {
-          setGroupInfoOpen(false);
-          onLeaveGroup?.();
-        }}
-      />
-    )}
-    <Dialog open={!!deleteMessageId} onOpenChange={(open) => !deletingMessage && !open && setDeleteMessageId(null)}>
-      <DialogContent className="bg-white dark:bg-zinc-900 border-black/10 dark:border-white/10 text-gray-900 dark:text-white">
-        <DialogHeader>
-          <DialogTitle>Delete message?</DialogTitle>
-        </DialogHeader>
-        <p className="text-sm text-gray-700 dark:text-zinc-300">This can't be undone.</p>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => setDeleteMessageId(null)} disabled={deletingMessage} className="border-gray-200 dark:border-zinc-700">
-            Cancel
-          </Button>
-          <Button
-            onClick={handleConfirmDeleteMessage}
-            disabled={deletingMessage}
-            className="bg-red-600 text-white hover:bg-red-700"
-          >
-            {deletingMessage ? "Deleting..." : "Delete"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-    </>
-  );
-}
-
-// Admin can rename the group / add-remove members here; any member can leave.
-function GroupInfoDialog({ open, onOpenChange, chat, currentUser, allUsers, onSave, onLeave }) {
-  const isAdmin = currentUser?.role === "admin";
-  const [editing, setEditing] = useState(false);
-  const [name, setName] = useState("");
-  const [memberIds, setMemberIds] = useState([]);
-  const [submitting, setSubmitting] = useState(false);
-
-  useEffect(() => {
-    if (open) {
-      setName(chat?.name || "");
-      setMemberIds([
-        ...(currentUser?.id ? [currentUser.id] : []),
-        ...((chat?.participants || []).map((p) => p.id)),
-      ]);
-      setEditing(false);
-    }
-  }, [open, chat, currentUser]);
-
-  const handleSave = async () => {
-    if (!name.trim() || memberIds.length < 2) return;
-    setSubmitting(true);
-    try {
-      await onSave(name.trim(), memberIds);
-      setEditing(false);
-    } catch (error) {
-      console.error("Error updating group:", error);
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="bg-white dark:bg-zinc-900 border-black/10 dark:border-white/10 text-gray-900 dark:text-white">
-        <DialogHeader>
-          <DialogTitle>{editing ? "Edit Group" : chat?.name || "Group"}</DialogTitle>
-        </DialogHeader>
-
-        {editing ? (
-          <div className="space-y-3">
-            <div className="space-y-1">
-              <Label className="text-gray-500 dark:text-zinc-400">Group name</Label>
-              <Input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-gray-500 dark:text-zinc-400">Members</Label>
-              <MultiSelect
-                options={allUsers.map((u) => ({ value: u.id, label: u.name || u.username }))}
-                value={memberIds.filter((id) => id !== currentUser?.id)}
-                onValueChange={(ids) => setMemberIds([...(currentUser?.id ? [currentUser.id] : []), ...ids])}
-                placeholder="Select members..."
-              />
-            </div>
-          </div>
-        ) : (
-          <div className="space-y-1 max-h-60 overflow-y-auto">
-            <div className="text-xs text-gray-500 dark:text-zinc-400 mb-1">{(chat?.participants?.length || 0) + 1} members</div>
-            <div className="flex items-center gap-2 p-1.5">
-              <Avatar className="w-7 h-7">
-                <AvatarFallback className="bg-emerald-600 text-gray-900 dark:text-white text-xs">{getInitials(currentUser?.name)}</AvatarFallback>
+      <div className="flex flex-col flex-1 bg-white dark:bg-black border border-t-0 border-gray-200 dark:border-gray-800 rounded-b-lg overflow-hidden" style={{ minHeight: 0 }}>
+        <div className="flex items-center justify-between gap-2 px-2 py-1 border-b border-black/10 dark:border-white/10 bg-white dark:bg-zinc-900">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="relative flex-shrink-0">
+              <Avatar className="w-8 h-8">
+                <AvatarFallback className={isGroup ? "bg-blue-600 text-white text-xs" : "bg-emerald-600 text-white text-xs"}>
+                  {isGroup ? <Users className="w-4 h-4" /> : getInitials(chat.participant?.name)}
+                </AvatarFallback>
               </Avatar>
-              <span className="text-sm">{currentUser?.name} (you)</span>
+              {!isGroup && chat.participant?.is_online && (
+                <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-white dark:border-gray-800" />
+              )}
             </div>
-            {(chat?.participants || []).map((p) => (
-              <div key={p.id} className="flex items-center gap-2 p-1.5">
-                <div className="relative">
-                  <Avatar className="w-7 h-7">
-                    <AvatarFallback className="bg-emerald-600 text-gray-900 dark:text-white text-xs">{getInitials(p.name)}</AvatarFallback>
-                  </Avatar>
-                  {p.is_online && <div className="absolute -bottom-0.5 -right-0.5 w-2 h-2 bg-green-500 rounded-full border border-white dark:border-black" />}
-                </div>
-                <div>
-                  <div className="text-sm">{p.name}</div>
-                  <div className="text-[10px] text-gray-500 dark:text-zinc-400">{formatPresence(p.is_online, p.last_active)}</div>
-                </div>
+            <div className="min-w-0">
+              <div className="font-medium text-sm text-gray-900 dark:text-white truncate">{chatTitle(chat)}</div>
+              <div className="text-[10px] text-gray-500 dark:text-zinc-400 truncate">
+                {isGroup ? `${memberCount} members` : formatPresence(chat.participant?.is_online, chat.participant?.last_active)}
               </div>
-            ))}
+            </div>
           </div>
-        )}
-
-        <DialogFooter className="flex-row items-center justify-between sm:justify-between w-full">
-          <Button
-            variant="outline"
-            onClick={onLeave}
-            className="border-red-300 dark:border-red-900 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
-          >
-            <LogOut className="w-3.5 h-3.5 mr-1.5" />
-            Leave
-          </Button>
-          <div className="flex gap-2">
-            {isAdmin && !editing && (
-              <Button variant="outline" onClick={() => setEditing(true)} className="border-gray-200 dark:border-zinc-700">
-                Edit
+          <div className="flex items-center gap-1">
+            {isGroup && (
+              <Button variant="ghost" size="sm" className="p-1 h-6 w-6 text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white" onClick={() => setGroupInfoOpen(true)} title="Group info">
+                <Info className="w-3.5 h-3.5" />
               </Button>
             )}
-            {isAdmin && editing && (
-              <>
-                <Button variant="outline" onClick={() => setEditing(false)} className="border-gray-200 dark:border-zinc-700">
-                  Cancel
-                </Button>
-                <Button
-                  onClick={handleSave}
-                  disabled={!name.trim() || memberIds.length < 2 || submitting}
-                  className="bg-emerald-500 text-black hover:bg-emerald-400"
-                >
-                  Save
-                </Button>
-              </>
-            )}
+            <Button variant="ghost" size="sm" className="p-1 h-6 w-6 text-gray-500 dark:text-zinc-400" onClick={onMinimize} title="Minimize">
+              <Minus className="w-3 h-3" />
+            </Button>
+            <Button variant="ghost" size="sm" className="p-1 h-6 w-6 text-gray-500 dark:text-zinc-400 hover:text-red-400" onClick={onClose} title="Close">
+              <X className="w-3 h-3" />
+            </Button>
           </div>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </div>
+
+        <div className="flex-1 p-2 overflow-y-auto" style={{ flex: "1 1 auto", minHeight: "0" }} ref={messagesContainerRef} onScroll={handleScroll}>
+          {loadingOlder && (
+            <div className="flex justify-center py-1">
+              <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
+            </div>
+          )}
+
+          {!loaded && loading && (
+            <div className="flex flex-col items-center justify-center gap-2 text-gray-500 dark:text-zinc-400 py-8">
+              <Loader2 className="w-5 h-5 animate-spin" />
+              <span className="text-xs">Loading messages...</span>
+            </div>
+          )}
+
+          {loaded && messages.length === 0 && (
+            <div className="flex items-center justify-center text-center text-gray-400 text-sm py-8 px-4">
+              No messages yet. Say hi to {chatTitle(chat)}!
+            </div>
+          )}
+
+          {groups.map((item, index) => {
+            if (item.type === "date") {
+              return (
+                <div key={`date-${index}`} className="text-center text-[10px] text-zinc-500 my-1">
+                  {formatDateLabel(item.date)}
+                </div>
+              );
+            }
+
+            const msg = item.data;
+            const isOwn = msg.sender_id === user.id;
+            const isImage = msg.message_type === "image";
+            const isEditing = editingMessageId === msg.id;
+            const otherCount = chat.participants?.length || 0;
+            const readByCount = (msg.read_by || []).length;
+            const readByNames = isGroup ? (msg.read_by || []).map((id) => chat.participants?.find((p) => p.id === id)?.name).filter(Boolean) : [];
+
+            return (
+              <div key={msg.id} className={`group flex mb-1 items-end gap-1 ${isOwn ? "justify-end" : "justify-start"}`}>
+                {isOwn && !msg.is_deleted && !isEditing && (
+                  <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                    {msg.message_type === "text" && (
+                      <button onClick={() => startEditingMessage(msg)} className="p-1 text-gray-400 hover:text-gray-900 dark:hover:text-white" title="Edit message">
+                        <Pencil className="w-3 h-3" />
+                      </button>
+                    )}
+                    <button onClick={() => setDeleteMessageId(msg.id)} className="p-1 text-gray-400 hover:text-red-400" title="Delete message">
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
+                )}
+                <div className={`max-w-[70%] rounded px-2 py-1 text-sm ${isOwn ? "bg-emerald-600 text-white" : "bg-gray-200 dark:bg-zinc-700 text-gray-900 dark:text-zinc-100"}`}>
+                  {isGroup && !isOwn && <div className="text-[10px] font-medium text-emerald-500 mb-0.5">{msg.sender_name}</div>}
+
+                  {msg.is_deleted ? (
+                    <div className="italic text-xs opacity-70">This message was deleted</div>
+                  ) : isEditing ? (
+                    <div className="space-y-1 min-w-[160px]">
+                      <Input
+                        autoFocus
+                        value={editingText}
+                        onChange={(e) => setEditingText(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && !e.shiftKey) {
+                            e.preventDefault();
+                            saveEditingMessage();
+                          } else if (e.key === "Escape") {
+                            cancelEditingMessage();
+                          }
+                        }}
+                        className="h-7 text-sm bg-white/20 border-white/30 text-white placeholder:text-gray-300"
+                      />
+                      <div className="flex justify-end gap-2 text-[10px]">
+                        <button onClick={cancelEditingMessage} className="underline opacity-80 hover:opacity-100">Cancel</button>
+                        <button onClick={saveEditingMessage} disabled={!editingText.trim()} className="underline font-medium disabled:opacity-50">Save</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      {isImage && msg.file_url && (
+                        <div className="mb-1">
+                          <img src={`${FILE_ORIGIN}${msg.file_url}`} alt={msg.file_name || "Image"} className="max-w-full rounded" loading="lazy" />
+                        </div>
+                      )}
+
+                      {msg.message_type === "file" && msg.file_url && (
+                        <a
+                          href={`${FILE_ORIGIN}${msg.file_url}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={`flex items-center gap-2 mb-1 ${isOwn ? "text-emerald-100 hover:text-white" : "text-emerald-600 dark:text-emerald-400"}`}
+                        >
+                          <Paperclip className="w-3 h-3" />
+                          <span className="text-xs underline">{msg.file_name || "File"}</span>
+                        </a>
+                      )}
+
+                      {msg.content && (
+                        <div className="break-words">
+                          {msg.content.split(/(https?:\/\/[^\s]+)/g).map((part, i) =>
+                            /^https?:\/\/[^\s]+$/.test(part) ? (
+                              <a
+                                key={i}
+                                href={part}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className={`underline ${isOwn ? "text-emerald-100 hover:text-white" : "text-emerald-600 dark:text-emerald-400"}`}
+                              >
+                                {part}
+                              </a>
+                            ) : (
+                              <span key={i}>{part}</span>
+                            )
+                          )}
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {!isEditing && (
+                    <div className={`flex items-center justify-end gap-1 text-[10px] mt-0.5 ${isOwn ? "text-emerald-100" : "text-gray-500 dark:text-zinc-400"}`}>
+                      <span>{formatTimeLabel(msg.created_at)}</span>
+                      {msg.edited && !msg.is_deleted && <span className="italic">(edited)</span>}
+                      {isOwn && msg.failed && <span>Failed to send</span>}
+                      {isOwn && !msg.failed && !msg.is_deleted && (
+                        readByCount === 0 ? (
+                          <Check className="w-3 h-3" title="Sent" />
+                        ) : (
+                          <CheckCheck
+                            className={`w-3 h-3 ${isGroup && readByCount < otherCount ? "opacity-60" : ""}`}
+                            title={isGroup ? (readByNames.length ? `Read by ${readByNames.join(", ")}` : "Read") : "Read"}
+                          />
+                        )
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+
+          {typingUser && typingUser.user_id !== user.id && (
+            <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-zinc-400 mb-1">
+              <div className="flex gap-1">
+                <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+                <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+                <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+              </div>
+              <span>{typingUser.user_name} is typing...</span>
+            </div>
+          )}
+
+          <div ref={messagesEndRef} />
+        </div>
+
+        <div className="flex items-center gap-1 px-2 py-1 border-t border-black/10 dark:border-white/10 bg-white dark:bg-zinc-900">
+          <Button variant="ghost" size="sm" className="p-1 h-8 w-8" onClick={onAttachFileClick} title="Attach file">
+            <Paperclip className="w-4 h-4 text-gray-500 dark:text-zinc-400" />
+          </Button>
+          <Button variant="ghost" size="sm" className="p-1 h-8 w-8" onClick={onAttachImageClick} title="Send image">
+            <ImageIcon className="w-4 h-4 text-zinc-500" />
+          </Button>
+          <Popover open={emojiOpen} onOpenChange={setEmojiOpen}>
+            <PopoverTrigger asChild>
+              <Button variant="ghost" size="sm" className="p-1 h-8 w-8" title="Emoji">
+                <Smile className="w-4 h-4 text-zinc-500" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-64 p-2 bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700">
+              <div className="grid grid-cols-8 gap-1">
+                {EMOJI_OPTIONS.map((emoji, idx) => (
+                  <button key={idx} onClick={() => insertEmoji(emoji)} className="text-lg leading-none p-1 rounded hover:bg-gray-100 dark:hover:bg-zinc-800">
+                    {emoji}
+                  </button>
+                ))}
+              </div>
+            </PopoverContent>
+          </Popover>
+          <Input
+            ref={inputRef}
+            placeholder="Type a message..."
+            value={message}
+            onChange={handleChange}
+            onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
+            className="flex-1 h-8 text-sm bg-gray-200 dark:bg-zinc-700 border-gray-300 dark:border-zinc-600 text-gray-900 dark:text-white placeholder:text-gray-500 dark:placeholder:text-zinc-400"
+          />
+          <Button variant="ghost" size="sm" className="p-1 h-8 w-8" onClick={handleSend} disabled={!message.trim()}>
+            <Send className={`w-4 h-4 ${message.trim() ? "text-emerald-500" : "text-gray-400"}`} />
+          </Button>
+        </div>
+      </div>
+
+      {isGroup && (
+        <GroupInfoDialog
+          open={groupInfoOpen}
+          onOpenChange={setGroupInfoOpen}
+          chat={chat}
+          currentUser={user}
+          allUsers={allUsers || []}
+          onSave={onUpdateGroup}
+          onLeave={() => {
+            setGroupInfoOpen(false);
+            onLeaveGroup?.();
+          }}
+        />
+      )}
+
+      <Dialog open={!!deleteMessageId} onOpenChange={(open) => !deletingMessage && !open && setDeleteMessageId(null)}>
+        <DialogContent className="bg-white dark:bg-zinc-900 border-black/10 dark:border-white/10 text-gray-900 dark:text-white">
+          <DialogHeader>
+            <DialogTitle>Delete message?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-gray-700 dark:text-zinc-300">This can't be undone.</p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteMessageId(null)} disabled={deletingMessage} className="border-gray-200 dark:border-zinc-700">
+              Cancel
+            </Button>
+            <Button onClick={handleConfirmDeleteMessage} disabled={deletingMessage} className="bg-red-600 text-white hover:bg-red-700">
+              {deletingMessage ? "Deleting..." : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
