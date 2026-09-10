@@ -148,6 +148,9 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
   // whichever conversation happened to be active instead of the window
   // whose button was actually clicked.
   const pendingUploadConversationRef = useRef(null);
+  // Files picked/pasted/dropped but not yet sent, keyed by conversation_id -
+  // shown as previews in that window's composer until the user hits send.
+  const [pendingAttachmentsByConv, setPendingAttachmentsByConv] = useState({});
   // Tracks in-flight/completed loads synchronously so re-opening or
   // reconnecting can't fire two overlapping fetches for the same
   // conversation (React state updates are async, so checking
@@ -294,7 +297,17 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
 
       setMessagesByConv((prev) => {
         const entry = prev[message.conversation_id] || { items: [], loaded: false, loading: false, hasMore: true };
-        if (entry.items.some((m) => m.id === message.id)) return prev;
+        const existingIdx = entry.items.findIndex((m) => m.id === message.id);
+        if (existingIdx >= 0) {
+          // We already have this message by id - replace it with the fresh
+          // copy instead of no-oping. The reconnect resync and the polling
+          // fallback both re-fetch messages we may already have, and that's
+          // exactly how a read receipt (or an edit/delete) that the socket
+          // missed actually catches up - a plain "already have this id, skip"
+          // here would silently swallow those updates.
+          const items = entry.items.map((m, i) => (i === existingIdx ? message : m));
+          return { ...prev, [message.conversation_id]: { ...entry, items } };
+        }
         const clientIdx = message.client_id
           ? entry.items.findIndex((m) => m.client_id && m.client_id === message.client_id)
           : -1;
@@ -693,6 +706,43 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
     }
   };
 
+  // Stages a file for a conversation's composer instead of uploading it right
+  // away - the user sees a preview and decides whether to actually send it.
+  const addPendingFiles = (conversationId, files) => {
+    if (!conversationId || !files || files.length === 0) return;
+    const items = Array.from(files).map((file) => ({
+      id: makeClientId(),
+      file,
+      isImage: file.type.startsWith("image/"),
+      previewUrl: file.type.startsWith("image/") ? URL.createObjectURL(file) : null,
+    }));
+    setPendingAttachmentsByConv((prev) => ({
+      ...prev,
+      [conversationId]: [...(prev[conversationId] || []), ...items],
+    }));
+  };
+
+  const removePendingAttachment = (conversationId, attachmentId) => {
+    setPendingAttachmentsByConv((prev) => {
+      const current = prev[conversationId] || [];
+      const target = current.find((a) => a.id === attachmentId);
+      if (target?.previewUrl) URL.revokeObjectURL(target.previewUrl);
+      return { ...prev, [conversationId]: current.filter((a) => a.id !== attachmentId) };
+    });
+  };
+
+  // Uploads every staged attachment (each as its own message, in the order
+  // added) and then sends the typed text, if any, as a separate message.
+  const sendComposedMessage = async (conversationId, text, attachments) => {
+    setPendingAttachmentsByConv((prev) => ({ ...prev, [conversationId]: [] }));
+    for (const att of attachments) {
+      await uploadFile(att.file, att.isImage ? "image" : "file", conversationId);
+      if (att.previewUrl) URL.revokeObjectURL(att.previewUrl);
+    }
+    const trimmed = text.trim();
+    if (trimmed) sendMessage(conversationId, trimmed, "text");
+  };
+
   const totalUnread = conversations.reduce((sum, c) => sum + (c.unread_count || 0), 0);
 
   const toggleChatMinimize = (conversationId) => {
@@ -773,9 +823,12 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
                   hasMore={entry.hasMore}
                   loadingOlder={entry.loadingOlder}
                   onLoadOlder={() => loadOlderMessages(chat.conversation_id)}
-                  onSendMessage={(content, type, fileData) => sendMessage(chat.conversation_id, content, type, fileData)}
+                  onSend={(text, attachments) => sendComposedMessage(chat.conversation_id, text, attachments)}
                   onTyping={() => sendTyping(chat.conversation_id)}
                   typingUser={typingUsers[chat.conversation_id]}
+                  pendingAttachments={pendingAttachmentsByConv[chat.conversation_id] || []}
+                  onAddFiles={(files) => addPendingFiles(chat.conversation_id, files)}
+                  onRemoveAttachment={(id) => removePendingAttachment(chat.conversation_id, id)}
                   onAttachFileClick={() => {
                     pendingUploadConversationRef.current = chat.conversation_id;
                     fileInputRef.current?.click();
@@ -784,7 +837,6 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
                     pendingUploadConversationRef.current = chat.conversation_id;
                     imageInputRef.current?.click();
                   }}
-                  onPasteFile={(file) => uploadFile(file, "image", chat.conversation_id)}
                   onClose={() => closeChatWindow(chat.conversation_id)}
                   onMinimize={() => toggleChatMinimize(chat.conversation_id)}
                   onUpdateGroup={(name, ids) => updateGroup(chat.conversation_id, name, ids)}
@@ -868,7 +920,7 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
           onChange={(e) => {
             const file = e.target.files[0];
             e.target.value = "";
-            if (file && pendingUploadConversationRef.current) uploadFile(file, "file", pendingUploadConversationRef.current);
+            if (file && pendingUploadConversationRef.current) addPendingFiles(pendingUploadConversationRef.current, [file]);
           }}
           accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar"
         />
@@ -879,7 +931,7 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
           onChange={(e) => {
             const file = e.target.files[0];
             e.target.value = "";
-            if (file && pendingUploadConversationRef.current) uploadFile(file, "image", pendingUploadConversationRef.current);
+            if (file && pendingUploadConversationRef.current) addPendingFiles(pendingUploadConversationRef.current, [file]);
           }}
           accept="image/*"
         />
@@ -1200,12 +1252,14 @@ function ChatWindowView({
   hasMore,
   loadingOlder,
   onLoadOlder,
-  onSendMessage,
+  onSend,
   onTyping,
   typingUser,
+  pendingAttachments,
+  onAddFiles,
+  onRemoveAttachment,
   onAttachFileClick,
   onAttachImageClick,
-  onPasteFile,
   onClose,
   onMinimize,
   onUpdateGroup,
@@ -1220,28 +1274,97 @@ function ChatWindowView({
   const [editingText, setEditingText] = useState("");
   const [deleteMessageId, setDeleteMessageId] = useState(null);
   const [deletingMessage, setDeletingMessage] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
+  const [lightboxUrl, setLightboxUrl] = useState(null);
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
   const inputRef = useRef(null);
   const typingTimeoutRef = useRef(null);
-  const prevMessageCountRef = useRef(0);
+  // Tracks the last message's id (not just the count) so loading older
+  // history - which also grows the array, by prepending - doesn't trigger
+  // a jump to the bottom the way a genuinely new message should.
+  const lastMessageIdRef = useRef(null);
+  const hasScrolledInitiallyRef = useRef(false);
 
   const isGroup = !!chat.is_group;
   const memberCount = (chat.participants?.length || 0) + 1; // + self
 
   useEffect(() => {
-    // Only auto-scroll for genuinely new messages, not while prepending
-    // older history from a scroll-up load.
-    if (messages.length > prevMessageCountRef.current) {
+    if (!loaded) return;
+    const lastId = messages.length ? messages[messages.length - 1].id : null;
+    if (!hasScrolledInitiallyRef.current) {
+      // Opening (or re-opening) this chat window - always land on the
+      // latest message immediately rather than wherever it happened to
+      // render, and without a smooth-scroll animation that can look like
+      // nothing happened if the jump is long.
+      messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
+      hasScrolledInitiallyRef.current = true;
+      lastMessageIdRef.current = lastId;
+      return;
+    }
+    if (lastId && lastId !== lastMessageIdRef.current) {
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }
-    prevMessageCountRef.current = messages.length;
-  }, [messages]);
+    lastMessageIdRef.current = lastId;
+  }, [messages, loaded]);
+
+  useEffect(() => {
+    if (!lightboxUrl) return;
+    const onKeyDown = (e) => {
+      if (e.key === "Escape") setLightboxUrl(null);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [lightboxUrl]);
+
+  useEffect(() => {
+    // Revoke any preview object URLs still around when this window unmounts
+    // (e.g. the chat is closed with attachments still staged).
+    return () => {
+      pendingAttachments.forEach((att) => {
+        if (att.previewUrl) URL.revokeObjectURL(att.previewUrl);
+      });
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleSend = () => {
-    if (!message.trim()) return;
-    onSendMessage(message);
+    if (!message.trim() && pendingAttachments.length === 0) return;
+    onSend(message, pendingAttachments);
     setMessage("");
+  };
+
+  // dragenter/dragleave fire for every child element as the cursor moves
+  // over them, not just the drop zone's own boundary, so a plain "leave
+  // clears the flag" handler flickers constantly while dragging over
+  // messages. A counter that only reaches zero once every enter has a
+  // matching leave avoids that.
+  const dragCounterRef = useRef(0);
+
+  const handleDragEnter = (e) => {
+    e.preventDefault();
+    dragCounterRef.current += 1;
+    if (e.dataTransfer?.types?.includes("Files")) setDragActive(true);
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    dragCounterRef.current -= 1;
+    if (dragCounterRef.current <= 0) {
+      dragCounterRef.current = 0;
+      setDragActive(false);
+    }
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    dragCounterRef.current = 0;
+    setDragActive(false);
+    if (e.dataTransfer?.files?.length) onAddFiles(e.dataTransfer.files);
   };
 
   const handleKeyDown = (e) => {
@@ -1269,12 +1392,16 @@ function ChatWindowView({
   const handlePaste = (e) => {
     const items = e.clipboardData?.items;
     if (!items) return;
+    const files = [];
     for (let i = 0; i < items.length; i++) {
-      if (items[i].type.indexOf("image") !== -1) {
-        e.preventDefault();
-        onPasteFile(items[i].getAsFile());
-        break;
+      if (items[i].kind === "file") {
+        const file = items[i].getAsFile();
+        if (file) files.push(file);
       }
+    }
+    if (files.length) {
+      e.preventDefault();
+      onAddFiles(files);
     }
   };
 
@@ -1335,7 +1462,21 @@ function ChatWindowView({
 
   return (
     <>
-      <div className="flex flex-col flex-1 bg-white dark:bg-black border border-t-0 border-gray-200 dark:border-gray-800 rounded-b-lg overflow-hidden" style={{ minHeight: 0 }}>
+      <div
+        className="relative flex flex-col flex-1 bg-white dark:bg-black border border-t-0 border-gray-200 dark:border-gray-800 rounded-b-lg overflow-hidden"
+        style={{ minHeight: 0 }}
+        onDragEnter={handleDragEnter}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
+        {dragActive && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-emerald-600/10 border-2 border-dashed border-emerald-500 pointer-events-none">
+            <span className="text-sm font-medium text-emerald-700 dark:text-emerald-300 bg-white dark:bg-zinc-900 px-3 py-1.5 rounded shadow">
+              Drop to attach
+            </span>
+          </div>
+        )}
         <div className="flex items-center justify-between gap-2 px-2 py-1 border-b border-black/10 dark:border-white/10 bg-white dark:bg-zinc-900">
           <div className="flex items-center gap-2 min-w-0">
             <div className="relative flex-shrink-0">
@@ -1451,7 +1592,13 @@ function ChatWindowView({
                     <>
                       {isImage && msg.file_url && (
                         <div className="mb-1">
-                          <img src={`${FILE_ORIGIN}${msg.file_url}`} alt={msg.file_name || "Image"} className="max-w-full rounded" loading="lazy" />
+                          <img
+                            src={`${FILE_ORIGIN}${msg.file_url}`}
+                            alt={msg.file_name || "Image"}
+                            className="max-w-full rounded cursor-pointer"
+                            loading="lazy"
+                            onClick={() => setLightboxUrl(`${FILE_ORIGIN}${msg.file_url}`)}
+                          />
                         </div>
                       )}
 
@@ -1525,6 +1672,30 @@ function ChatWindowView({
           <div ref={messagesEndRef} />
         </div>
 
+        {pendingAttachments.length > 0 && (
+          <div className="flex flex-wrap gap-2 px-2 pt-2 border-t border-black/10 dark:border-white/10 bg-white dark:bg-zinc-900">
+            {pendingAttachments.map((att) => (
+              <div key={att.id} className="relative">
+                {att.isImage ? (
+                  <img src={att.previewUrl} alt={att.file.name} className="w-14 h-14 object-cover rounded border border-gray-300 dark:border-zinc-700" />
+                ) : (
+                  <div className="w-14 h-14 flex flex-col items-center justify-center gap-0.5 rounded border border-gray-300 dark:border-zinc-700 bg-gray-100 dark:bg-zinc-800 p-1">
+                    <Paperclip className="w-4 h-4 text-gray-500 dark:text-zinc-400" />
+                    <span className="text-[9px] leading-tight truncate w-full text-center text-gray-600 dark:text-zinc-400">{att.file.name}</span>
+                  </div>
+                )}
+                <button
+                  onClick={() => onRemoveAttachment(att.id)}
+                  className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-black/70 text-white flex items-center justify-center leading-none"
+                  title="Remove"
+                >
+                  <X className="w-2.5 h-2.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
         <div className="flex items-center gap-1 px-2 py-1 border-t border-black/10 dark:border-white/10 bg-white dark:bg-zinc-900">
           <Button variant="ghost" size="sm" className="p-1 h-8 w-8" onClick={onAttachFileClick} title="Attach file">
             <Paperclip className="w-4 h-4 text-gray-500 dark:text-zinc-400" />
@@ -1557,11 +1728,38 @@ function ChatWindowView({
             onPaste={handlePaste}
             className="flex-1 h-8 text-sm bg-gray-200 dark:bg-zinc-700 border-gray-300 dark:border-zinc-600 text-gray-900 dark:text-white placeholder:text-gray-500 dark:placeholder:text-zinc-400"
           />
-          <Button variant="ghost" size="sm" className="p-1 h-8 w-8" onClick={handleSend} disabled={!message.trim()}>
-            <Send className={`w-4 h-4 ${message.trim() ? "text-emerald-500" : "text-gray-400"}`} />
+          <Button
+            variant="ghost"
+            size="sm"
+            className="p-1 h-8 w-8"
+            onClick={handleSend}
+            disabled={!message.trim() && pendingAttachments.length === 0}
+          >
+            <Send className={`w-4 h-4 ${message.trim() || pendingAttachments.length > 0 ? "text-emerald-500" : "text-gray-400"}`} />
           </Button>
         </div>
       </div>
+
+      {lightboxUrl && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90"
+          onClick={() => setLightboxUrl(null)}
+        >
+          <button
+            className="absolute top-4 right-4 text-white/80 hover:text-white"
+            onClick={() => setLightboxUrl(null)}
+            title="Close"
+          >
+            <X className="w-6 h-6" />
+          </button>
+          <img
+            src={lightboxUrl}
+            alt="Full size"
+            className="max-w-[95vw] max-h-[95vh] object-contain"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
 
       {isGroup && (
         <GroupInfoDialog
