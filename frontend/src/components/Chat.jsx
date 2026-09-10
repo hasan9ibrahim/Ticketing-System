@@ -1363,42 +1363,38 @@ function ChatWindowView({
       return;
     }
 
-    // Sync messages from parent to local state
-    // Always sync when parent has messages to ensure UI stays up to date
+    // Sync messages from parent to local state. This effect only re-runs
+    // when chat.messages (or the other deps) actually change, so there's no
+    // need to separately detect "did anything change" before merging - that
+    // used to gate on id-set differences only (hasNewMessages/hasLocalOnly),
+    // which meant an in-place edit to an EXISTING message (a read receipt
+    // landing on msg.is_read/read_by, an edit, a soft-delete) never got
+    // picked up, since no id was added or removed. Those only ever showed up
+    // after closing and reopening the window, which forces a fresh
+    // loadMessages() call instead of relying on this sync.
     if (hasLoadedFromApi && chat.messages) {
-      // Check if parent has different messages than local state
-      const parentIds = new Set(chat.messages.map(m => m.id));
-      const localIds = new Set(messages.map(m => m.id));
-
-      // Check if there's any message in parent that's not in local
-      const hasNewMessages = chat.messages.some(m => !localIds.has(m.id));
-
-      // Also check if local has messages not in parent (shouldn't happen but handle it)
-      const hasLocalOnly = messages.some(m => !parentIds.has(m.id));
-
-      // Sync if there are new messages or local-only messages
-      if (hasNewMessages || hasLocalOnly) {
-        // Merge by id and re-sort chronologically - never assume either
-        // side's array order reflects the full picture. The parent's copy
-        // only ever gets messages appended to it (it never receives the
-        // initially-loaded history), so concatenating "parent's messages"
-        // then "local-only messages" put whatever the parent had first,
-        // shoving the actual older history after it.
-        const byId = new Map(messages.map(m => [m.id, m]));
-        for (const parentMsg of chat.messages) {
-          const localMsg = byId.get(parentMsg.id);
-          // If local has is_read=true, preserve it - never overwrite with false
-          byId.set(parentMsg.id, {
-            ...parentMsg,
-            is_read: localMsg?.is_read === true ? true : (parentMsg.is_read || false),
-          });
-        }
-
-        const merged = Array.from(byId.values()).sort(
-          (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-        );
-        setMessages(merged);
+      // Merge by id and re-sort chronologically - never assume either
+      // side's array order reflects the full picture. The parent's copy
+      // only ever gets messages appended to it (it never receives the
+      // initially-loaded history), so concatenating "parent's messages"
+      // then "local-only messages" put whatever the parent had first,
+      // shoving the actual older history after it. Seeding the map from
+      // the local messages first (and only overwriting ids the parent also
+      // has) naturally keeps a not-yet-echoed optimistic send around too.
+      const byId = new Map(messages.map(m => [m.id, m]));
+      for (const parentMsg of chat.messages) {
+        const localMsg = byId.get(parentMsg.id);
+        // If local has is_read=true, preserve it - never overwrite with false
+        byId.set(parentMsg.id, {
+          ...parentMsg,
+          is_read: localMsg?.is_read === true ? true : (parentMsg.is_read || false),
+        });
       }
+
+      const merged = Array.from(byId.values()).sort(
+        (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+      );
+      setMessages(merged);
     }
   }, [chat.conversation_id, chat.messages, hasLoadedFromApi, loadMessages, loading, messages.length]);
 
