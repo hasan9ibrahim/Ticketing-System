@@ -36,7 +36,7 @@ export function useDataUpdates(onDataUpdate) {
       try {
         const message = JSON.parse(event.data);
         console.log('[DataUpdates] Received:', message.type);
-        
+
         // Call the callback with the message
         if (onDataUpdate) {
           onDataUpdate(message);

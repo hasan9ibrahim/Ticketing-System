@@ -71,6 +71,10 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
   const [minimized, setMinimized] = useState(true);
   const [typingUsers, setTypingUsers] = useState({});
   const [newGroupOpen, setNewGroupOpen] = useState(false);
+  // Bumped on every chat-socket reconnect (see handleSocketReconnectedRef
+  // below) so every currently-open ChatWindowView re-fetches its messages
+  // and catches up on anything missed while the connection was down.
+  const [resyncKey, setResyncKey] = useState(0);
   const fileInputRef = useRef(null);
   const imageInputRef = useRef(null);
   // Which window's conversation a click on its attach/image button is for -
@@ -93,6 +97,17 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
   // moment the effect first ran (which was the root cause of read receipts,
   // unread badges and toasts going stale after the first message).
   const handleWebSocketMessageRef = useRef(null);
+  // Same "always latest" trick, for the socket's onopen. The connection can
+  // legitimately drop and reconnect any number of times for reasons outside
+  // this app's control (a flaky network, a host that idles/restarts the
+  // backend); whatever caused it, anything that happened while it was down
+  // was missed entirely, and previously only surfaced once the user closed
+  // and reopened a chat window (which forces a fresh fetch). Re-syncing on
+  // every reconnect - not just once at mount - means a dropped connection
+  // catches back up within moments on its own instead of silently going
+  // stale until the user notices and manually reopens something.
+  const handleSocketReconnectedRef = useRef(null);
+  const hasConnectedBeforeRef = useRef(false);
 
   // Direct-update callbacks (instant local "add" + temp-id-to-real-id
   // "confirm") for each ChatWindowView's own message state, keyed by
@@ -140,6 +155,10 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
       ws.onopen = () => {
         wsConnectedRef.current = true;
         reconnectAttemptRef.current = 0;
+        if (hasConnectedBeforeRef.current) {
+          handleSocketReconnectedRef.current?.();
+        }
+        hasConnectedBeforeRef.current = true;
       };
 
       ws.onmessage = (event) => {
@@ -544,6 +563,16 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
     }
   };
 
+  // The chat socket just came back up after a drop - refresh the
+  // conversation list (unread counts, previews) and tell every open window
+  // to re-fetch its own messages, so a gap in the connection self-heals
+  // instead of requiring the user to close and reopen a chat to catch up.
+  const handleSocketReconnected = () => {
+    fetchConversations();
+    setResyncKey((k) => k + 1);
+  };
+  handleSocketReconnectedRef.current = handleSocketReconnected;
+
   // Open (or focus, if already open) a floating window for a conversation
   // returned by the API - used for a freshly-started DM, a freshly-created
   // group, and clicking an existing conversation in the list.
@@ -900,6 +929,7 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
                 chat={chat}
                 user={user}
                 allUsers={users}
+                resyncKey={resyncKey}
                 onSendMessage={(content, type, fileData) => sendMessage(content, type, fileData, chat.conversation_id)}
                 onRegisterMessageCallbacks={registerMessageCallbacks}
                 onTyping={sendTyping}
@@ -1247,6 +1277,7 @@ function ChatWindowView({
   chat,
   user,
   allUsers,
+  resyncKey,
   onSendMessage,
   onRegisterMessageCallbacks,
   onTyping,
@@ -1346,6 +1377,17 @@ function ChatWindowView({
       lastMarkedUnreadRef.current = "";
     }
   }, [chat.conversation_id]);
+
+  // The chat socket just reconnected (resyncKey bumped by the parent) -
+  // re-fetch so anything sent while the connection was down shows up
+  // without the user having to close and reopen this window. Skipped on
+  // the initial mount (guarded by hasLoadedFromApi) since that's already
+  // covered by the normal load-on-open effect below.
+  useEffect(() => {
+    if (!hasLoadedFromApi) return;
+    loadMessages();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resyncKey]);
 
   // Load and sync messages when conversation changes
   useEffect(() => {
