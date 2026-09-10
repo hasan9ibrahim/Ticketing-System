@@ -133,6 +133,13 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
   // doesn't update", and "unread count is stale" bugs kept coming from.
   // There is nowhere else in this file that owns message state.
   const [messagesByConv, setMessagesByConv] = useState({});
+  // Mirrors messagesByConv so callbacks (applyIncomingMessage) can check
+  // "have we already applied this message" synchronously against the
+  // latest data, without needing messagesByConv itself as a dependency.
+  const messagesByConvRef = useRef({});
+  useEffect(() => {
+    messagesByConvRef.current = messagesByConv;
+  }, [messagesByConv]);
   const fileInputRef = useRef(null);
   const imageInputRef = useRef(null);
   // Which window's conversation a click on its attach/image button is for -
@@ -278,6 +285,12 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
     (message) => {
       const isOwn = message.sender_id === user?.id;
       const focused = isConversationFocused(message.conversation_id);
+      // The socket and the polling fallback below can both deliver the same
+      // message - only run the preview/unread/toast side effects the first
+      // time a given message is actually seen.
+      const alreadyHave = messagesByConvRef.current[message.conversation_id]?.items?.some(
+        (m) => m.id === message.id
+      );
 
       setMessagesByConv((prev) => {
         const entry = prev[message.conversation_id] || { items: [], loaded: false, loading: false, hasMore: true };
@@ -291,6 +304,8 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
             : [...entry.items, message];
         return { ...prev, [message.conversation_id]: { ...entry, items } };
       });
+
+      if (alreadyHave) return;
 
       const preview =
         message.message_type === "image" ? "📷 Photo" : message.message_type === "file" ? `📎 ${message.file_name || "File"}` : message.content;
@@ -431,6 +446,45 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
   };
 
   const { send: sendSocket } = useChatSocket(handleSocketMessage, handleSocketReconnected);
+
+  // Fallback poll: some networks/proxies don't reliably keep the chat
+  // WebSocket open (drops or silently stops delivering even though the
+  // rest of the app works fine), which otherwise means messages only ever
+  // show up after a manual reload. This bounds that gap to a few seconds
+  // regardless of the socket's health - applyIncomingMessage no-ops for a
+  // message it's already applied, so this never duplicates what the socket
+  // already delivered instantly.
+  const pollRef = useRef(null);
+  useEffect(() => {
+    pollRef.current = async () => {
+      if (document.hidden) return;
+      try {
+        await fetchConversations();
+      } catch (error) {
+        // ignore - next tick retries
+      }
+      await Promise.all(
+        openChats.map(async (chat) => {
+          try {
+            const response = await axios.get(
+              `${API}/chat/conversations/${chat.conversation_id}/messages?limit=20`,
+              { headers: authHeaders() }
+            );
+            response.data.forEach((m) => applyIncomingMessage(m));
+          } catch (error) {
+            // ignore - next tick retries
+          }
+        })
+      );
+    };
+  });
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      pollRef.current?.();
+    }, 4000);
+    return () => clearInterval(interval);
+  }, []);
 
   const ensureMessagesLoaded = useCallback(async (conversationId) => {
     if (loadedConvsRef.current.has(conversationId)) return;
