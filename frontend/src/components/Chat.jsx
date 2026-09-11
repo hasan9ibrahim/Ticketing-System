@@ -130,7 +130,7 @@ function sortConversations(list) {
   });
 }
 
-export default function Chat({ user, openChats, setOpenChats, activeChat, setActiveChat }) {
+export default function Chat({ user, openChats, setOpenChats, activeChat, setActiveChat, isExpanded, setIsExpanded }) {
   const [conversations, setConversations] = useState([]);
   const [users, setUsers] = useState([]);
   const [initialLoading, setInitialLoading] = useState(true);
@@ -140,7 +140,8 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
   const [newGroupOpen, setNewGroupOpen] = useState(false);
   // Full-screen "pop out" mode - a Teams-style conversation list + single
   // main pane, replacing the floating widget/windows entirely while active.
-  const [isExpanded, setIsExpanded] = useState(false);
+  // isExpanded/setIsExpanded are owned by DashboardLayout (not local state)
+  // so the sidebar's "Chat" nav item can open this mode directly too.
   const [expandedConversationId, setExpandedConversationId] = useState(null);
   // The message currently staged for the "forward to..." dialog, or null.
   const [forwardMessage, setForwardMessage] = useState(null);
@@ -294,7 +295,12 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
           minimized: false,
           unreadCount: 0,
         };
-        setOpenChats((prev) => [...prev, newChat]);
+        // Prepended (not appended): the right-offset math below positions
+        // each window based on how many windows come after it in this
+        // array, so putting the new one first gives it the largest offset
+        // - i.e. farthest from the main button/leftmost - while every
+        // already-open window's position is undisturbed.
+        setOpenChats((prev) => [newChat, ...prev]);
         setActiveChat(newChat);
       }
       ensureMessagesLoaded(conv.id);
@@ -971,7 +977,14 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
   return (
     <>
       {isExpanded ? (
-        <div className="fixed inset-0 z-[70] flex flex-col bg-white dark:bg-black text-gray-900 dark:text-white">
+        // absolute, not fixed - Chat now mounts inside DashboardLayout's
+        // <main> (which is positioned relative), so this fills only the
+        // content area to the right of the sidebar instead of the whole
+        // viewport. z-40 (not the old z-[70]) keeps it below the shared
+        // Dialog primitives (z-50 in ui/dialog.jsx) - at z-[70] every
+        // dialog opened from here (Group Info included) rendered behind
+        // this panel and was invisible/unclickable.
+        <div className="absolute inset-0 z-40 flex flex-col bg-white dark:bg-black text-gray-900 dark:text-white">
           <div className="flex items-center justify-between px-4 py-2 border-b border-black/10 dark:border-white/10 flex-shrink-0">
             <div className="flex items-center gap-2 font-medium">
               <MessageSquare className="w-5 h-5" /> Chat

@@ -34,6 +34,7 @@ import {
   Calendar,
   Sun,
   Moon,
+  MessageCircle,
 } from "lucide-react";
 import {
   Popover,
@@ -62,6 +63,7 @@ export default function DashboardLayout({ user, setUser }) {
   // Chat state
   const [openChats, setOpenChats] = useState([]);  // Array of open chat conversations
   const [activeChat, setActiveChat] = useState(null);  // Currently active chat
+  const [chatExpanded, setChatExpanded] = useState(false);  // Full-screen "Chat" tab, vs. the floating widget
   // Load read notification IDs from localStorage to persist across login/logout
   const [readNotificationIds, setReadNotificationIds] = useState(() => {
     const saved = localStorage.getItem("readNotificationIds");
@@ -883,6 +885,7 @@ export default function DashboardLayout({ user, setUser }) {
 
   const navItems = [
     { path: "/", label: "Dashboard", icon: LayoutDashboard, roles: ["admin", "am", "noc"] },
+    { path: "__chat__", label: "Chat", icon: MessageCircle, roles: ["admin", "am", "noc"], isChatToggle: true },
     { path: "/sms-tickets", label: "SMS Tickets", icon: MessageSquare, roles: ["admin", "am", "noc"], ticketType: "sms" },
     { path: "/voice-tickets", label: "Voice Tickets", icon: Phone, roles: ["admin", "am", "noc"], ticketType: "voice" },
     { path: "/references", label: "References & Alerts", icon: Database, roles: ["admin", "am", "noc"], badgeCount: alertBadgeCount },
@@ -1099,13 +1102,13 @@ export default function DashboardLayout({ user, setUser }) {
             <nav className="space-y-1">
               {filteredNavItems.map((item) => {
                 const Icon = item.icon;
-                const isActive = location.pathname === item.path;
+                const isActive = item.isChatToggle ? chatExpanded : location.pathname === item.path;
                 const navButton = (
                   <Button
                     key={item.path}
                     variant="ghost"
                     data-testid={`nav-${item.label.toLowerCase().replace(' ', '-')}`}
-                    onClick={() => navigate(item.path)}
+                    onClick={() => (item.isChatToggle ? setChatExpanded(true) : navigate(item.path))}
                     className={`w-full justify-start h-11 ${
                       isActive
                         ? "bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20"
@@ -1208,7 +1211,7 @@ export default function DashboardLayout({ user, setUser }) {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col overflow-auto">
+      <main className="relative flex-1 flex flex-col overflow-auto">
         {/* Top Header Bar with Notifications */}
         <header className="h-14 bg-white dark:bg-zinc-900 border-b border-black/5 dark:border-white/5 flex items-center justify-between px-4 gap-4">
           {/* Mobile Sidebar Expand Button - Only shows on mobile when sidebar is collapsed */}
@@ -1473,18 +1476,25 @@ export default function DashboardLayout({ user, setUser }) {
         <div className="flex-1 overflow-auto">
           <Outlet />
         </div>
-      </main>
 
-      {/* Chat Component */}
-      {user && (
-        <Chat
-          user={user}
-          openChats={openChats}
-          setOpenChats={setOpenChats}
-          activeChat={activeChat}
-          setActiveChat={setActiveChat}
-        />
-      )}
+        {/* Chat Component - mounted inside <main> (not as a sibling of the
+            sidebar) so its full-screen mode, which is positioned absolute
+            within this relatively-positioned <main>, only ever covers the
+            content area and never the sidebar. The floating widget/windows
+            stay `fixed` (viewport-relative) regardless of where this sits
+            in the DOM, so this move doesn't affect their positioning. */}
+        {user && (
+          <Chat
+            user={user}
+            openChats={openChats}
+            setOpenChats={setOpenChats}
+            activeChat={activeChat}
+            setActiveChat={setActiveChat}
+            isExpanded={chatExpanded}
+            setIsExpanded={setChatExpanded}
+          />
+        )}
+      </main>
 
       {/* General system notifications (e.g. request completed/rejected) -
           its own WebSocket, independent of chat */}
