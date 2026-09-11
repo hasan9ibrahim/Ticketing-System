@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   MessageSquare, X, Send, Paperclip, Image as ImageIcon, Users, Plus,
   Check, CheckCheck, Info, LogOut, Smile, Pencil, Trash2, Loader2, Minus,
-  Reply, Forward, ChevronDown, Maximize2, Minimize2, Search, Pin,
+  Reply, Forward, ChevronDown, ChevronLeft, ChevronRight, Maximize2, Minimize2, Search, Pin,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,23 +18,162 @@ import { playNotificationSound } from "@/lib/notificationSound";
 import { requestNotificationPermission, showNativeNotification } from "@/lib/nativeNotification";
 import { useChatSocket } from "@/hooks/useChatSocket";
 
-// A small curated set rather than a full emoji library/dependency - covers
-// the common reactions people actually reach for in a work chat.
-const EMOJI_OPTIONS = [
-  "😀", "😂", "😅", "🙂", "😉", "😊", "😍", "😘", "🤔", "😎",
-  "😴", "😢", "😭", "😡", "😱", "🤗", "🤝", "👋", "👍", "👎",
-  "👏", "🙏", "💪", "🎉", "🔥", "❤️", "💯", "✅", "❌", "⚠️",
-  "📌", "📎", "📷", "🚀", "⭐", "✨", "💡", "😇", "🥳", "🎊",
+// A large curated set (not a full emoji library/dependency), organized into
+// browsable categories rather than one flat list - shared by both the
+// composer's emoji picker and a message's quick-reaction picker so both get
+// the same wide, paginated selection (see EmojiPickerGrid below).
+const EMOJI_CATEGORIES = [
+  {
+    label: "😀",
+    name: "Smileys",
+    emojis: [
+      "😀", "😃", "😄", "😁", "😆", "😅", "🤣", "😂", "🙂", "🙃",
+      "😉", "😊", "😇", "😍", "🥰", "😘", "😗", "😙", "😚", "😋",
+      "😛", "😝", "😜", "🤪", "🤑", "🤗", "🤭", "🤫", "🤔", "🤐",
+      "🤨", "😐", "😑", "😶", "😏", "😒", "🙄", "😬", "🤥", "😌",
+      "😔", "😪", "🤤", "😴", "😷", "🤒", "🤕", "🥳",
+    ],
+  },
+  {
+    label: "😢",
+    name: "Reactions",
+    emojis: [
+      "😎", "🤓", "🧐", "😕", "😟", "🙁", "☹️", "😮", "😯", "😲",
+      "😳", "🥺", "😦", "😧", "😨", "😰", "😥", "😢", "😭", "😱",
+      "😖", "😣", "😞", "😓", "😩", "😫", "🥱", "😤", "😡", "😠",
+      "🤬", "😈", "👿", "💀", "👻", "👽", "🤖", "🤡", "💩", "🙈",
+    ],
+  },
+  {
+    label: "👋",
+    name: "Hands",
+    emojis: [
+      "👋", "🤚", "🖐️", "✋", "🖖", "👌", "🤌", "🤏", "✌️", "🤞",
+      "🤟", "🤘", "🤙", "👈", "👉", "👆", "🖕", "👇", "☝️", "👍",
+      "👎", "✊", "👊", "🤛", "🤜", "👏", "🙌", "👐", "🤲", "🙏",
+      "💪", "👀",
+    ],
+  },
+  {
+    label: "🐶",
+    name: "Animals",
+    emojis: [
+      "🐶", "🐱", "🐭", "🐹", "🐰", "🦊", "🐻", "🐼", "🐨", "🐯",
+      "🦁", "🐮", "🐷", "🐸", "🐵", "🙉", "🙊", "🐔", "🐧", "🐦",
+      "🐤", "🦆", "🦉", "🦇", "🐺", "🐗", "🐴", "🦄", "🐝", "🐛",
+      "🦋", "🐌",
+    ],
+  },
+  {
+    label: "🍎",
+    name: "Food",
+    emojis: [
+      "🍎", "🍏", "🍊", "🍋", "🍌", "🍉", "🍇", "🍓", "🫐", "🍈",
+      "🍒", "🍑", "🥭", "🍍", "🥥", "🥝", "🍅", "🍆", "🥑", "🥦",
+      "🥒", "🌶️", "🌽", "🥕", "🍞", "🥐", "🥖", "🧀", "🥚", "🍳",
+      "🥞", "🧇", "🥓", "🍔", "🍟", "🍕", "🌭", "🌮", "🍣", "🍦",
+    ],
+  },
+  {
+    label: "⚽",
+    name: "Activities",
+    emojis: [
+      "⚽", "🏀", "🏈", "⚾", "🎾", "🏐", "🏉", "🎱", "🏓", "🏸",
+      "🥊", "🥋", "⛳", "🎣", "🛹", "🎿", "🏂", "🏋️", "🤸", "🏇",
+      "🏄", "🏊", "🚴", "🎮", "🎲", "🎸", "🎨", "🚗", "✈️", "🚀",
+      "🚁", "⛵", "🚲", "🚕", "🚓", "🚑", "🚒", "🏖️", "🗽", "🎡",
+    ],
+  },
+  {
+    label: "💡",
+    name: "Objects",
+    emojis: [
+      "💡", "📱", "💻", "⌨️", "🖥️", "📷", "🎥", "📺", "🎧", "⏰",
+      "💰", "💳", "💎", "🔧", "🔨", "⚙️", "🔒", "🔑", "📌", "📎",
+      "✏️", "📝", "📚", "🎁", "🎈", "🎉", "🎊", "🏆", "🥇", "⭐",
+      "✅", "❌", "⚠️", "🔥", "✨", "💯", "🔋", "🔌", "🙏", "💤",
+    ],
+  },
+  {
+    label: "❤️",
+    name: "Hearts",
+    emojis: [
+      "❤️", "🧡", "💛", "💚", "💙", "💜", "🖤", "🤍", "🤎", "❣️",
+      "💕", "💞", "💓", "💗", "💖", "💘", "💝", "💌", "💟", "♥️",
+      "💋", "😻", "😽", "🥹",
+    ],
+  },
 ];
 
-// The quick-reaction picker on a message - a broader curated set than a
-// single-row toolbar, distinct from the full EMOJI_OPTIONS grid used for
-// composing text.
-const QUICK_REACTIONS = [
-  "👍", "👎", "❤️", "😂", "😮", "😢", "😡", "🙏",
-  "🔥", "🎉", "👏", "💯", "🤔", "😍", "😎", "🥳",
-  "💪", "🚀", "✅", "👀", "😅", "😱", "🤗", "😴",
-];
+const EMOJI_PAGE_SIZE = 32;
+
+// Shared category-tabbed, paginated emoji grid used by both the composer's
+// emoji picker and a message's quick-reaction picker. Kept as its own
+// component so each popover instance gets fresh category/page state whenever
+// it's (re)opened, rather than threading that state through the parent.
+function EmojiPickerGrid({ onSelect }) {
+  const [categoryIndex, setCategoryIndex] = useState(0);
+  const [page, setPage] = useState(0);
+  const category = EMOJI_CATEGORIES[categoryIndex];
+  const totalPages = Math.max(1, Math.ceil(category.emojis.length / EMOJI_PAGE_SIZE));
+  const pageEmojis = category.emojis.slice(page * EMOJI_PAGE_SIZE, page * EMOJI_PAGE_SIZE + EMOJI_PAGE_SIZE);
+
+  return (
+    <div className="w-64">
+      <div className="flex items-center gap-0.5 pb-1.5 mb-1.5 border-b border-black/10 dark:border-white/10 overflow-x-auto">
+        {EMOJI_CATEGORIES.map((cat, idx) => (
+          <button
+            key={cat.name}
+            onClick={() => {
+              setCategoryIndex(idx);
+              setPage(0);
+            }}
+            title={cat.name}
+            className={`flex-shrink-0 text-base leading-none w-7 h-7 rounded flex items-center justify-center ${
+              idx === categoryIndex ? "bg-emerald-100 dark:bg-emerald-900/40" : "hover:bg-gray-100 dark:hover:bg-zinc-800"
+            }`}
+          >
+            {cat.label}
+          </button>
+        ))}
+      </div>
+      <div className="grid grid-cols-8 gap-1 min-h-[136px]">
+        {pageEmojis.map((emoji, idx) => (
+          <button
+            key={idx}
+            onClick={() => onSelect(emoji)}
+            className="text-lg leading-none p-1 rounded hover:bg-gray-100 dark:hover:bg-zinc-800 hover:scale-125 transition-transform"
+          >
+            {emoji}
+          </button>
+        ))}
+      </div>
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between pt-1.5 mt-1.5 border-t border-black/10 dark:border-white/10">
+          <button
+            onClick={() => setPage((p) => Math.max(0, p - 1))}
+            disabled={page === 0}
+            className="p-1 rounded text-gray-500 dark:text-zinc-400 disabled:opacity-30 hover:bg-gray-100 dark:hover:bg-zinc-800"
+            title="Previous page"
+          >
+            <ChevronLeft className="w-3.5 h-3.5" />
+          </button>
+          <span className="text-[10px] text-gray-400 dark:text-zinc-500">
+            Page {page + 1} / {totalPages}
+          </span>
+          <button
+            onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+            disabled={page === totalPages - 1}
+            className="p-1 rounded text-gray-500 dark:text-zinc-400 disabled:opacity-30 hover:bg-gray-100 dark:hover:bg-zinc-800"
+            title="Next page"
+          >
+            <ChevronRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 const API = `${process.env.REACT_APP_API_URL}/api`;
 // Attachments live on the backend's own origin, not the /api-suffixed API
@@ -2268,21 +2407,13 @@ function ChatWindowView({
                           <Smile className="w-3 h-3" />
                         </button>
                       </PopoverTrigger>
-                      <PopoverContent align="end" className="w-56 p-1 bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700">
-                        <div className="grid grid-cols-6 gap-1">
-                          {QUICK_REACTIONS.map((emoji) => (
-                            <button
-                              key={emoji}
-                              onClick={() => {
-                                onToggleReaction?.(msg.id, emoji);
-                                setReactionPickerFor(null);
-                              }}
-                              className="text-lg leading-none p-1 rounded hover:bg-gray-100 dark:hover:bg-zinc-800 hover:scale-125 transition-transform"
-                            >
-                              {emoji}
-                            </button>
-                          ))}
-                        </div>
+                      <PopoverContent align="end" className="w-auto p-2 bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700">
+                        <EmojiPickerGrid
+                          onSelect={(emoji) => {
+                            onToggleReaction?.(msg.id, emoji);
+                            setReactionPickerFor(null);
+                          }}
+                        />
                       </PopoverContent>
                     </Popover>
                     <button onClick={() => setDeleteMessageId(msg.id)} className="p-1 text-gray-400 hover:text-red-400" title="Delete message">
@@ -2458,21 +2589,13 @@ function ChatWindowView({
                           <Smile className="w-3 h-3" />
                         </button>
                       </PopoverTrigger>
-                      <PopoverContent align="start" className="w-56 p-1 bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700">
-                        <div className="grid grid-cols-6 gap-1">
-                          {QUICK_REACTIONS.map((emoji) => (
-                            <button
-                              key={emoji}
-                              onClick={() => {
-                                onToggleReaction?.(msg.id, emoji);
-                                setReactionPickerFor(null);
-                              }}
-                              className="text-lg leading-none p-1 rounded hover:bg-gray-100 dark:hover:bg-zinc-800 hover:scale-125 transition-transform"
-                            >
-                              {emoji}
-                            </button>
-                          ))}
-                        </div>
+                      <PopoverContent align="start" className="w-auto p-2 bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700">
+                        <EmojiPickerGrid
+                          onSelect={(emoji) => {
+                            onToggleReaction?.(msg.id, emoji);
+                            setReactionPickerFor(null);
+                          }}
+                        />
                       </PopoverContent>
                     </Popover>
                   </div>
@@ -2598,14 +2721,8 @@ function ChatWindowView({
                 <Smile className="w-4 h-4 text-zinc-500" />
               </Button>
             </PopoverTrigger>
-            <PopoverContent align="end" className="w-64 p-2 bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700">
-              <div className="grid grid-cols-8 gap-1">
-                {EMOJI_OPTIONS.map((emoji, idx) => (
-                  <button key={idx} onClick={() => insertEmoji(emoji)} className="text-lg leading-none p-1 rounded hover:bg-gray-100 dark:hover:bg-zinc-800">
-                    {emoji}
-                  </button>
-                ))}
-              </div>
+            <PopoverContent align="end" className="w-auto p-2 bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700">
+              <EmojiPickerGrid onSelect={insertEmoji} />
             </PopoverContent>
           </Popover>
           <Input
