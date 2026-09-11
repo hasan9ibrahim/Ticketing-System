@@ -27,9 +27,14 @@ const EMOJI_OPTIONS = [
   "📌", "📎", "📷", "🚀", "⭐", "✨", "💡", "😇", "🥳", "🎊",
 ];
 
-// A compact set for the quick-reaction picker on a message, distinct from
-// the full EMOJI_OPTIONS grid used for composing text.
-const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
+// The quick-reaction picker on a message - a broader curated set than a
+// single-row toolbar, distinct from the full EMOJI_OPTIONS grid used for
+// composing text.
+const QUICK_REACTIONS = [
+  "👍", "👎", "❤️", "😂", "😮", "😢", "😡", "🙏",
+  "🔥", "🎉", "👏", "💯", "🤔", "😍", "😎", "🥳",
+  "💪", "🚀", "✅", "👀", "😅", "😱", "🤗", "😴",
+];
 
 const API = `${process.env.REACT_APP_API_URL}/api`;
 // Attachments live on the backend's own origin, not the /api-suffixed API
@@ -2263,8 +2268,8 @@ function ChatWindowView({
                           <Smile className="w-3 h-3" />
                         </button>
                       </PopoverTrigger>
-                      <PopoverContent align="end" className="w-auto p-1 bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700">
-                        <div className="flex gap-1">
+                      <PopoverContent align="end" className="w-56 p-1 bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700">
+                        <div className="grid grid-cols-6 gap-1">
                           {QUICK_REACTIONS.map((emoji) => (
                             <button
                               key={emoji}
@@ -2431,8 +2436,8 @@ function ChatWindowView({
                           <Smile className="w-3 h-3" />
                         </button>
                       </PopoverTrigger>
-                      <PopoverContent align="start" className="w-auto p-1 bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700">
-                        <div className="flex gap-1">
+                      <PopoverContent align="start" className="w-56 p-1 bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700">
+                        <div className="grid grid-cols-6 gap-1">
                           {QUICK_REACTIONS.map((emoji) => (
                             <button
                               key={emoji}
