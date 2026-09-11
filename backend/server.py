@@ -145,11 +145,16 @@ class ChatMessage(BaseModel):
     reply_to: Optional[dict] = None
     is_forwarded: bool = False
     forwarded_from: Optional[str] = None  # original sender's display name, if forwarded
+    reactions: dict = Field(default_factory=dict)  # {emoji: [user_id, ...]}
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class EditMessageData(BaseModel):
     """Request body to edit a chat message"""
     content: str
+
+class ReactionData(BaseModel):
+    """Request body to toggle a reaction on a message"""
+    emoji: str
 
 class MarkReadRequest(BaseModel):
     """Request body to mark a conversation's messages as read by the caller"""
@@ -167,6 +172,7 @@ class Conversation(BaseModel):
     last_message_time: Optional[datetime] = None
     last_message_sender_id: Optional[str] = None
     unread_counts: dict = Field(default_factory=dict)  # {user_id: count}
+    pinned_by: List[str] = Field(default_factory=list)  # user_ids who pinned this conversation for themselves
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -6016,9 +6022,13 @@ async def get_conversations(current_user: dict = Depends(get_current_user)):
                 "last_message_time": conv.get("last_message_time"),
                 "last_message_sender_id": conv.get("last_message_sender_id"),
                 "unread_count": unread_count,
+                "pinned": user_id in conv.get("pinned_by", []),
                 "created_at": conv.get("created_at"),
                 "updated_at": conv.get("updated_at")
             })
+
+        # Pinned conversations first; within each group, most recently active first.
+        result.sort(key=lambda c: (not c["pinned"], -(c["updated_at"].timestamp() if c["updated_at"] else 0)))
 
         return result
     except Exception as e:
@@ -6057,6 +6067,7 @@ async def create_or_get_conversation(
             "last_message_time": existing.get("last_message_time"),
             "last_message_sender_id": existing.get("last_message_sender_id"),
             "unread_count": existing.get("unread_counts", {}).get(user_id, 0),
+            "pinned": user_id in existing.get("pinned_by", []),
             "created_at": existing.get("created_at"),
             "updated_at": existing.get("updated_at")
         }
@@ -6078,6 +6089,7 @@ async def create_or_get_conversation(
         "last_message_time": None,
         "last_message_sender_id": None,
         "unread_count": 0,
+        "pinned": False,
         "created_at": conv.created_at,
         "updated_at": conv.updated_at
     }
@@ -6124,6 +6136,7 @@ async def create_group_conversation(
         "last_message_time": None,
         "last_message_sender_id": None,
         "unread_count": 0,
+        "pinned": False,
         "created_at": conv.created_at,
         "updated_at": conv.updated_at
     }
@@ -6184,6 +6197,7 @@ async def update_group_conversation(
         "last_message_time": updated.get("last_message_time"),
         "last_message_sender_id": updated.get("last_message_sender_id"),
         "unread_count": updated.get("unread_counts", {}).get(current_user["id"], 0),
+        "pinned": current_user["id"] in updated.get("pinned_by", []),
         "created_at": updated.get("created_at"),
         "updated_at": updated.get("updated_at")
     }
@@ -6245,7 +6259,8 @@ async def leave_group_conversation(
             {"id": conversation_id},
             {
                 "$set": {"participant_ids": remaining, "updated_at": datetime.now(timezone.utc)},
-                "$unset": {f"unread_counts.{user_id}": ""}
+                "$unset": {f"unread_counts.{user_id}": ""},
+                "$pull": {"pinned_by": user_id}
             }
         )
         await manager.broadcast_to_conversation({
@@ -6259,6 +6274,26 @@ async def leave_group_conversation(
         await db.chat_messages.delete_many({"conversation_id": conversation_id})
 
     return {"message": "Left group"}
+
+@api_router.post("/chat/conversations/{conversation_id}/pin")
+async def toggle_pin_conversation(
+    conversation_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Pin/unpin a conversation for the current user only - purely a
+    per-user display preference, not something other participants see."""
+    user_id = current_user["id"]
+    conv = await db.conversations.find_one({"id": conversation_id, "participant_ids": user_id})
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    already_pinned = user_id in conv.get("pinned_by", [])
+    if already_pinned:
+        await db.conversations.update_one({"id": conversation_id}, {"$pull": {"pinned_by": user_id}})
+    else:
+        await db.conversations.update_one({"id": conversation_id}, {"$addToSet": {"pinned_by": user_id}})
+
+    return {"id": conversation_id, "pinned": not already_pinned}
 
 @api_router.get("/chat/conversations/{conversation_id}/messages")
 async def get_conversation_messages(
@@ -6549,6 +6584,50 @@ async def delete_chat_message(
         }, conv.get("participant_ids", []))
 
     return {"id": message_id, "is_deleted": True}
+
+@api_router.post("/chat/messages/{message_id}/react")
+async def toggle_message_reaction(
+    message_id: str,
+    data: ReactionData,
+    current_user: dict = Depends(get_current_user)
+):
+    """Toggle the caller's reaction with a given emoji on a message - adding
+    it if they haven't reacted with it yet, removing it if they have."""
+    user_id = current_user["id"]
+    emoji = data.emoji.strip()
+    if not emoji:
+        raise HTTPException(status_code=400, detail="Emoji is required")
+
+    msg = await db.chat_messages.find_one({"id": message_id})
+    if not msg:
+        raise HTTPException(status_code=404, detail="Message not found")
+
+    conv = await db.conversations.find_one({"id": msg["conversation_id"], "participant_ids": user_id})
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    reactions = msg.get("reactions", {}) or {}
+    users_for_emoji = reactions.get(emoji, [])
+    if user_id in users_for_emoji:
+        users_for_emoji = [u for u in users_for_emoji if u != user_id]
+    else:
+        users_for_emoji = users_for_emoji + [user_id]
+
+    if users_for_emoji:
+        reactions[emoji] = users_for_emoji
+    else:
+        reactions.pop(emoji, None)
+
+    await db.chat_messages.update_one({"id": message_id}, {"$set": {"reactions": reactions}})
+
+    await manager.broadcast_to_conversation({
+        "type": "message_reaction",
+        "conversation_id": msg["conversation_id"],
+        "message_id": message_id,
+        "reactions": reactions
+    }, conv.get("participant_ids", []))
+
+    return {"id": message_id, "reactions": reactions}
 
 CHAT_FILE_MAX_BYTES = 8 * 1024 * 1024  # keep well under Mongo's 16MB document limit
 

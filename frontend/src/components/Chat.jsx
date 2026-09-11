@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import {
   MessageSquare, X, Send, Paperclip, Image as ImageIcon, Users, Plus,
   Check, CheckCheck, Info, LogOut, Smile, Pencil, Trash2, Loader2, Minus,
-  Reply, Forward, ChevronDown, Maximize2, Minimize2, Search,
+  Reply, Forward, ChevronDown, Maximize2, Minimize2, Search, Pin,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,6 +26,10 @@ const EMOJI_OPTIONS = [
   "👏", "🙏", "💪", "🎉", "🔥", "❤️", "💯", "✅", "❌", "⚠️",
   "📌", "📎", "📷", "🚀", "⭐", "✨", "💡", "😇", "🥳", "🎊",
 ];
+
+// A compact set for the quick-reaction picker on a message, distinct from
+// the full EMOJI_OPTIONS grid used for composing text.
+const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
 
 const API = `${process.env.REACT_APP_API_URL}/api`;
 // Attachments live on the backend's own origin, not the /api-suffixed API
@@ -118,6 +122,14 @@ function formatDateLabel(dateStr) {
   return date.toLocaleDateString();
 }
 
+// Pinned conversations first; within each group, most recently active first.
+function sortConversations(list) {
+  return [...list].sort((a, b) => {
+    if (!!b.pinned !== !!a.pinned) return b.pinned ? 1 : -1;
+    return new Date(b.updated_at || 0) - new Date(a.updated_at || 0);
+  });
+}
+
 export default function Chat({ user, openChats, setOpenChats, activeChat, setActiveChat }) {
   const [conversations, setConversations] = useState([]);
   const [users, setUsers] = useState([]);
@@ -170,7 +182,7 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
 
   const fetchConversations = useCallback(async () => {
     const response = await axios.get(`${API}/chat/conversations`, { headers: authHeaders() });
-    setConversations(response.data);
+    setConversations(sortConversations(response.data));
   }, []);
 
   const fetchUsers = useCallback(async () => {
@@ -344,16 +356,19 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
         message.message_type === "image" ? "📷 Photo" : message.message_type === "file" ? `📎 ${message.file_name || "File"}` : message.content;
 
       setConversations((prev) =>
-        prev.map((c) =>
-          c.id === message.conversation_id
-            ? {
-                ...c,
-                last_message: preview,
-                last_message_time: message.created_at,
-                last_message_sender_id: message.sender_id,
-                unread_count: isOwn || focused ? 0 : (c.unread_count || 0) + 1,
-              }
-            : c
+        sortConversations(
+          prev.map((c) =>
+            c.id === message.conversation_id
+              ? {
+                  ...c,
+                  last_message: preview,
+                  last_message_time: message.created_at,
+                  last_message_sender_id: message.sender_id,
+                  updated_at: message.created_at,
+                  unread_count: isOwn || focused ? 0 : (c.unread_count || 0) + 1,
+                }
+              : c
+          )
         )
       );
 
@@ -453,6 +468,9 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
         break;
       case "message_deleted":
         patchMessage(data.conversation_id, data.message_id, { is_deleted: true, content: "", file_url: null, file_name: null });
+        break;
+      case "message_reaction":
+        patchMessage(data.conversation_id, data.message_id, { reactions: data.reactions });
         break;
       case "group_updated":
         handleGroupUpdated(data);
@@ -668,16 +686,19 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
       return { ...prev, [conversationId]: { ...entry, items: [...entry.items, localMessage] } };
     });
     setConversations((prev) =>
-      prev.map((c) =>
-        c.id === conversationId
-          ? {
-              ...c,
-              unread_count: 0,
-              last_message: trimmed || (messageType === "image" ? "📷 Photo" : `📎 ${fileData?.file_name || "File"}`),
-              last_message_time: localMessage.created_at,
-              last_message_sender_id: user.id,
-            }
-          : c
+      sortConversations(
+        prev.map((c) =>
+          c.id === conversationId
+            ? {
+                ...c,
+                unread_count: 0,
+                last_message: trimmed || (messageType === "image" ? "📷 Photo" : `📎 ${fileData?.file_name || "File"}`),
+                last_message_time: localMessage.created_at,
+                last_message_sender_id: user.id,
+                updated_at: localMessage.created_at,
+              }
+            : c
+        )
       )
     );
 
@@ -838,6 +859,30 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
     setConversations((prev) => prev.filter((c) => c.id !== conversationId));
   };
 
+  const togglePinConversation = async (conversationId) => {
+    try {
+      const response = await axios.post(`${API}/chat/conversations/${conversationId}/pin`, null, { headers: authHeaders() });
+      setConversations((prev) =>
+        sortConversations(prev.map((c) => (c.id === conversationId ? { ...c, pinned: response.data.pinned } : c)))
+      );
+    } catch (error) {
+      console.error("Error toggling pin:", error);
+    }
+  };
+
+  const toggleReaction = async (conversationId, messageId, emoji) => {
+    try {
+      const response = await axios.post(
+        `${API}/chat/messages/${messageId}/react`,
+        { emoji },
+        { headers: authHeaders() }
+      );
+      patchMessage(conversationId, messageId, { reactions: response.data.reactions });
+    } catch (error) {
+      console.error("Error toggling reaction:", error);
+    }
+  };
+
   const totalUnread = conversations.reduce((sum, c) => sum + (c.unread_count || 0), 0);
 
   const toggleChatMinimize = (conversationId) => {
@@ -916,6 +961,7 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
         onDeleteMessage={(messageId) => deleteMessage(conversationId, messageId)}
         onForwardMessage={(msg) => setForwardMessage(msg)}
         onSearchMessages={(q) => searchConversation(conversationId, q)}
+        onToggleReaction={(messageId, emoji) => toggleReaction(conversationId, messageId, emoji)}
       />
     );
   };
@@ -957,6 +1003,7 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
                 }}
                 onSelectConversation={selectExpandedConversation}
                 onStartConversation={startConversationExpanded}
+                onTogglePin={togglePinConversation}
                 userId={user?.id}
                 activeConversationId={expandedConversationId}
               />
@@ -1097,6 +1144,7 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
                 }}
                 onSelectConversation={openConversationWindow}
                 onStartConversation={startConversation}
+                onTogglePin={togglePinConversation}
                 userId={user?.id}
               />
             )}
@@ -1143,7 +1191,7 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
   );
 }
 
-function ChatListView({ conversations, users, loading, error, onRetry, onSelectConversation, onStartConversation, userId, activeConversationId }) {
+function ChatListView({ conversations, users, loading, error, onRetry, onSelectConversation, onStartConversation, onTogglePin, userId, activeConversationId }) {
   const [searchQuery, setSearchQuery] = useState("");
   // Collapsed by default - the list of everyone you haven't messaged yet
   // can be long and isn't what most people are scanning for on open.
@@ -1204,7 +1252,7 @@ function ChatListView({ conversations, users, loading, error, onRetry, onSelectC
               return (
                 <div
                   key={conv.id}
-                  className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer ${
+                  className={`group flex items-center gap-3 p-2 rounded-lg cursor-pointer ${
                     conv.id === activeConversationId ? "bg-gray-100 dark:bg-gray-800" : "hover:bg-gray-100 dark:hover:bg-gray-800"
                   }`}
                   onClick={() => onSelectConversation(conv)}
@@ -1236,6 +1284,20 @@ function ChatListView({ conversations, users, loading, error, onRetry, onSelectC
                       )}
                     </div>
                   </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onTogglePin(conv.id);
+                    }}
+                    className={`p-1 flex-shrink-0 rounded transition-opacity ${
+                      conv.pinned
+                        ? "text-emerald-500 opacity-100"
+                        : "text-gray-400 opacity-0 group-hover:opacity-100 hover:text-gray-700 dark:hover:text-gray-200"
+                    }`}
+                    title={conv.pinned ? "Unpin" : "Pin"}
+                  >
+                    <Pin className={`w-3.5 h-3.5 ${conv.pinned ? "fill-current" : ""}`} />
+                  </button>
                 </div>
               );
             })}
@@ -1596,6 +1658,7 @@ function ChatWindowView({
   onDeleteMessage,
   onForwardMessage,
   onSearchMessages,
+  onToggleReaction,
   fullScreen,
 }) {
   const [message, setMessage] = useState("");
@@ -1612,6 +1675,9 @@ function ChatWindowView({
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState([]);
   const [searching, setSearching] = useState(false);
+  // Which message's quick-reaction popover is open, if any - a single
+  // shared value rather than one open-state per message row.
+  const [reactionPickerFor, setReactionPickerFor] = useState(null);
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
   const inputRef = useRef(null);
@@ -2037,6 +2103,29 @@ function ChatWindowView({
                     <button onClick={() => onForwardMessage?.(msg)} className="p-1 text-gray-400 hover:text-gray-900 dark:hover:text-white" title="Forward">
                       <Forward className="w-3 h-3" />
                     </button>
+                    <Popover open={reactionPickerFor === msg.id} onOpenChange={(o) => setReactionPickerFor(o ? msg.id : null)}>
+                      <PopoverTrigger asChild>
+                        <button className="p-1 text-gray-400 hover:text-gray-900 dark:hover:text-white" title="React">
+                          <Smile className="w-3 h-3" />
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent align="end" className="w-auto p-1 bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700">
+                        <div className="flex gap-1">
+                          {QUICK_REACTIONS.map((emoji) => (
+                            <button
+                              key={emoji}
+                              onClick={() => {
+                                onToggleReaction?.(msg.id, emoji);
+                                setReactionPickerFor(null);
+                              }}
+                              className="text-lg leading-none p-1 rounded hover:bg-gray-100 dark:hover:bg-zinc-800 hover:scale-125 transition-transform"
+                            >
+                              {emoji}
+                            </button>
+                          ))}
+                        </div>
+                      </PopoverContent>
+                    </Popover>
                     <button onClick={() => setDeleteMessageId(msg.id)} className="p-1 text-gray-400 hover:text-red-400" title="Delete message">
                       <Trash2 className="w-3 h-3" />
                     </button>
@@ -2127,6 +2216,28 @@ function ChatWindowView({
                     </>
                   )}
 
+                  {!msg.is_deleted && msg.reactions && Object.keys(msg.reactions).length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {Object.entries(msg.reactions)
+                        .filter(([, userIds]) => userIds.length > 0)
+                        .map(([emoji, userIds]) => (
+                          <button
+                            key={emoji}
+                            onClick={() => onToggleReaction?.(msg.id, emoji)}
+                            title={userIds.includes(user.id) ? "Click to remove your reaction" : "Click to react"}
+                            className={`text-xs px-1.5 py-0.5 rounded-full border flex items-center gap-1 ${
+                              userIds.includes(user.id)
+                                ? "bg-emerald-500/20 border-emerald-500"
+                                : `border-transparent ${isOwn ? "bg-black/10 hover:bg-black/20" : "bg-black/5 dark:bg-white/10 hover:bg-black/10 dark:hover:bg-white/20"}`
+                            }`}
+                          >
+                            <span>{emoji}</span>
+                            <span>{userIds.length}</span>
+                          </button>
+                        ))}
+                    </div>
+                  )}
+
                   <div className={`flex items-center justify-end gap-1 text-[10px] mt-0.5 ${isOwn ? "text-emerald-100" : "text-gray-500 dark:text-zinc-400"}`}>
                     <span>{formatTimeLabel(msg.created_at)}</span>
                     {msg.edited && !msg.is_deleted && <span className="italic">(edited)</span>}
@@ -2151,6 +2262,29 @@ function ChatWindowView({
                     <button onClick={() => onForwardMessage?.(msg)} className="p-1 text-gray-400 hover:text-gray-900 dark:hover:text-white" title="Forward">
                       <Forward className="w-3 h-3" />
                     </button>
+                    <Popover open={reactionPickerFor === msg.id} onOpenChange={(o) => setReactionPickerFor(o ? msg.id : null)}>
+                      <PopoverTrigger asChild>
+                        <button className="p-1 text-gray-400 hover:text-gray-900 dark:hover:text-white" title="React">
+                          <Smile className="w-3 h-3" />
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent align="start" className="w-auto p-1 bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700">
+                        <div className="flex gap-1">
+                          {QUICK_REACTIONS.map((emoji) => (
+                            <button
+                              key={emoji}
+                              onClick={() => {
+                                onToggleReaction?.(msg.id, emoji);
+                                setReactionPickerFor(null);
+                              }}
+                              className="text-lg leading-none p-1 rounded hover:bg-gray-100 dark:hover:bg-zinc-800 hover:scale-125 transition-transform"
+                            >
+                              {emoji}
+                            </button>
+                          ))}
+                        </div>
+                      </PopoverContent>
+                    </Popover>
                   </div>
                 )}
               </div>
