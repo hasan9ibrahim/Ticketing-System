@@ -2413,11 +2413,33 @@ function ChatWindowView({
                     {isOwn && !msg.failed && !msg.is_deleted && (
                       readByCount === 0 ? (
                         <Check className="w-3 h-3" title="Sent" />
+                      ) : isGroup ? (
+                        <div className="relative group/read inline-flex">
+                          {otherCount > 0 && readByCount >= otherCount ? (
+                            <CheckCheck className="w-3 h-3" />
+                          ) : (
+                            <Check className="w-3 h-3" />
+                          )}
+                          <div className="hidden group-hover/read:block absolute bottom-full right-0 mb-1 z-20 w-48 max-h-40 overflow-y-auto rounded border border-gray-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-lg py-1 text-left">
+                            <div className="text-[9px] font-medium uppercase tracking-wide text-gray-400 dark:text-zinc-500 px-2 pb-1">
+                              Read by
+                            </div>
+                            {readByNames.length === 0 ? (
+                              <div className="text-xs text-gray-400 dark:text-zinc-500 px-2 py-1">No one yet</div>
+                            ) : (
+                              readByNames.map((name) => (
+                                <div key={name} className="flex items-center gap-1.5 px-2 py-0.5">
+                                  <Avatar className="w-4 h-4 flex-shrink-0">
+                                    <AvatarFallback className="bg-emerald-600 text-white text-[7px]">{getInitials(name)}</AvatarFallback>
+                                  </Avatar>
+                                  <span className="text-xs text-gray-700 dark:text-zinc-200 truncate">{name}</span>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        </div>
                       ) : (
-                        <CheckCheck
-                          className={`w-3 h-3 ${isGroup && readByCount < otherCount ? "opacity-60" : ""}`}
-                          title={isGroup ? (readByNames.length ? `Read by ${readByNames.join(", ")}` : "Read") : "Read"}
-                        />
+                        <CheckCheck className="w-3 h-3" title="Read" />
                       )
                     )}
                   </div>
