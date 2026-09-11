@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   MessageSquare, X, Send, Paperclip, Image as ImageIcon, Users, Plus,
   Check, CheckCheck, Info, LogOut, Smile, Pencil, Trash2, Loader2, Minus,
@@ -128,6 +128,18 @@ function sortConversations(list) {
     if (!!b.pinned !== !!a.pinned) return b.pinned ? 1 : -1;
     return new Date(b.updated_at || 0) - new Date(a.updated_at || 0);
   });
+}
+
+// Builds a single split-regex covering both auto-linked URLs and @mentions of
+// known conversation participants, so message content can be tokenized into
+// link/mention/plain-text spans in one pass. Names are sorted longest-first
+// so e.g. "@Bob" doesn't shadow a match of "@Bob NOC".
+function buildMessageContentRegex(names) {
+  if (!names.length) return /(https?:\/\/[^\s]+)/g;
+  const escaped = [...names]
+    .sort((a, b) => b.length - a.length)
+    .map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  return new RegExp(`(https?:\\/\\/[^\\s]+|@(?:${escaped.join("|")}))`, "g");
 }
 
 export default function Chat({ user, openChats, setOpenChats, activeChat, setActiveChat, isExpanded, setIsExpanded }) {
@@ -1717,6 +1729,12 @@ function ChatWindowView({
   // Which message's quick-reaction popover is open, if any - a single
   // shared value rather than one open-state per message row.
   const [reactionPickerFor, setReactionPickerFor] = useState(null);
+  // @mention autocomplete: mentionQuery is null when no "@..." is currently
+  // being typed; mentionStart is the index of the triggering "@" within
+  // whichever text field (message or editingText) is currently active.
+  const [mentionQuery, setMentionQuery] = useState(null);
+  const [mentionStart, setMentionStart] = useState(null);
+  const [mentionActiveIndex, setMentionActiveIndex] = useState(0);
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
   const inputRef = useRef(null);
@@ -1729,6 +1747,21 @@ function ChatWindowView({
 
   const isGroup = !!chat.is_group;
   const memberCount = (chat.participants?.length || 0) + 1; // + self
+
+  // Everyone mentionable in this conversation (never includes self - you
+  // don't @mention yourself), and the regex used to both detect and render
+  // mentions of them.
+  const mentionCandidates = useMemo(
+    () => (isGroup ? chat.participants || [] : chat.participant ? [chat.participant] : []),
+    [isGroup, chat.participants, chat.participant]
+  );
+  const mentionNames = useMemo(() => mentionCandidates.map((p) => p.name).filter(Boolean), [mentionCandidates]);
+  const contentRegex = useMemo(() => buildMessageContentRegex(mentionNames), [mentionNames]);
+  const filteredMentionCandidates = useMemo(() => {
+    if (mentionQuery === null) return [];
+    const q = mentionQuery.toLowerCase();
+    return mentionCandidates.filter((p) => p.name?.toLowerCase().includes(q)).slice(0, 6);
+  }, [mentionCandidates, mentionQuery]);
 
   useEffect(() => {
     if (!loaded) return;
@@ -1780,6 +1813,8 @@ function ChatWindowView({
     onSend(message, pendingAttachments, replyTo);
     setMessage("");
     setReplyTo(null);
+    setMentionQuery(null);
+    setMentionStart(null);
   };
 
   // dragenter/dragleave fire for every child element as the cursor moves
@@ -1816,6 +1851,29 @@ function ChatWindowView({
   };
 
   const handleKeyDown = (e) => {
+    if (mentionQuery !== null && filteredMentionCandidates.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setMentionActiveIndex((i) => (i + 1) % filteredMentionCandidates.length);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setMentionActiveIndex((i) => (i - 1 + filteredMentionCandidates.length) % filteredMentionCandidates.length);
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        insertMention(filteredMentionCandidates[mentionActiveIndex] || filteredMentionCandidates[0]);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setMentionQuery(null);
+        setMentionStart(null);
+        return;
+      }
+    }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSend();
@@ -1825,18 +1883,69 @@ function ChatWindowView({
     }
   };
 
-  const handleChange = (e) => {
-    if (isEditing) {
-      setEditingText(e.target.value);
+  // Looks at the text up to the cursor for a "@partial" token being typed
+  // right now - an "@" not glued to a preceding word and with no whitespace
+  // typed after it yet - and opens/updates/closes the mention dropdown
+  // accordingly.
+  const updateMentionState = (text, cursorPos) => {
+    const upToCursor = text.slice(0, cursorPos);
+    const atIndex = upToCursor.lastIndexOf("@");
+    if (atIndex === -1) {
+      setMentionQuery(null);
       return;
     }
-    setMessage(e.target.value);
-    if (!typingTimeoutRef.current) {
-      onTyping();
-      typingTimeoutRef.current = setTimeout(() => {
-        typingTimeoutRef.current = null;
-      }, 2000);
+    const between = upToCursor.slice(atIndex + 1);
+    if (/\s/.test(between)) {
+      setMentionQuery(null);
+      return;
     }
+    const before = upToCursor.slice(0, atIndex);
+    if (before && !/\s$/.test(before)) {
+      setMentionQuery(null);
+      return;
+    }
+    setMentionStart(atIndex);
+    setMentionQuery(between);
+    setMentionActiveIndex(0);
+  };
+
+  const handleChange = (e) => {
+    const value = e.target.value;
+    const cursorPos = e.target.selectionStart ?? value.length;
+    if (isEditing) {
+      setEditingText(value);
+    } else {
+      setMessage(value);
+      if (!typingTimeoutRef.current) {
+        onTyping();
+        typingTimeoutRef.current = setTimeout(() => {
+          typingTimeoutRef.current = null;
+        }, 2000);
+      }
+    }
+    updateMentionState(value, cursorPos);
+  };
+
+  const insertMention = (participant) => {
+    if (!participant || mentionStart === null) return;
+    const text = isEditing ? editingText : message;
+    const cursorPos = inputRef.current?.selectionStart ?? text.length;
+    const before = text.slice(0, mentionStart);
+    const after = text.slice(cursorPos);
+    const inserted = `@${participant.name} `;
+    const newText = before + inserted + after;
+    if (isEditing) {
+      setEditingText(newText);
+    } else {
+      setMessage(newText);
+    }
+    setMentionQuery(null);
+    setMentionStart(null);
+    const newCursor = before.length + inserted.length;
+    requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.setSelectionRange(newCursor, newCursor);
+    });
   };
 
   const handleScroll = () => {
@@ -1874,18 +1983,24 @@ function ChatWindowView({
     setEditingMessageId(msg.id);
     setEditingText(msg.content);
     setReplyTo(null);
+    setMentionQuery(null);
+    setMentionStart(null);
     inputRef.current?.focus();
   };
 
   const cancelEditingMessage = () => {
     setEditingMessageId(null);
     setEditingText("");
+    setMentionQuery(null);
+    setMentionStart(null);
   };
 
   const startReplyingTo = (msg) => {
     setReplyTo(msg);
     setEditingMessageId(null);
     setEditingText("");
+    setMentionQuery(null);
+    setMentionStart(null);
     inputRef.current?.focus();
   };
 
@@ -2235,7 +2350,7 @@ function ChatWindowView({
 
                       {msg.content && (
                         <div className="break-words">
-                          {msg.content.split(/(https?:\/\/[^\s]+)/g).map((part, i) =>
+                          {msg.content.split(contentRegex).map((part, i) =>
                             /^https?:\/\/[^\s]+$/.test(part) ? (
                               <a
                                 key={i}
@@ -2246,6 +2361,15 @@ function ChatWindowView({
                               >
                                 {part}
                               </a>
+                            ) : part.startsWith("@") && mentionNames.includes(part.slice(1)) ? (
+                              <span
+                                key={i}
+                                className={`font-medium rounded px-0.5 ${
+                                  isOwn ? "bg-white/20" : "bg-emerald-500/20 text-emerald-700 dark:text-emerald-300"
+                                }`}
+                              >
+                                {part}
+                              </span>
                             ) : (
                               <span key={i}>{part}</span>
                             )
@@ -2392,6 +2516,31 @@ function ChatWindowView({
             <button onClick={cancelReply} className="text-gray-400 hover:text-gray-900 dark:hover:text-white flex-shrink-0" title="Cancel reply">
               <X className="w-3.5 h-3.5" />
             </button>
+          </div>
+        )}
+
+        {mentionQuery !== null && filteredMentionCandidates.length > 0 && (
+          <div className="max-h-40 overflow-y-auto border-t border-black/10 dark:border-white/10 bg-white dark:bg-zinc-900">
+            {filteredMentionCandidates.map((p, idx) => (
+              <button
+                key={p.id}
+                // mousedown (not click) + preventDefault so selecting a
+                // candidate never blurs the input first - keeps focus and
+                // cursor position intact for the refocus in insertMention.
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  insertMention(p);
+                }}
+                className={`w-full flex items-center gap-2 text-left px-2 py-1.5 text-xs ${
+                  idx === mentionActiveIndex ? "bg-emerald-50 dark:bg-emerald-900/30" : "hover:bg-gray-100 dark:hover:bg-zinc-800"
+                }`}
+              >
+                <Avatar className="w-5 h-5">
+                  <AvatarFallback className="bg-emerald-600 text-white text-[9px]">{getInitials(p.name)}</AvatarFallback>
+                </Avatar>
+                <span className="font-medium text-gray-900 dark:text-white">{p.name}</span>
+              </button>
+            ))}
           </div>
         )}
 
