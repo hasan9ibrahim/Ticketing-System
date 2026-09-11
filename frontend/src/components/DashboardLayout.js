@@ -1108,7 +1108,14 @@ export default function DashboardLayout({ user, setUser }) {
                     key={item.path}
                     variant="ghost"
                     data-testid={`nav-${item.label.toLowerCase().replace(' ', '-')}`}
-                    onClick={() => (item.isChatToggle ? setChatExpanded(true) : navigate(item.path))}
+                    onClick={() => {
+                      if (item.isChatToggle) {
+                        setChatExpanded(true);
+                      } else {
+                        setChatExpanded(false);
+                        navigate(item.path);
+                      }
+                    }}
                     className={`w-full justify-start h-11 ${
                       isActive
                         ? "bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20"
