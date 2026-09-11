@@ -12,10 +12,22 @@ export function requestNotificationPermission() {
 // Only meaningful when the tab isn't visible - an in-page toast already
 // covers the case where they're looking at the app. Callers should gate on
 // document.hidden themselves before calling this.
-export function showNativeNotification(title, body) {
+//
+// onClick (optional) runs when the user clicks the notification itself -
+// without it, clicking does nothing but dismiss the popup, which is why
+// e.g. a chat notification previously never took you to the conversation
+// it was about. We always bring the tab to the foreground first since
+// that's what "clicking a notification" means regardless of what else
+// the caller wants to happen.
+export function showNativeNotification(title, body, onClick) {
   if (!("Notification" in window) || Notification.permission !== "granted") return;
   try {
-    new Notification(title, { body, icon: "/favicon.ico" });
+    const notification = new Notification(title, { body, icon: "/favicon.ico" });
+    notification.onclick = () => {
+      window.focus();
+      notification.close();
+      onClick?.();
+    };
   } catch (error) {
     // Ignore - notification is a nice-to-have, never worth failing over
   }

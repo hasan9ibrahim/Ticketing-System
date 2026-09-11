@@ -322,6 +322,29 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
     [markAsRead]
   );
 
+  // Opens a conversation window by id, refetching the conversation list
+  // first if it's not already known locally - e.g. a toast/notification
+  // click for the very first message from someone you had no prior
+  // conversation with, which arrived before this tab ever fetched them.
+  const openConversationById = useCallback(
+    async (conversationId) => {
+      let conv = conversations.find((c) => c.id === conversationId);
+      if (!conv) {
+        try {
+          const response = await axios.get(`${API}/chat/conversations`, { headers: authHeaders() });
+          const sorted = sortConversations(response.data);
+          setConversations(sorted);
+          conv = sorted.find((c) => c.id === conversationId);
+        } catch (error) {
+          console.error("Error fetching conversations:", error);
+        }
+      }
+      if (conv) openConversationWindow(conv);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [conversations, openConversationWindow]
+  );
+
   const applyIncomingMessage = useCallback(
     (message) => {
       const isOwn = message.sender_id === user?.id;
@@ -386,20 +409,23 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
             c.conversation_id === message.conversation_id ? { ...c, unreadCount: (c.unreadCount || 0) + 1 } : c
           )
         );
-        const convForToast = conversations.find((c) => c.id === message.conversation_id);
         const senderName = message.sender_name || "Someone";
         toast(`${senderName} sent you a message`, {
           description: preview,
-          action: convForToast ? { label: "Open", onClick: () => openConversationWindow(convForToast) } : undefined,
+          action: { label: "Open", onClick: () => openConversationById(message.conversation_id) },
         });
         playNotificationSound();
-        if (document.hidden) showNativeNotification(`${senderName} sent you a message`, preview);
+        if (document.hidden) {
+          showNativeNotification(`${senderName} sent you a message`, preview, () => {
+            openConversationById(message.conversation_id);
+          });
+        }
       } else {
         markAsRead(message.conversation_id);
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [user?.id, isConversationFocused, conversations, markAsRead, setOpenChats, openConversationWindow]
+    [user?.id, isConversationFocused, markAsRead, setOpenChats, openConversationById]
   );
 
   const applyReadReceipt = useCallback((conversationId, readBy) => {

@@ -24,15 +24,16 @@ export default function SystemNotifications({ user }) {
 
     const title = `${data.request_type_label || "Request"} ${isCompleted ? "Completed" : "Rejected"}`;
     const preview = (data.message || "").split("\n")[0] || title;
-    // Only worth a native OS popup when this tab isn't the one they're
-    // looking at - the in-page toast below already covers that case.
-    if (document.hidden) {
-      showNativeNotification(title, preview);
-    }
 
     const goToRequest = () => {
       window.location.href = `/requests?request=${data.request_id}&t=${Date.now()}`;
     };
+
+    // Only worth a native OS popup when this tab isn't the one they're
+    // looking at - the in-page toast below already covers that case.
+    if (document.hidden) {
+      showNativeNotification(title, preview, goToRequest);
+    }
 
     toast.custom(
       (t) => (
