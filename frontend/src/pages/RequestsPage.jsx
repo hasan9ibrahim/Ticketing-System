@@ -2562,12 +2562,12 @@ export default function RequestsPage() {
                           <div
                             onFocus={() => setActiveConfigPane(prev => ({ ...prev, [configIndex]: "rating" }))}
                             onClick={() => setActiveConfigPane(prev => ({ ...prev, [configIndex]: "rating" }))}
-                            className={`bg-gray-100/40 dark:bg-zinc-800/40 rounded-lg p-3 border transition-all duration-300 ease-out sm:[grid-area:1/1] ${
+                            className={`rounded-lg p-3 border transition-all duration-300 ease-out sm:[grid-area:1/1] ${
                               !showRouting
-                                ? "border-transparent sm:z-10 sm:scale-100 sm:translate-x-0 sm:translate-y-0 sm:opacity-100"
+                                ? "bg-gray-100 dark:bg-zinc-800 border-transparent sm:z-10 sm:scale-100 sm:translate-x-0 sm:translate-y-0"
                                 : (activeConfigPane[configIndex] || "rating") === "rating"
-                                  ? "order-1 border-amber-500/40 shadow-lg sm:z-20 sm:scale-100 sm:translate-x-0 sm:translate-y-0 sm:opacity-100"
-                                  : "order-2 border-transparent sm:z-10 sm:scale-[0.95] sm:translate-x-2 sm:translate-y-2 sm:opacity-60"
+                                  ? "order-1 bg-white dark:bg-zinc-800 border-amber-500/40 shadow-xl sm:z-20 sm:scale-100 sm:translate-x-0 sm:translate-y-0"
+                                  : "order-2 bg-gray-200 dark:bg-zinc-900 border-transparent shadow-md sm:z-10 sm:scale-[0.92] sm:translate-x-4 sm:translate-y-2"
                             }`}
                           >
                             <div className="flex items-center gap-2 mb-3">
@@ -2634,10 +2634,10 @@ export default function RequestsPage() {
                             <div
                               onFocus={() => setActiveConfigPane(prev => ({ ...prev, [configIndex]: "routing" }))}
                               onClick={() => setActiveConfigPane(prev => ({ ...prev, [configIndex]: "routing" }))}
-                              className={`bg-gray-100/40 dark:bg-zinc-800/40 rounded-lg p-3 border transition-all duration-300 ease-out sm:[grid-area:1/1] ${
+                              className={`rounded-lg p-3 border transition-all duration-300 ease-out sm:[grid-area:1/1] ${
                                 activeConfigPane[configIndex] === "routing"
-                                  ? "order-1 border-blue-500/40 shadow-lg sm:z-20 sm:scale-100 sm:translate-x-0 sm:translate-y-0 sm:opacity-100"
-                                  : "order-2 border-transparent sm:z-10 sm:scale-[0.95] sm:translate-x-2 sm:translate-y-2 sm:opacity-60"
+                                  ? "order-1 bg-white dark:bg-zinc-800 border-blue-500/40 shadow-xl sm:z-20 sm:scale-100 sm:translate-x-0 sm:translate-y-0"
+                                  : "order-2 bg-gray-200 dark:bg-zinc-900 border-transparent shadow-md sm:z-10 sm:scale-[0.92] sm:translate-x-4 sm:translate-y-2"
                               }`}
                             >
                             <div className="flex items-center gap-2 mb-3">
