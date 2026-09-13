@@ -84,6 +84,26 @@ export default function VoiceTicketsPage() {
   const [amViewMode, setAmViewMode] = useState(() => getStoredAmPref("am_view_mode", "all")); // "all" or "assigned"
   const [amTrunkFilter, setAmTrunkFilter] = useState(() => getStoredAmPref("am_trunk_filter", "")); // "" or "customer_trunk" or "vendor_trunk"
   const [activeTab, setActiveTab] = useState("unassigned");
+  // Swipe left/right anywhere in the tabs area to move between statuses,
+  // matching the tab bar order - a natural mobile gesture for switching tabs.
+  const tabSwipeStartXRef = useRef(null);
+  const handleTabsTouchStart = (e) => {
+    tabSwipeStartXRef.current = e.touches[0].clientX;
+  };
+  const handleTabsTouchEnd = (e) => {
+    if (tabSwipeStartXRef.current == null) return;
+    const deltaX = e.changedTouches[0].clientX - tabSwipeStartXRef.current;
+    tabSwipeStartXRef.current = null;
+    if (Math.abs(deltaX) < 60) return;
+    const order = ["unassigned", "assigned", "pending", "resolved"];
+    const currentIndex = order.indexOf(activeTab);
+    if (currentIndex === -1) return;
+    if (deltaX < 0 && currentIndex < order.length - 1) {
+      setActiveTab(order[currentIndex + 1]);
+    } else if (deltaX > 0 && currentIndex > 0) {
+      setActiveTab(order[currentIndex - 1]);
+    }
+  };
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editingTicket, setEditingTicket] = useState(null);
   const [formData, setFormData] = useState({});
@@ -1124,7 +1144,14 @@ ${selectedTicket.ticket_number}`;
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full max-w-lg grid-cols-4 bg-white dark:bg-zinc-900 border border-black/10 dark:border-white/10">
+        {/* Swipe handlers are on the tab bar itself, not the whole Tabs
+            wrapper, so they don't fight with horizontally scrolling the
+            table below (e.g. to reach the last column). */}
+        <TabsList
+          className="grid w-full max-w-lg grid-cols-4 bg-white dark:bg-zinc-900 border border-black/10 dark:border-white/10"
+          onTouchStart={handleTabsTouchStart}
+          onTouchEnd={handleTabsTouchEnd}
+        >
           <TabsTrigger value="unassigned" className="data-[state=active]:bg-emerald-500 data-[state=active]:text-black">Unassigned ({unassignedCount})</TabsTrigger>
           <TabsTrigger value="assigned" className="data-[state=active]:bg-emerald-500 data-[state=active]:text-black">Assigned ({assignedCount})</TabsTrigger>
           <TabsTrigger value="pending" className="data-[state=active]:bg-emerald-500 data-[state=active]:text-black">Pending ({pendingCount})</TabsTrigger>
