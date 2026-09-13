@@ -2422,7 +2422,7 @@ function ChatWindowView({
                       className="w-full text-left px-2 py-1.5 hover:bg-gray-100 dark:hover:bg-zinc-800 border-b border-black/5 dark:border-white/5 last:border-0"
                     >
                       <div className="text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
-                        {r.sender_name} · {formatTimeLabel(r.created_at)}
+                        {r.sender_name} · {formatDateLabel(r.created_at)} · {formatTimeLabel(r.created_at)}
                       </div>
                       <div className="text-xs truncate text-gray-700 dark:text-zinc-300">
                         {r.message_type === "image" ? "📷 Photo" : r.message_type === "file" ? `📎 ${r.file_name || "File"}` : r.content}
