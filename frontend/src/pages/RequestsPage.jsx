@@ -78,6 +78,16 @@ const PRIORITIES = [
   { value: "Urgent", color: "bg-red-600", text: "text-gray-900 dark:text-white", description: "To be done in 5 mins (Only in case of Live Traffic)" }
 ];
 
+// Which plan(s) a Rating/Routing request covers
+const RATING_ROUTING_SCOPES = [
+  { value: "rating", label: "Rating", description: "Show only the Rating Plan" },
+  { value: "routing", label: "Routing", description: "Show only the Routing Plan" },
+  { value: "both", label: "Rating and Routing", description: "Show both plans" }
+];
+
+// Currencies available for Rating/Routing requests
+const CURRENCIES = ["EUR", "USD"];
+
 // Trunk Types for SMS and Voice
 const SMS_TRUNK_TYPES = [
   { value: "Direct", label: "Direct" },
@@ -129,6 +139,9 @@ export default function RequestsPage() {
 
   // Default route rule priority differs by department: SMS defaults high (98), Voice defaults to top priority (0)
   const getDefaultRoutePriority = () => (displayTab === "voice" ? 0 : 98);
+
+  // Default currency for rating/routing rates & costs: EUR for SMS, USD for Voice
+  const defaultCurrency = displayTab === "voice" ? "USD" : "EUR";
 
   // Compute pending request counts by priority for badge display (only for NOC/Admin)
   const getPendingByPriority = useCallback((ticketType) => {
@@ -224,6 +237,10 @@ export default function RequestsPage() {
     rating: "",
     routing: "",
     customer_trunk: "",
+    // Which plan(s) this rating_routing request covers: "rating", "routing", or "both"
+    rating_routing_scope: "both",
+    // Currency for rate/cost fields: defaults to EUR for SMS, USD for Voice
+    currency: defaultCurrency,
     // New compact structure for rating_routing: array of customer trunk configs
     // Each config has: trunk, destination, rate, and routing (vendor trunk + advanced settings)
     customer_trunk_configs: [],
@@ -1145,6 +1162,8 @@ export default function RequestsPage() {
         request_type_label: formData.request_type_label,
         department: displayTab,
         priority: formData.priority,
+        rating_routing_scope: formData.rating_routing_scope || "both",
+        currency: formData.currency || defaultCurrency,
         customer: formData.customer,
         customer_id: formData.customer_id,
         customer_ids: formData.customer_ids || [],
@@ -1239,6 +1258,8 @@ export default function RequestsPage() {
       request_type: request.request_type,
       request_type_label: request.request_type_label,
       priority: request.priority || "Medium",
+      rating_routing_scope: request.rating_routing_scope || "both",
+      currency: request.currency || defaultCurrency,
       customer: request.customer || "",
       customer_id: request.customer_id || "",
       customer_ids: request.customer_ids || (request.customer_id ? [request.customer_id] : []),
@@ -1324,6 +1345,8 @@ export default function RequestsPage() {
       request_type: request.request_type,
       request_type_label: request.request_type_label,
       priority: request.priority || "Medium",
+      rating_routing_scope: request.rating_routing_scope || "both",
+      currency: request.currency || defaultCurrency,
       customer: request.customer || "",
       customer_id: request.customer_id || "",
       customer_ids: request.customer_ids || (request.customer_id ? [request.customer_id] : []),
@@ -1724,30 +1747,43 @@ export default function RequestsPage() {
   // Validation for Rating/Routing - requires customer_trunk_configs with trunk and destination, and either rate or vendor trunk(s)
   const isRatingRoutingValid = () => {
     if (formData.request_type !== "rating_routing") return true;
-    
+
+    const scope = formData.rating_routing_scope || "both";
+    const showRatingPane = scope !== "routing";
+
     // Validate customer trunk configs
     const configs = formData.customer_trunk_configs || [];
-    
-    // At least one customer trunk config with trunk and at least one rating pair with destination is required
+
+    // At least one customer trunk config with a trunk is required; when the Rating Plan
+    // is part of this request it also needs at least one rating pair with a destination
     const hasValidConfig = configs.some(
-      config => config.trunk && (config.rating_pairs || []).some(p => p.destination)
+      config => config.trunk && (!showRatingPane || (config.rating_pairs || []).some(p => p.destination))
     );
     if (!hasValidConfig) return false;
-    
+
     // Check if any config has a rate
-    const hasCustomerRate = configs.some(config => 
+    const hasCustomerRate = configs.some(config =>
       (config.rating_pairs || []).some(p => p.rate && p.rate.trim())
     );
-    // Check if any config has vendor trunks in route rules
-    const hasVendorTrunks = configs.some(config => 
-      (config.routing?.route_rules || []).some(rule => 
+    // Check if any config has vendor trunks in route rules (per-config or common routing)
+    const hasVendorTrunks = configs.some(config =>
+      (config.routing?.route_rules || []).some(rule =>
         (rule.vendors || []).some(v => v.trunk)
       )
-    );
-    
-    // Either customer trunk needs rate OR vendor trunk needs to exist
-    if (!hasCustomerRate && !hasVendorTrunks) return false;
-    
+    ) || (formData.use_common_routing && (formData.common_route_rules || []).some(rule =>
+      (rule.vendors || []).some(v => v.trunk)
+    ));
+
+    // Rating-only requests need a rate; Routing-only requests need a vendor trunk;
+    // requests covering both need at least one of the two
+    if (scope === "rating") {
+      if (!hasCustomerRate) return false;
+    } else if (scope === "routing") {
+      if (!hasVendorTrunks) return false;
+    } else if (!hasCustomerRate && !hasVendorTrunks) {
+      return false;
+    }
+
     // Validate numeric fields
     for (const config of configs) {
       for (const pair of (config.rating_pairs || [])) {
@@ -1771,7 +1807,7 @@ export default function RequestsPage() {
         }
       }
     }
-    
+
     // Validate percentages: if a rule has more than 1 vendor, percentages must add up to 100%
     for (const config of configs) {
       for (const rule of (config.routing?.route_rules || [])) {
@@ -1784,7 +1820,21 @@ export default function RequestsPage() {
         }
       }
     }
-    
+    if (formData.use_common_routing) {
+      for (const rule of (formData.common_route_rules || [])) {
+        const vendorsWithTrunk = (rule.vendors || []).filter(v => v.trunk);
+        for (const vendor of vendorsWithTrunk) {
+          if (vendor.percentage && String(vendor.percentage).trim() && isNaN(parseFloat(vendor.percentage))) return false;
+          if (vendor.cost_min && String(vendor.cost_min).trim() && isNaN(parseFloat(vendor.cost_min))) return false;
+          if (vendor.cost_max && String(vendor.cost_max).trim() && isNaN(parseFloat(vendor.cost_max))) return false;
+        }
+        if (vendorsWithTrunk.length > 1) {
+          const percentageSum = vendorsWithTrunk.reduce((sum, v) => sum + (parseFloat(v.percentage) || 0), 0);
+          if (percentageSum !== 100) return false;
+        }
+      }
+    }
+
     return true;
   };
 
@@ -2431,6 +2481,26 @@ export default function RequestsPage() {
               </div>
             )}
 
+            {/* Plan Scope - Rating/Routing requests only: choose which plan(s) this request covers */}
+            {formData.request_type === "rating_routing" && (
+              <div>
+                <Label className="text-gray-500 dark:text-zinc-400">Plan</Label>
+                <Select value={formData.rating_routing_scope || "both"} onValueChange={(v) => setFormData({ ...formData, rating_routing_scope: v })}>
+                  <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white">
+                    <SelectValue className="text-gray-900 dark:text-white" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
+                    {RATING_ROUTING_SCOPES.map((s) => (
+                      <SelectItem key={s.value} value={s.value} className="text-gray-900 dark:text-white">
+                        <span>{s.label}</span>
+                        <span className="text-gray-500 dark:text-zinc-400 text-xs ml-2">({s.description})</span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
             {/* Ticket # - Optional field for linking to a ticket */}
             {formData.request_type && (
               <div>
@@ -2487,7 +2557,10 @@ export default function RequestsPage() {
                   {(formData.customer_trunk_configs || []).map((config, configIndex) => {
                     const routeRules = config.routing?.route_rules || [];
                     const destRates = config.rating_pairs || [{ destination: "", rate: "" }];
-                    const showRouting = !formData.use_common_routing;
+                    const scope = formData.rating_routing_scope || "both";
+                    const showRatingPane = scope !== "routing";
+                    const routingAllowed = scope !== "rating";
+                    const showRouting = routingAllowed && !formData.use_common_routing;
                     
                     return (
                       <div key={configIndex} className="border border-amber-600/30 rounded-lg p-4 bg-white/80 dark:bg-zinc-900/80">
@@ -2526,7 +2599,7 @@ export default function RequestsPage() {
                         
                         {/* Pane switch tabs - lets you jump straight to whichever plan you're filling in,
                             without hunting for the card that's currently tucked behind the other. */}
-                        {showRouting && (
+                        {showRatingPane && showRouting && (
                           <div className="flex gap-2 mb-3">
                             <button
                               type="button"
@@ -2559,6 +2632,7 @@ export default function RequestsPage() {
                             behind it. */}
                         <div className="grid grid-cols-1 gap-3 sm:gap-0">
                           {/* Rating Plan Section - Compact with multiple destination-rate pairs */}
+                          {showRatingPane && (
                           <div
                             onFocus={() => setActiveConfigPane(prev => ({ ...prev, [configIndex]: "rating" }))}
                             onClick={() => setActiveConfigPane(prev => ({ ...prev, [configIndex]: "rating" }))}
@@ -2570,9 +2644,21 @@ export default function RequestsPage() {
                                   : "order-2 bg-gray-200 dark:bg-zinc-900 border-transparent shadow-md sm:z-10 sm:scale-[0.92] sm:translate-x-4 sm:translate-y-2"
                             }`}
                           >
-                            <div className="flex items-center gap-2 mb-3">
-                              <div className="w-1 h-4 bg-amber-500 rounded"></div>
-                              <span className="text-amber-300 font-medium text-sm">Rating Plan</span>
+                            <div className="flex items-center justify-between gap-2 mb-3">
+                              <div className="flex items-center gap-2">
+                                <div className="w-1 h-4 bg-amber-500 rounded"></div>
+                                <span className="text-amber-300 font-medium text-sm">Rating Plan</span>
+                              </div>
+                              <Select value={formData.currency || defaultCurrency} onValueChange={(v) => setFormData({ ...formData, currency: v })}>
+                                <SelectTrigger className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-6 w-16 px-2">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
+                                  {CURRENCIES.map((c) => (
+                                    <SelectItem key={c} value={c} className="text-gray-900 dark:text-white text-xs">{c}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
                             </div>
                             <div className="space-y-2">
                               {/* Destination-Rate pairs */}
@@ -2598,7 +2684,7 @@ export default function RequestsPage() {
                                     placeholder="Rate"
                                     className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-8 w-16"
                                   />
-                                  <span className="text-zinc-500 text-xs">EUR</span>
+                                  <span className="text-zinc-500 text-xs">{formData.currency || defaultCurrency}</span>
                                   {destRates.length > 1 && (
                                     <Button
                                       variant="ghost"
@@ -2628,21 +2714,36 @@ export default function RequestsPage() {
                               </Button>
                             </div>
                           </div>
-                          
+                          )}
+
                           {/* Routing Plan Section - With Route Rules - Hidden when using Common Routing */}
                           {showRouting && (
                             <div
                               onFocus={() => setActiveConfigPane(prev => ({ ...prev, [configIndex]: "routing" }))}
                               onClick={() => setActiveConfigPane(prev => ({ ...prev, [configIndex]: "routing" }))}
                               className={`rounded-lg p-3 border transition-all duration-300 ease-out sm:[grid-area:1/1] ${
-                                activeConfigPane[configIndex] === "routing"
-                                  ? "order-1 bg-white dark:bg-zinc-800 border-blue-500/40 shadow-xl sm:z-20 sm:scale-100 sm:translate-x-0 sm:translate-y-0"
-                                  : "order-2 bg-gray-200 dark:bg-zinc-900 border-transparent shadow-md sm:z-10 sm:scale-[0.92] sm:translate-x-4 sm:translate-y-2"
+                                !showRatingPane
+                                  ? "bg-gray-100 dark:bg-zinc-800 border-transparent sm:z-10 sm:scale-100 sm:translate-x-0 sm:translate-y-0"
+                                  : activeConfigPane[configIndex] === "routing"
+                                    ? "order-1 bg-white dark:bg-zinc-800 border-blue-500/40 shadow-xl sm:z-20 sm:scale-100 sm:translate-x-0 sm:translate-y-0"
+                                    : "order-2 bg-gray-200 dark:bg-zinc-900 border-transparent shadow-md sm:z-10 sm:scale-[0.92] sm:translate-x-4 sm:translate-y-2"
                               }`}
                             >
-                            <div className="flex items-center gap-2 mb-3">
-                              <div className="w-1 h-4 bg-blue-500 rounded"></div>
-                              <span className="text-blue-300 font-medium text-sm">Routing Plan</span>
+                            <div className="flex items-center justify-between gap-2 mb-3">
+                              <div className="flex items-center gap-2">
+                                <div className="w-1 h-4 bg-blue-500 rounded"></div>
+                                <span className="text-blue-300 font-medium text-sm">Routing Plan</span>
+                              </div>
+                              <Select value={formData.currency || defaultCurrency} onValueChange={(v) => setFormData({ ...formData, currency: v })}>
+                                <SelectTrigger className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-6 w-16 px-2">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
+                                  {CURRENCIES.map((c) => (
+                                    <SelectItem key={c} value={c} className="text-gray-900 dark:text-white text-xs">{c}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
                             </div>
                             
                             <div className="space-y-3">
@@ -2742,7 +2843,7 @@ export default function RequestsPage() {
                                               <Input
                                                 value={vendor.cost_min || ""}
                                                 onChange={(e) => updateVendorInRule(configIndex, ruleIndex, vendorIndex, "cost_min", e.target.value)}
-                                                placeholder="EUR"
+                                                placeholder={formData.currency || defaultCurrency}
                                                 className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7 flex-1 min-w-0"
                                               />
                                             ) : (
@@ -2935,7 +3036,8 @@ export default function RequestsPage() {
                   <Plus className="h-4 w-4 mr-1" /> Add Customer Trunk
                 </Button>
 
-                {/* Common Routing Option */}
+                {/* Common Routing Option - Only relevant when this request includes a Routing Plan */}
+                {(formData.rating_routing_scope || "both") !== "rating" && (
                 <div className="mb-4 p-3 bg-gray-100/50 dark:bg-zinc-800/50 rounded-lg border border-gray-200 dark:border-zinc-700">
                   <div className="flex items-center justify-between">
                     <div>
@@ -2952,15 +3054,27 @@ export default function RequestsPage() {
                       <div className="w-11 h-6 bg-gray-200 dark:bg-zinc-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-black dark:peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-cyan-600"></div>
                     </label>
                   </div>
-                  
+
                   {/* Common Routing Plan Section - Shown when enabled */}
                   {formData.use_common_routing && (
                     <div className="mt-4 pt-4 border-t border-gray-300 dark:border-zinc-600">
-                      <div className="flex items-center gap-2 mb-3">
-                        <div className="w-1 h-4 bg-blue-500 rounded"></div>
-                        <span className="text-blue-300 font-medium text-sm">Common Routing Plan</span>
+                      <div className="flex items-center justify-between gap-2 mb-3">
+                        <div className="flex items-center gap-2">
+                          <div className="w-1 h-4 bg-blue-500 rounded"></div>
+                          <span className="text-blue-300 font-medium text-sm">Common Routing Plan</span>
+                        </div>
+                        <Select value={formData.currency || defaultCurrency} onValueChange={(v) => setFormData({ ...formData, currency: v })}>
+                          <SelectTrigger className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-6 w-16 px-2">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
+                            {CURRENCIES.map((c) => (
+                              <SelectItem key={c} value={c} className="text-gray-900 dark:text-white text-xs">{c}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
-                      
+
                       <div className="space-y-3">
                         {/* Common Route Rules */}
                         {(formData.common_route_rules || []).map((rule, ruleIndex) => {
@@ -3058,7 +3172,7 @@ export default function RequestsPage() {
                                         <Input
                                           value={vendor.cost_min || ""}
                                           onChange={(e) => updateVendorInCommonRule(ruleIndex, vendorIndex, "cost_min", e.target.value)}
-                                          placeholder="EUR"
+                                          placeholder={formData.currency || defaultCurrency}
                                           className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7 flex-1 min-w-0"
                                         />
                                       ) : (
@@ -3231,7 +3345,8 @@ export default function RequestsPage() {
                     </div>
                   )}
                 </div>
-                
+                )}
+
               </>
             )}
 
@@ -3891,6 +4006,20 @@ export default function RequestsPage() {
                   <Label className="text-gray-500 dark:text-zinc-400">Priority</Label>
                   <p className="text-gray-900 dark:text-white">{selectedRequest.priority}</p>
                 </div>
+                {selectedRequest.request_type === "rating_routing" && (
+                  <div>
+                    <Label className="text-gray-500 dark:text-zinc-400">Plan</Label>
+                    <p className="text-gray-900 dark:text-white">
+                      {RATING_ROUTING_SCOPES.find(s => s.value === (selectedRequest.rating_routing_scope || "both"))?.label || "Rating and Routing"}
+                    </p>
+                  </div>
+                )}
+                {selectedRequest.request_type === "rating_routing" && (
+                  <div>
+                    <Label className="text-gray-500 dark:text-zinc-400">Currency</Label>
+                    <p className="text-gray-900 dark:text-white">{selectedRequest.currency || "EUR"}</p>
+                  </div>
+                )}
                 <div>
                   <Label className="text-gray-500 dark:text-zinc-400">Status</Label>
                   <p className="text-gray-900 dark:text-white capitalize">{selectedRequest.status}</p>
@@ -3938,7 +4067,8 @@ export default function RequestsPage() {
                           
                           {/* Two-column layout: Rating Plan | Routing Plan - stacked on mobile */}
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            {/* Rating Plan */}
+                            {/* Rating Plan - hidden for Routing-only requests */}
+                            {(selectedRequest.rating_routing_scope || "both") !== "routing" && (
                             <div className="border border-gray-200/50 dark:border-zinc-700/50 rounded p-2 bg-gray-100/20 dark:bg-zinc-800/20">
                               <div className="text-xs text-amber-300 font-medium mb-1">Rating Plan</div>
                               <div className="text-xs space-y-1">
@@ -3946,20 +4076,21 @@ export default function RequestsPage() {
                                 {isNewFormat && config.rating_pairs ? (
                                   config.rating_pairs.map((pair, pi) => (
                                     <div key={pi} className="text-gray-500 dark:text-zinc-400">
-                                      Dest: <span className="text-gray-900 dark:text-white">{pair.destination || "N/A"}</span> → Rate: <span className="text-gray-900 dark:text-white">{pair.rate || "N/A"} EUR</span>
+                                      Dest: <span className="text-gray-900 dark:text-white">{pair.destination || "N/A"}</span> → Rate: <span className="text-gray-900 dark:text-white">{pair.rate || "N/A"} {selectedRequest.currency || "EUR"}</span>
                                     </div>
                                   ))
                                 ) : (
                                   <>
                                     <div className="text-gray-500 dark:text-zinc-400">Destination: <span className="text-gray-900 dark:text-white">{config.destination || "N/A"}</span></div>
-                                    <div className="text-gray-500 dark:text-zinc-400">Rate: <span className="text-gray-900 dark:text-white">{config.rate || "N/A"} EUR</span></div>
+                                    <div className="text-gray-500 dark:text-zinc-400">Rate: <span className="text-gray-900 dark:text-white">{config.rate || "N/A"} {selectedRequest.currency || "EUR"}</span></div>
                                   </>
                                 )}
                               </div>
                             </div>
-                            
-                            {/* Routing Plan - only show if NOT using common routing */}
-                            {!selectedRequest.use_common_routing && (
+                            )}
+
+                            {/* Routing Plan - hidden for Rating-only requests, and shown per-config only if NOT using common routing */}
+                            {(selectedRequest.rating_routing_scope || "both") !== "rating" && !selectedRequest.use_common_routing && (
                               <div className="border border-gray-200/50 dark:border-zinc-700/50 rounded p-2 bg-gray-100/20 dark:bg-zinc-800/20">
                                 <div className="text-xs text-blue-300 font-medium mb-1">Routing Plan</div>
                                 <div className="text-xs space-y-1">
@@ -3979,7 +4110,7 @@ export default function RequestsPage() {
                                             <div className="flex flex-wrap gap-2 text-gray-500 dark:text-zinc-400">
                                               {rule.vendors.length > 1 && vendor.percentage && <span>%:{vendor.percentage}%</span>}
                                               {vendor.cost_type && <span>{vendor.cost_type === "fixed" ? "Fixed" : "Range"}</span>}
-                                              {vendor.cost_min && <span>{vendor.cost_type === "fixed" ? `Cost:${vendor.cost_min}` : `${vendor.cost_min}-${vendor.cost_max}`}</span>}
+                                              {vendor.cost_min && <span>{vendor.cost_type === "fixed" ? `Cost:${vendor.cost_min}` : `${vendor.cost_min}-${vendor.cost_max}`} {selectedRequest.currency || "EUR"}</span>}
                                             </div>
                                           </div>
                                         ))}
@@ -4004,7 +4135,7 @@ export default function RequestsPage() {
                                             {vendor.position && <span>Pos:{vendor.position}</span>}
                                             {vendor.percentage && <span>%:{vendor.percentage}%</span>}
                                             {vendor.cost_type && <span>{vendor.cost_type === "fixed" ? "Fixed" : "Range"}</span>}
-                                            {vendor.cost_min && <span>{vendor.cost_type === "fixed" ? `Cost:${vendor.cost_min}` : `${vendor.cost_min}-${vendor.cost_max}`}</span>}
+                                            {vendor.cost_min && <span>{vendor.cost_type === "fixed" ? `Cost:${vendor.cost_min}` : `${vendor.cost_min}-${vendor.cost_max}`} {selectedRequest.currency || "EUR"}</span>}
                                           </div>
                                         </div>
                                       ))
@@ -4044,7 +4175,7 @@ export default function RequestsPage() {
                                   <div className="flex flex-wrap gap-2 text-gray-500 dark:text-zinc-400 text-xs">
                                     {rule.vendors.length > 1 && vendor.percentage && <span>%:{vendor.percentage}%</span>}
                                     {vendor.cost_type && <span>{vendor.cost_type === "fixed" ? "Fixed" : "Range"}</span>}
-                                    {vendor.cost_min && <span>{vendor.cost_type === "fixed" ? `Cost:${vendor.cost_min}` : `${vendor.cost_min}-${vendor.cost_max}`}</span>}
+                                    {vendor.cost_min && <span>{vendor.cost_type === "fixed" ? `Cost:${vendor.cost_min}` : `${vendor.cost_min}-${vendor.cost_max}`} {selectedRequest.currency || "EUR"}</span>}
                                   </div>
                                 </div>
                               ))}

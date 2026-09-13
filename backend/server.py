@@ -3431,7 +3431,9 @@ class AMRequest(BaseModel):
     rating_vendor_trunks: List[dict] = Field(default_factory=list)  # List of {trunk, percentage, position, cost_type, cost_min, cost_max}
     common_route_rules: List[dict] = Field(default_factory=list)  # Common routing rules for all customer trunks
     use_common_routing: bool = False  # Use common routing for all customer trunks
-    
+    rating_routing_scope: Optional[str] = "both"  # "rating", "routing", or "both" - which plan(s) this request covers
+    currency: Optional[str] = None  # "EUR" or "USD" - defaults to EUR for SMS, USD for Voice
+
     # Testing fields
     vendor_trunks: List[dict] = Field(default_factory=list)  # List of {trunk, sid, content}
     
@@ -3508,6 +3510,8 @@ class AMRequestCreate(BaseModel):
     rating_vendor_trunks: List[dict] = Field(default_factory=list)
     common_route_rules: List[dict] = Field(default_factory=list)  # Common routing rules for all customer trunks
     use_common_routing: bool = False  # Use common routing for all customer trunks
+    rating_routing_scope: Optional[str] = "both"  # "rating", "routing", or "both" - which plan(s) this request covers
+    currency: Optional[str] = None  # "EUR" or "USD" - defaults to EUR for SMS, USD for Voice
     vendor_trunks: List[dict] = Field(default_factory=list)
     translation_type: Optional[str] = None
     trunk_type: Optional[str] = None
@@ -3711,6 +3715,8 @@ async def create_request(request_data: AMRequestCreate, current_user: dict = Dep
         rating_vendor_trunks=request_data.rating_vendor_trunks,
         common_route_rules=request_data.common_route_rules,
         use_common_routing=request_data.use_common_routing,
+        rating_routing_scope=request_data.rating_routing_scope,
+        currency=request_data.currency,
         vendor_trunks=request_data.vendor_trunks,
         translation_type=request_data.translation_type,
         trunk_type=request_data.trunk_type,
@@ -3781,6 +3787,7 @@ async def update_request(request_id: str, request_data: dict, current_user: dict
             "customer_trunk", "customer_trunks", "customer_trunk_configs", "destination", "by_loss",
             "enable_mnp_hlr", "mnp_hlr_type", "enable_threshold", "threshold_count", "via_vendor", "enable_whitelisting",
             "rating_vendor_trunks", "common_route_rules", "use_common_routing",
+            "rating_routing_scope", "currency",
             "vendor_trunks", "translation_type", "trunk_type", "trunk_name",
             "old_value", "new_value", "old_sid", "new_sid", "word_to_remove", "translation_destination",
             "test_type", "test_description",
