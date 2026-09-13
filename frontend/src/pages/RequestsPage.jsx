@@ -2785,13 +2785,22 @@ export default function RequestsPage() {
                                         </div>
                                         <div className="flex items-center gap-2 min-w-0">
                                           <span className="text-gray-500 dark:text-zinc-400 text-xs whitespace-nowrap">Dest:</span>
-                                          <SearchableSelect
-                                            options={[{ value: "All", label: "All" }, { value: "Rest", label: "Rest" }, ...(config.rating_pairs || []).filter(p => p.destination).map(p => ({ value: p.destination, label: p.destination }))]}
-                                            value={rule.destination || ""}
-                                            onChange={(value) => updateRouteRule(configIndex, ruleIndex, "destination", value)}
-                                            placeholder="Select"
-                                            className="text-xs flex-1 min-w-0"
-                                          />
+                                          {showRatingPane ? (
+                                            <SearchableSelect
+                                              options={[{ value: "All", label: "All" }, { value: "Rest", label: "Rest" }, ...(config.rating_pairs || []).filter(p => p.destination).map(p => ({ value: p.destination, label: p.destination }))]}
+                                              value={rule.destination || ""}
+                                              onChange={(value) => updateRouteRule(configIndex, ruleIndex, "destination", value)}
+                                              placeholder="Select"
+                                              className="text-xs flex-1 min-w-0"
+                                            />
+                                          ) : (
+                                            <Input
+                                              value={rule.destination || ""}
+                                              onChange={(e) => updateRouteRule(configIndex, ruleIndex, "destination", e.target.value)}
+                                              placeholder="Destination"
+                                              className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7 flex-1 min-w-0"
+                                            />
+                                          )}
                                         </div>
                                       </div>
                                     </div>
@@ -3114,13 +3123,22 @@ export default function RequestsPage() {
                                   </div>
                                   <div className="flex items-center gap-2 min-w-0">
                                     <span className="text-gray-500 dark:text-zinc-400 text-xs whitespace-nowrap">Dest:</span>
-                                    <SearchableSelect
-                                      options={[{ value: "All", label: "All" }, { value: "Rest", label: "Rest" }, ...getAllDestinations().map(d => ({ value: d, label: d }))]}
-                                      value={rule.destination || ""}
-                                      onChange={(value) => updateCommonRouteRule(ruleIndex, "destination", value)}
-                                      placeholder="Select"
-                                      className="text-xs flex-1 min-w-0"
-                                    />
+                                    {(formData.rating_routing_scope || "both") !== "routing" ? (
+                                      <SearchableSelect
+                                        options={[{ value: "All", label: "All" }, { value: "Rest", label: "Rest" }, ...getAllDestinations().map(d => ({ value: d, label: d }))]}
+                                        value={rule.destination || ""}
+                                        onChange={(value) => updateCommonRouteRule(ruleIndex, "destination", value)}
+                                        placeholder="Select"
+                                        className="text-xs flex-1 min-w-0"
+                                      />
+                                    ) : (
+                                      <Input
+                                        value={rule.destination || ""}
+                                        onChange={(e) => updateCommonRouteRule(ruleIndex, "destination", e.target.value)}
+                                        placeholder="Destination"
+                                        className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7 flex-1 min-w-0"
+                                      />
+                                    )}
                                   </div>
                                 </div>
                               </div>
