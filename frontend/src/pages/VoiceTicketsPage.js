@@ -1148,14 +1148,14 @@ ${selectedTicket.ticket_number}`;
             wrapper, so they don't fight with horizontally scrolling the
             table below (e.g. to reach the last column). */}
         <TabsList
-          className="grid w-full max-w-lg grid-cols-4 bg-white dark:bg-zinc-900 border border-black/10 dark:border-white/10"
+          className="grid h-auto w-full max-w-lg grid-cols-4 gap-1 bg-white dark:bg-zinc-900 border border-black/10 dark:border-white/10 p-1"
           onTouchStart={handleTabsTouchStart}
           onTouchEnd={handleTabsTouchEnd}
         >
-          <TabsTrigger value="unassigned" className="data-[state=active]:bg-emerald-500 data-[state=active]:text-black">Unassigned ({unassignedCount})</TabsTrigger>
-          <TabsTrigger value="assigned" className="data-[state=active]:bg-emerald-500 data-[state=active]:text-black">Assigned ({assignedCount})</TabsTrigger>
-          <TabsTrigger value="pending" className="data-[state=active]:bg-emerald-500 data-[state=active]:text-black">Pending ({pendingCount})</TabsTrigger>
-          <TabsTrigger value="resolved" className="data-[state=active]:bg-emerald-500 data-[state=active]:text-black">Resolved ({resolvedCount})</TabsTrigger>
+          <TabsTrigger value="unassigned" className="whitespace-normal text-center leading-tight py-1.5 data-[state=active]:bg-emerald-500 data-[state=active]:text-black">Unassigned ({unassignedCount})</TabsTrigger>
+          <TabsTrigger value="assigned" className="whitespace-normal text-center leading-tight py-1.5 data-[state=active]:bg-emerald-500 data-[state=active]:text-black">Assigned ({assignedCount})</TabsTrigger>
+          <TabsTrigger value="pending" className="whitespace-normal text-center leading-tight py-1.5 data-[state=active]:bg-emerald-500 data-[state=active]:text-black">Pending ({pendingCount})</TabsTrigger>
+          <TabsTrigger value="resolved" className="whitespace-normal text-center leading-tight py-1.5 data-[state=active]:bg-emerald-500 data-[state=active]:text-black">Resolved ({resolvedCount})</TabsTrigger>
         </TabsList>
 
         <TabsContent value={activeTab} className="mt-4">
@@ -2023,8 +2023,10 @@ ${selectedTicket.ticket_number}`;
 
           <ScrollArea className="max-h-[55vh] pr-2">
             <div className="space-y-2">
-              {/* Main Info - 4 columns compact */}
-              <div className="grid grid-cols-4 gap-2">
+              {/* Main Info - 4 columns compact (2 on narrow screens, so values
+                  like a long customer/trunk name aren't crushed to a few
+                  truncated letters) */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 <div className="bg-gray-100/30 dark:bg-zinc-800/30 p-2 rounded">
                   <span className="text-zinc-500 text-[10px] uppercase">Customer</span>
                   <p className="text-gray-900 dark:text-white text-sm font-medium truncate">{editingTicket?.customer || editingTicket?.enterprise || '-'}</p>
@@ -2044,7 +2046,7 @@ ${selectedTicket.ticket_number}`;
               </div>
 
               {/* Rate & Advanced Settings */}
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 <div className="bg-gray-100/30 dark:bg-zinc-800/30 p-2 rounded">
                   <span className="text-zinc-500 text-[10px] uppercase">Rate</span>
                   <p className="text-gray-900 dark:text-white text-sm font-medium">{editingTicket?.rate || '-'}</p>

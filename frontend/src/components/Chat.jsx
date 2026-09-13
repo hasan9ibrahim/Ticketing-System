@@ -1162,6 +1162,18 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
   };
 
   const expandedConv = conversations.find((c) => c.id === expandedConversationId);
+  // Stable reference (unlike the floating windows' `chat`, which lives in
+  // state and only changes on a real update) - toWindowChat() otherwise
+  // builds a brand-new object every render of this component (which happens
+  // often - typing, incoming messages, polling), and passing a new `chat`
+  // object into ChatWindowView on every one of those re-renders is exactly
+  // the kind of thing that can make its own dialogs (Group Info included)
+  // flicker open-then-closed instead of staying open.
+  const expandedWindowChat = useMemo(
+    () => (expandedConv ? toWindowChat(expandedConv) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [expandedConv]
+  );
 
   return (
     <>
@@ -1225,8 +1237,8 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
             )}
             {(!isMobile || expandedConv) && (
               <div className="flex-1 flex flex-col overflow-hidden">
-                {expandedConv ? (
-                  renderChatWindow(toWindowChat(expandedConv), {
+                {expandedWindowChat ? (
+                  renderChatWindow(expandedWindowChat, {
                     fullScreen: true,
                     onClose: () => setExpandedConversationId(null),
                   })
