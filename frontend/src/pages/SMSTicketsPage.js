@@ -1124,7 +1124,7 @@ ${selectedTicket.ticket_number}`;
 
       {/* Search and Filters */}
       <div className="flex flex-wrap gap-2 items-start">
-        <div className="w-[280px] flex-shrink-0">
+        <div className="w-full sm:w-[280px] flex-shrink-0">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-zinc-500" />
             <Input
@@ -1161,7 +1161,7 @@ ${selectedTicket.ticket_number}`;
 
       {/* AM View Mode Toggle */}
       {isAM && (
-        <div className="flex items-center gap-4 p-3 bg-white/50 dark:bg-zinc-900/50 rounded-lg border border-gray-200 dark:border-zinc-700">
+        <div className="flex flex-wrap items-center gap-4 p-3 bg-white/50 dark:bg-zinc-900/50 rounded-lg border border-gray-200 dark:border-zinc-700">
           <div className="flex items-center gap-2">
             <Switch
               id="am-view-mode"
@@ -1352,7 +1352,11 @@ ${selectedTicket.ticket_number}`;
         <TabsContent value={activeTab} className="mt-4">
           {/* Table */}
           <div className="bg-white/50 dark:bg-zinc-900/50 border border-black/10 dark:border-white/10 rounded-lg overflow-hidden">
-            <Table>
+            {/* min-w forces the table to keep every column at a readable width instead of
+                crushing them to fit a phone screen - Table's own wrapper (ui/table.jsx) is
+                already a horizontal scroll container, so this makes it actually scroll
+                (including via touch swipe) rather than silently wrapping cell text. */}
+            <Table className="min-w-[1300px]">
               <TableBody>
                 {filteredTickets.length > 0 ? (
                   (() => {
