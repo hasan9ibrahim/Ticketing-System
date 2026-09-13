@@ -2671,7 +2671,7 @@ export default function RequestsPage() {
                                       newPairs[pairIndex] = { ...newPairs[pairIndex], destination: e.target.value };
                                       updateCustomerTrunkConfig(configIndex, "rating_pairs", newPairs);
                                     }}
-                                    placeholder="Destination"
+                                    placeholder="e.g., Ghana - MTN"
                                     className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-8 flex-1 min-w-0"
                                   />
                                   <Input
@@ -2797,7 +2797,7 @@ export default function RequestsPage() {
                                             <Input
                                               value={rule.destination || ""}
                                               onChange={(e) => updateRouteRule(configIndex, ruleIndex, "destination", e.target.value)}
-                                              placeholder="Destination"
+                                              placeholder="e.g., Ghana - MTN"
                                               className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7 flex-1 min-w-0"
                                             />
                                           )}
@@ -3135,7 +3135,7 @@ export default function RequestsPage() {
                                       <Input
                                         value={rule.destination || ""}
                                         onChange={(e) => updateCommonRouteRule(ruleIndex, "destination", e.target.value)}
-                                        placeholder="Destination"
+                                        placeholder="e.g., Ghana - MTN"
                                         className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7 flex-1 min-w-0"
                                       />
                                     )}
