@@ -33,6 +33,18 @@ import { fetchCached } from "@/lib/dataCache";
 const BACKEND_URL = process.env.REACT_APP_API_URL;
 const API = `${BACKEND_URL}/api`;
 
+// Remember the AM view-mode/trunk-filter choice per user so it survives navigating away and
+// back to this page, instead of resetting to the default every time it remounts.
+const getStoredAmPref = (key, fallback) => {
+  try {
+    const user = JSON.parse(localStorage.getItem("user") || "{}");
+    const stored = localStorage.getItem(`voice_${key}_${user?.id || "anon"}`);
+    return stored !== null ? stored : fallback;
+  } catch {
+    return fallback;
+  }
+};
+
 export default function VoiceTicketsPage() {
   const [tickets, setTickets] = useState([]);
   const [filteredTickets, setFilteredTickets] = useState([]);
@@ -67,8 +79,10 @@ export default function VoiceTicketsPage() {
   const [loadingMore, setLoadingMore] = useState(false);
 
   // AM view mode state
-  const [amViewMode, setAmViewMode] = useState("all"); // "all" or "assigned"
-  const [amTrunkFilter, setAmTrunkFilter] = useState(""); // "" or "customer_trunk" or "vendor_trunk"
+  // Voice AM view mode keeps its existing default (all enterprises, no trunk filter);
+  // falls back to the AM's last-configured choice if set.
+  const [amViewMode, setAmViewMode] = useState(() => getStoredAmPref("am_view_mode", "all")); // "all" or "assigned"
+  const [amTrunkFilter, setAmTrunkFilter] = useState(() => getStoredAmPref("am_trunk_filter", "")); // "" or "customer_trunk" or "vendor_trunk"
   const [activeTab, setActiveTab] = useState("unassigned");
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editingTicket, setEditingTicket] = useState(null);
@@ -107,12 +121,20 @@ export default function VoiceTicketsPage() {
     filterAndSortTickets();
   }, [debouncedSearchTerm, priorityFilter, statusFilter, enterpriseFilter, issueTypeFilter, debouncedDestinationFilter, assignedToFilter, dateRange, activeTab, tickets, multiFilters]);
 
-  // Re-fetch tickets when AM view mode or trunk filter changes
+  // Re-fetch tickets when AM view mode or trunk filter changes, and remember the choice
+  // (keyed per user) so it's kept as last-configured instead of resetting on next visit
   useEffect(() => {
     if (currentUser?.role === "am") {
       fetchData();
     }
-  }, [amViewMode, amTrunkFilter]);
+    try {
+      const userId = currentUser?.id || "anon";
+      localStorage.setItem(`voice_am_view_mode_${userId}`, amViewMode);
+      localStorage.setItem(`voice_am_trunk_filter_${userId}`, amTrunkFilter);
+    } catch {
+      // localStorage unavailable - not critical, just skip persisting
+    }
+  }, [amViewMode, amTrunkFilter, currentUser]);
 
   // Ref to track the last processed URL params to prevent reopening on state changes
   const lastProcessedParamsRef = useRef(null);
