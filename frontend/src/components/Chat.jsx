@@ -1321,6 +1321,20 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
                     <Plus className="w-4 h-4" />
                   </Button>
                 )}
+                {!minimized && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="p-1 h-7 w-7 text-gray-500 dark:text-zinc-400 hover:text-red-400"
+                    title="Close"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setMinimized(true);
+                    }}
+                  >
+                    <X className="w-4 h-4" />
+                  </Button>
+                )}
               </div>
             </div>
 
