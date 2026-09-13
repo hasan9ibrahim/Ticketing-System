@@ -1189,39 +1189,54 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
               </Button>
             </div>
           </div>
+          {/* On mobile, the list and the open conversation can't sit side by side -
+              a 320px list alone left almost no room for the chat pane, crushing it
+              to a sliver. Show exactly one at a time instead, master-detail style;
+              the chat pane's own header gets a back button (above) to return to
+              the list. Desktop keeps the unchanged side-by-side layout. */}
           <div className="flex flex-1 overflow-hidden">
-            <div className="w-80 flex-shrink-0 border-r border-black/10 dark:border-white/10 flex flex-col overflow-hidden">
-              <ChatListView
-                conversations={conversations}
-                users={users}
-                loading={initialLoading}
-                error={loadError}
-                onRetry={() => {
-                  setInitialLoading(true);
-                  Promise.all([fetchConversations(), fetchUsers()])
-                    .then(() => setLoadError(false))
-                    .catch(() => setLoadError(true))
-                    .finally(() => setInitialLoading(false));
-                }}
-                onSelectConversation={selectExpandedConversation}
-                onStartConversation={startConversationExpanded}
-                onTogglePin={togglePinConversation}
-                userId={user?.id}
-                activeConversationId={expandedConversationId}
-              />
-            </div>
-            <div className="flex-1 flex flex-col overflow-hidden">
-              {expandedConv ? (
-                renderChatWindow(toWindowChat(expandedConv), {
-                  fullScreen: true,
-                  onClose: () => setExpandedConversationId(null),
-                })
-              ) : (
-                <div className="flex-1 flex items-center justify-center text-gray-400 text-sm">
-                  Select a conversation to start chatting
-                </div>
-              )}
-            </div>
+            {(!isMobile || !expandedConv) && (
+              <div
+                className={
+                  isMobile
+                    ? "w-full flex flex-col overflow-hidden"
+                    : "w-80 flex-shrink-0 border-r border-black/10 dark:border-white/10 flex flex-col overflow-hidden"
+                }
+              >
+                <ChatListView
+                  conversations={conversations}
+                  users={users}
+                  loading={initialLoading}
+                  error={loadError}
+                  onRetry={() => {
+                    setInitialLoading(true);
+                    Promise.all([fetchConversations(), fetchUsers()])
+                      .then(() => setLoadError(false))
+                      .catch(() => setLoadError(true))
+                      .finally(() => setInitialLoading(false));
+                  }}
+                  onSelectConversation={selectExpandedConversation}
+                  onStartConversation={startConversationExpanded}
+                  onTogglePin={togglePinConversation}
+                  userId={user?.id}
+                  activeConversationId={expandedConversationId}
+                />
+              </div>
+            )}
+            {(!isMobile || expandedConv) && (
+              <div className="flex-1 flex flex-col overflow-hidden">
+                {expandedConv ? (
+                  renderChatWindow(toWindowChat(expandedConv), {
+                    fullScreen: true,
+                    onClose: () => setExpandedConversationId(null),
+                  })
+                ) : (
+                  <div className="flex-1 flex items-center justify-center text-gray-400 text-sm">
+                    Select a conversation to start chatting
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       ) : (
@@ -2303,6 +2318,17 @@ function ChatWindowView({
           onTouchEnd={handleHeaderTouchEnd}
         >
           <div className="flex items-center gap-2 min-w-0">
+            {fullScreen && isMobile && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="p-1 h-8 w-8 flex-shrink-0 text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white"
+                onClick={onClose}
+                title="Back to conversations"
+              >
+                <ChevronLeft className="w-5 h-5" />
+              </Button>
+            )}
             <div className="relative flex-shrink-0">
               <Avatar className="w-8 h-8">
                 <AvatarFallback className={isGroup ? "bg-blue-600 text-white text-xs" : "bg-emerald-600 text-white text-xs"}>
