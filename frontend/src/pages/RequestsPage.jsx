@@ -2524,19 +2524,51 @@ export default function RequestsPage() {
                           </SelectContent>
                         </Select>
                         
-                        {/* Two-column layout: Rating Plan | Routing Plan - stacked on mobile.
-                            Whichever pane is currently focused expands to give it more room to fill in;
-                            the other shrinks and shifts behind it. */}
-                        <div className="flex flex-col sm:flex-row gap-4">
+                        {/* Pane switch tabs - lets you jump straight to whichever plan you're filling in,
+                            without hunting for the card that's currently tucked behind the other. */}
+                        {showRouting && (
+                          <div className="flex gap-2 mb-3">
+                            <button
+                              type="button"
+                              onClick={() => setActiveConfigPane(prev => ({ ...prev, [configIndex]: "rating" }))}
+                              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                                (activeConfigPane[configIndex] || "rating") === "rating"
+                                  ? "bg-amber-500/20 text-amber-300 ring-1 ring-amber-500/50"
+                                  : "bg-gray-200/60 dark:bg-zinc-800/60 text-gray-500 dark:text-zinc-400 hover:text-amber-300"
+                              }`}
+                            >
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span> Rating Plan
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setActiveConfigPane(prev => ({ ...prev, [configIndex]: "routing" }))}
+                              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                                activeConfigPane[configIndex] === "routing"
+                                  ? "bg-blue-500/20 text-blue-300 ring-1 ring-blue-500/50"
+                                  : "bg-gray-200/60 dark:bg-zinc-800/60 text-gray-500 dark:text-zinc-400 hover:text-blue-300"
+                              }`}
+                            >
+                              <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span> Routing Plan
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Card stack: Rating Plan and Routing Plan - stacked in normal document flow on
+                            mobile; on larger screens they overlap like a shuffled deck, with whichever
+                            card you're currently filling sliding to the front and the other easing
+                            behind it. */}
+                        <div className="grid grid-cols-1 gap-3 sm:gap-0">
                           {/* Rating Plan Section - Compact with multiple destination-rate pairs */}
                           <div
                             onFocus={() => setActiveConfigPane(prev => ({ ...prev, [configIndex]: "rating" }))}
-                            style={{
-                              flex: activeConfigPane[configIndex] === "rating" ? "3 1 0%" : activeConfigPane[configIndex] === "routing" ? "1 1 0%" : "1 1 0%",
-                              transition: "flex 0.2s ease",
-                              order: activeConfigPane[configIndex] === "routing" ? 2 : 1
-                            }}
-                            className="bg-gray-100/40 dark:bg-zinc-800/40 rounded-lg p-3 min-w-0"
+                            onClick={() => setActiveConfigPane(prev => ({ ...prev, [configIndex]: "rating" }))}
+                            className={`bg-gray-100/40 dark:bg-zinc-800/40 rounded-lg p-3 border transition-all duration-300 ease-out sm:[grid-area:1/1] ${
+                              !showRouting
+                                ? "border-transparent sm:z-10 sm:scale-100 sm:translate-x-0 sm:translate-y-0 sm:opacity-100"
+                                : (activeConfigPane[configIndex] || "rating") === "rating"
+                                  ? "order-1 border-amber-500/40 shadow-lg sm:z-20 sm:scale-100 sm:translate-x-0 sm:translate-y-0 sm:opacity-100"
+                                  : "order-2 border-transparent sm:z-10 sm:scale-[0.95] sm:translate-x-2 sm:translate-y-2 sm:opacity-60"
+                            }`}
                           >
                             <div className="flex items-center gap-2 mb-3">
                               <div className="w-1 h-4 bg-amber-500 rounded"></div>
@@ -2601,12 +2633,12 @@ export default function RequestsPage() {
                           {showRouting && (
                             <div
                               onFocus={() => setActiveConfigPane(prev => ({ ...prev, [configIndex]: "routing" }))}
-                              style={{
-                                flex: activeConfigPane[configIndex] === "routing" ? "3 1 0%" : activeConfigPane[configIndex] === "rating" ? "1 1 0%" : "1 1 0%",
-                                transition: "flex 0.2s ease",
-                                order: activeConfigPane[configIndex] === "routing" ? 1 : 2
-                              }}
-                              className="bg-gray-100/40 dark:bg-zinc-800/40 rounded-lg p-3 min-w-0"
+                              onClick={() => setActiveConfigPane(prev => ({ ...prev, [configIndex]: "routing" }))}
+                              className={`bg-gray-100/40 dark:bg-zinc-800/40 rounded-lg p-3 border transition-all duration-300 ease-out sm:[grid-area:1/1] ${
+                                activeConfigPane[configIndex] === "routing"
+                                  ? "order-1 border-blue-500/40 shadow-lg sm:z-20 sm:scale-100 sm:translate-x-0 sm:translate-y-0 sm:opacity-100"
+                                  : "order-2 border-transparent sm:z-10 sm:scale-[0.95] sm:translate-x-2 sm:translate-y-2 sm:opacity-60"
+                              }`}
                             >
                             <div className="flex items-center gap-2 mb-3">
                               <div className="w-1 h-4 bg-blue-500 rounded"></div>
