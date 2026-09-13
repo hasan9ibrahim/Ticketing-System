@@ -96,6 +96,13 @@ export default function MultiSelect({
               placeholder={searchPlaceholder}
               className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white h-8"
               onClick={(e) => e.stopPropagation()}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  setIsOpen(false);
+                  setSearch("");
+                }
+              }}
               autoFocus
             />
           </div>

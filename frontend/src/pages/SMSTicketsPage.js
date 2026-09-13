@@ -1,11 +1,11 @@
 import React, { useEffect, useState, useRef } from "react";
 import axios from "axios";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import { startOfWeek, endOfWeek } from "date-fns";
+import { addDays } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { Plus, Search, ArrowUpDown, Calendar, Trash2, MessageSquare, ListChecks, X, Pencil, Bell, User, Copy } from "lucide-react";
+import { Plus, Search, ArrowUpDown, Calendar, Trash2, MessageSquare, ListChecks, X, Pencil, Bell, User, Copy, History } from "lucide-react";
 import { toast } from "sonner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -34,6 +34,18 @@ import { fetchCached } from "@/lib/dataCache";
 const BACKEND_URL = process.env.REACT_APP_API_URL;
 const API = `${BACKEND_URL}/api`;
 
+// Remember the AM view-mode/trunk-filter choice per user so it survives navigating away and
+// back to this page, instead of resetting to the default every time it remounts.
+const getStoredAmPref = (key, fallback) => {
+  try {
+    const user = JSON.parse(localStorage.getItem("user") || "{}");
+    const stored = localStorage.getItem(`sms_${key}_${user?.id || "anon"}`);
+    return stored !== null ? stored : fallback;
+  } catch {
+    return fallback;
+  }
+};
+
 export default function SMSTicketsPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -52,10 +64,7 @@ export default function SMSTicketsPage() {
   const [assignedToFilter, setAssignedToFilter] = useState("all");
   const [dateRange, setDateRange] = useState(() => {
     const today = new Date();
-    return { 
-      from: startOfWeek(today, { weekStartsOn: 1 }), 
-      to: endOfWeek(today, { weekStartsOn: 1 }) 
-    };
+    return { from: addDays(today, -7), to: today };
   });
   const [multiFilters, setMultiFilters] = useState([]);
 
@@ -72,14 +81,35 @@ export default function SMSTicketsPage() {
   const [totalTicketsCount, setTotalTicketsCount] = useState(0);
   const [loadingMore, setLoadingMore] = useState(false);
 
-  // AM view mode state
-  const [amViewMode, setAmViewMode] = useState("all"); // "all" or "assigned"
-  const [amTrunkFilter, setAmTrunkFilter] = useState(""); // "" or "customer_trunk" or "vendor_trunk"
+  // AM view mode state - SMS AMs default to viewing only their assigned enterprises,
+  // filtered by customer trunk; falls back to the AM's last-configured choice if set.
+  const [amViewMode, setAmViewMode] = useState(() => getStoredAmPref("am_view_mode", "assigned")); // "all" or "assigned"
+  const [amTrunkFilter, setAmTrunkFilter] = useState(() => getStoredAmPref("am_trunk_filter", "customer_trunk")); // "" or "customer_trunk" or "vendor_trunk"
   
   // Hardcoded filter options from ticket creation form
   const STATUS_OPTIONS = ["Unassigned", "Assigned", "Awaiting Vendor", "Awaiting Client", "Awaiting AM", "Resolved", "Unresolved"];
   const [sortBy, setSortBy] = useState("priority-volume-opened");
   const [activeTab, setActiveTab] = useState("unassigned");
+  // Swipe left/right anywhere in the tabs area to move between statuses,
+  // matching the tab bar order - a natural mobile gesture for switching tabs.
+  const tabSwipeStartXRef = useRef(null);
+  const handleTabsTouchStart = (e) => {
+    tabSwipeStartXRef.current = e.touches[0].clientX;
+  };
+  const handleTabsTouchEnd = (e) => {
+    if (tabSwipeStartXRef.current == null) return;
+    const deltaX = e.changedTouches[0].clientX - tabSwipeStartXRef.current;
+    tabSwipeStartXRef.current = null;
+    if (Math.abs(deltaX) < 60) return;
+    const order = ["unassigned", "assigned", "pending", "resolved"];
+    const currentIndex = order.indexOf(activeTab);
+    if (currentIndex === -1) return;
+    if (deltaX < 0 && currentIndex < order.length - 1) {
+      setActiveTab(order[currentIndex + 1]);
+    } else if (deltaX > 0 && currentIndex > 0) {
+      setActiveTab(order[currentIndex - 1]);
+    }
+  };
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editingTicket, setEditingTicket] = useState(null);
   const [formData, setFormData] = useState({});
@@ -133,12 +163,20 @@ export default function SMSTicketsPage() {
     filterAndSortTickets();
   }, [debouncedSearchTerm, priorityFilter, statusFilter, enterpriseFilter, issueTypeFilter, debouncedDestinationFilter, assignedToFilter, dateRange, sortBy, activeTab, tickets, multiFilters]);
 
-  // Re-fetch tickets when AM view mode or trunk filter changes
+  // Re-fetch tickets when AM view mode or trunk filter changes, and remember the choice
+  // (keyed per user) so it's kept as last-configured instead of resetting on next visit
   useEffect(() => {
     if (currentUser?.role === "am") {
       fetchData();
     }
-  }, [amViewMode, amTrunkFilter]);
+    try {
+      const userId = currentUser?.id || "anon";
+      localStorage.setItem(`sms_am_view_mode_${userId}`, amViewMode);
+      localStorage.setItem(`sms_am_trunk_filter_${userId}`, amTrunkFilter);
+    } catch {
+      // localStorage unavailable - not critical, just skip persisting
+    }
+  }, [amViewMode, amTrunkFilter, currentUser]);
 
   // Ref to track the last processed URL params to prevent reopening on state changes
   const lastProcessedParamsRef = useRef(null);
@@ -285,6 +323,20 @@ export default function SMSTicketsPage() {
       return openedVia.join(", ");
     }
     return openedVia || "";
+  };
+
+  const getVendorTrunkDisplayText = (ticket) => {
+    const trunks = (ticket.vendor_trunks || []).map((v) => v.trunk).filter(Boolean);
+    if (trunks.length > 0) return trunks.join(", ");
+    return ticket.vendor_trunk || "";
+  };
+
+  const getVendorCostDisplayText = (ticket) => {
+    const costs = (ticket.vendor_trunks || [])
+      .map((v) => v.cost || (v.min_cost || v.max_cost ? `${v.min_cost || "0"}-${v.max_cost || "0"}` : null))
+      .filter(Boolean);
+    if (costs.length > 0) return costs.join(", ");
+    return ticket.cost || "";
   };
 
   const filterAndSortTickets = () => {
@@ -1024,65 +1076,51 @@ export default function SMSTicketsPage() {
     }
   };
 
-  // Handle informing AM about a ticket
+  // Handle informing AM about a ticket - copies a filled-in ticket summary template to the clipboard
   const handleInformAM = async () => {
     if (!selectedTicket) return;
 
+    const lcrText = selectedTicket.is_lcr === "yes" ? "Yes" : selectedTicket.is_lcr === "no" ? "No" : "";
+    const smsDetails = selectedTicket.sms_details || [];
+    const sidText = smsDetails.length > 0
+      ? smsDetails.map((d) => d.sid).filter(Boolean).join(", ")
+      : (selectedTicket.sid || "");
+    const contentText = smsDetails.length > 0
+      ? smsDetails.map((d) => d.content).filter(Boolean).join(", ")
+      : (selectedTicket.content || "");
+
+    const template = `Volume: ${selectedTicket.volume || ""}
+
+Customer Trunk: ${selectedTicket.customer_trunk || ""}
+
+Destination: ${selectedTicket.destination || ""}
+
+Issue: ${getIssueDisplayText(selectedTicket)}
+
+SID: ${sidText}
+
+Content: ${contentText}
+
+Rate: ${selectedTicket.rate || ""}
+
+Vendor(s): ${getVendorTrunkDisplayText(selectedTicket)}
+
+Cost: ${getVendorCostDisplayText(selectedTicket)}
+
+LCR: ${lcrText}
+
+Root cause: ${selectedTicket.root_cause || ""}
+
+Alternative route:
+
+
+${selectedTicket.ticket_number}`;
+
     try {
-      const token = localStorage.getItem("token");
-      const headers = { Authorization: `Bearer ${token}` };
-
-      // Get the enterprise for this ticket
-      const enterprise = enterprises.find(e => e.id === selectedTicket.customer_id);
-      if (!enterprise) {
-        toast.error("Customer not found for this ticket");
-        return;
-      }
-
-      // Get the AM assigned to this enterprise
-      const amId = enterprise.assigned_am_id;
-      if (!amId) {
-        toast.error("No Account Manager assigned to this enterprise");
-        return;
-      }
-
-      // Get AM details from users (use allUsers since users only contains NOC)
-      const amUser = allUsers.find(u => u.id === amId);
-      if (!amUser) {
-        toast.error("Account Manager user not found");
-        return;
-      }
-
-      // Create a conversation with the AM
-      const conversationResponse = await axios.post(
-        `${API}/chat/conversations`,
-        { participant_id: amId },
-        { headers }
-      );
-
-      const conversation = conversationResponse.data;
-
-      // Build the ticket details URL
-      const ticketUrl = `${window.location.origin}/sms-tickets?ticket=${selectedTicket.id}`;
-
-      // Create the message
-      const messageContent = `Dear ${amUser.name || amUser.username}, Kindly note that the ticket with ticket number: ${selectedTicket.ticket_number} requires your attention. Please check it at your own convenience: ${ticketUrl}`;
-
-      // Send the message
-      await axios.post(
-        `${API}/chat/messages`,
-        {
-          conversation_id: conversation.id,
-          content: messageContent,
-          message_type: "text"
-        },
-        { headers }
-      );
-
-      toast.success(`Informed ${amUser.name || amUser.username} about ticket ${selectedTicket.ticket_number}`);
-    } catch (error) {
-      console.error("Error informing AM:", error);
-      toast.error(error.response?.data?.detail || "Failed to inform Account Manager");
+      await navigator.clipboard.writeText(template);
+      toast.success("Inform AM template copied to clipboard!");
+    } catch (err) {
+      toast.error("Failed to copy to clipboard");
     }
   };
 
@@ -1121,7 +1159,7 @@ export default function SMSTicketsPage() {
 
       {/* Search and Filters */}
       <div className="flex flex-wrap gap-2 items-start">
-        <div className="w-[280px] flex-shrink-0">
+        <div className="w-full sm:w-[280px] flex-shrink-0">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-zinc-500" />
             <Input
@@ -1158,7 +1196,7 @@ export default function SMSTicketsPage() {
 
       {/* AM View Mode Toggle */}
       {isAM && (
-        <div className="flex items-center gap-4 p-3 bg-white/50 dark:bg-zinc-900/50 rounded-lg border border-gray-200 dark:border-zinc-700">
+        <div className="flex flex-wrap items-center gap-4 p-3 bg-white/50 dark:bg-zinc-900/50 rounded-lg border border-gray-200 dark:border-zinc-700">
           <div className="flex items-center gap-2">
             <Switch
               id="am-view-mode"
@@ -1303,43 +1341,50 @@ export default function SMSTicketsPage() {
               setDestinationFilter("");
               setAssignedToFilter("all");
               const today = new Date();
-              setDateRange({ from: startOfWeek(today, { weekStartsOn: 1 }), to: endOfWeek(today, { weekStartsOn: 1 }) });
+              setDateRange({ from: addDays(today, -7), to: today });
             }}
             className="border-gray-200 dark:border-zinc-700 text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-zinc-800 h-7 px-2 text-xs"
             data-testid="clear-filters-button"
           >
-            Reset to This Week
+            Reset to Last 7 Days
           </Button>
         </div>
       </div>
 
       {/* Status Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full max-w-lg grid-cols-4 bg-white dark:bg-zinc-900 border border-black/10 dark:border-white/10">
-          <TabsTrigger 
-            value="unassigned" 
-            className="data-[state=active]:bg-emerald-500 data-[state=active]:text-black"
+        {/* Swipe handlers are on the tab bar itself, not the whole Tabs
+            wrapper, so they don't fight with horizontally scrolling the
+            table below (e.g. to reach the last column). */}
+        <TabsList
+          className="grid h-auto w-full max-w-lg grid-cols-4 gap-1 bg-white dark:bg-zinc-900 border border-black/10 dark:border-white/10 p-1"
+          onTouchStart={handleTabsTouchStart}
+          onTouchEnd={handleTabsTouchEnd}
+        >
+          <TabsTrigger
+            value="unassigned"
+            className="whitespace-normal text-center leading-tight py-1.5 data-[state=active]:bg-emerald-500 data-[state=active]:text-black"
             data-testid="tab-unassigned"
           >
             Unassigned ({unassignedCount})
           </TabsTrigger>
-          <TabsTrigger 
+          <TabsTrigger
             value="assigned"
-            className="data-[state=active]:bg-emerald-500 data-[state=active]:text-black"
+            className="whitespace-normal text-center leading-tight py-1.5 data-[state=active]:bg-emerald-500 data-[state=active]:text-black"
             data-testid="tab-assigned"
           >
             Assigned ({assignedCount})
           </TabsTrigger>
-          <TabsTrigger 
+          <TabsTrigger
             value="pending"
-            className="data-[state=active]:bg-emerald-500 data-[state=active]:text-black"
+            className="whitespace-normal text-center leading-tight py-1.5 data-[state=active]:bg-emerald-500 data-[state=active]:text-black"
             data-testid="tab-pending"
           >
             Pending ({pendingCount})
           </TabsTrigger>
-          <TabsTrigger 
+          <TabsTrigger
             value="resolved"
-            className="data-[state=active]:bg-emerald-500 data-[state=active]:text-black"
+            className="whitespace-normal text-center leading-tight py-1.5 data-[state=active]:bg-emerald-500 data-[state=active]:text-black"
             data-testid="tab-resolved"
           >
             Resolved ({resolvedCount})
@@ -1349,7 +1394,11 @@ export default function SMSTicketsPage() {
         <TabsContent value={activeTab} className="mt-4">
           {/* Table */}
           <div className="bg-white/50 dark:bg-zinc-900/50 border border-black/10 dark:border-white/10 rounded-lg overflow-hidden">
-            <Table>
+            {/* min-w forces the table to keep every column at a readable width instead of
+                crushing them to fit a phone screen - Table's own wrapper (ui/table.jsx) is
+                already a horizontal scroll container, so this makes it actually scroll
+                (including via touch swipe) rather than silently wrapping cell text. */}
+            <Table className="min-w-[1300px]">
               <TableBody>
                 {filteredTickets.length > 0 ? (
                   (() => {
@@ -1375,6 +1424,7 @@ export default function SMSTicketsPage() {
                           <TableHead className="text-gray-500 dark:text-zinc-400">Customer Trunk</TableHead>
                           <TableHead className="text-gray-500 dark:text-zinc-400">Destination</TableHead>
                           <TableHead className="text-gray-500 dark:text-zinc-400">Issue</TableHead>
+                          <TableHead className="text-gray-500 dark:text-zinc-400">Vendor Trunk</TableHead>
                           <TableHead className="text-gray-500 dark:text-zinc-400">Opened Via</TableHead>
                           <TableHead className="text-gray-500 dark:text-zinc-400">Status</TableHead>
                           <TableHead className="text-gray-500 dark:text-zinc-400">Assigned To</TableHead>
@@ -1409,6 +1459,7 @@ export default function SMSTicketsPage() {
                               <TableCell className="text-gray-700 dark:text-zinc-300">{ticket.customer_trunk || "-"}</TableCell>
                               <TableCell className="text-gray-700 dark:text-zinc-300">{ticket.destination || "-"}</TableCell>
                               <TableCell className="text-gray-700 dark:text-zinc-300">{getIssueDisplayText(ticket)}</TableCell>
+                              <TableCell className="text-gray-700 dark:text-zinc-300">{getVendorTrunkDisplayText(ticket) || "-"}</TableCell>
                               <TableCell className="text-gray-700 dark:text-zinc-300">{getOpenedViaDisplayText(ticket) || "-"}</TableCell>
                               <TableCell>
                                 {ticket.status === "Resolved" ? (
@@ -2239,27 +2290,59 @@ export default function SMSTicketsPage() {
                           ? `Edited: ${new Date(action.edited_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}`
                           : new Date(action.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                       </span>
-                      {/* Show edit/delete buttons only for Admin */}
-                      {currentUser?.role === "admin" && (
-                        <div className="flex gap-1">
+                      <div className="flex gap-1">
+                        {/* History button - only when this action has previous edited versions */}
+                        {action.edit_history?.length > 0 && (
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                title="View edit history"
+                                className="h-6 w-6 p-0 text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white"
+                              >
+                                <History className="h-3 w-3" />
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent align="end" className="w-80 bg-white dark:bg-zinc-900 border-black/10 dark:border-white/10 text-gray-900 dark:text-white p-3">
+                              <p className="text-xs font-medium text-gray-500 dark:text-zinc-400 mb-2">Edit history</p>
+                              <div className="space-y-2 max-h-64 overflow-y-auto">
+                                {[...action.edit_history].reverse().map((version, idx) => (
+                                  <div key={idx} className="text-xs border-l-2 border-gray-300 dark:border-zinc-700 pl-2">
+                                    <p className="text-zinc-500 mb-0.5">
+                                      {new Date(version.edited_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                    </p>
+                                    <p className="text-gray-700 dark:text-zinc-300 whitespace-pre-wrap">{version.text}</p>
+                                  </div>
+                                ))}
+                              </div>
+                            </PopoverContent>
+                          </Popover>
+                        )}
+                        {/* Edit is only available to the user who added the comment */}
+                        {currentUser?.id === action.created_by && (
                           <Button
                             size="sm"
                             variant="ghost"
                             onClick={() => handleEditAction(action)}
+                            title="Edit"
                             className="h-6 w-6 p-0 text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white"
                           >
                             <Pencil className="h-3 w-3" />
                           </Button>
+                        )}
+                        {currentUser?.role === "admin" && (
                           <Button
                             size="sm"
                             variant="ghost"
                             onClick={() => handleDeleteAction(action.id)}
+                            title="Delete"
                             className="h-6 w-6 p-0 text-gray-500 dark:text-zinc-400 hover:text-red-400"
                           >
                             <Trash2 className="h-3 w-3" />
                           </Button>
-                        </div>
-                      )}
+                        )}
+                      </div>
                     </div>
                   </div>
                   {editingAction === action.id ? (
@@ -2337,8 +2420,10 @@ export default function SMSTicketsPage() {
 
           <ScrollArea className="max-h-[55vh] pr-2">
             <div className="space-y-2">
-              {/* Main Info - 4 columns compact */}
-              <div className="grid grid-cols-4 gap-2">
+              {/* Main Info - 4 columns compact (2 on narrow screens, so values
+                  like a long customer/trunk name aren't crushed to a few
+                  truncated letters) */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 <div className="bg-gray-100/30 dark:bg-zinc-800/30 p-2 rounded">
                   <span className="text-zinc-500 text-[10px] uppercase">Customer</span>
                   <p className="text-gray-900 dark:text-white text-sm font-medium truncate">{editingTicket?.customer || editingTicket?.enterprise || '-'}</p>
@@ -2358,7 +2443,7 @@ export default function SMSTicketsPage() {
               </div>
 
               {/* Rate & Advanced Settings */}
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 <div className="bg-gray-100/30 dark:bg-zinc-800/30 p-2 rounded">
                   <span className="text-zinc-500 text-[10px] uppercase">Rate</span>
                   <p className="text-gray-900 dark:text-white text-sm font-medium">{editingTicket?.rate || '-'}</p>

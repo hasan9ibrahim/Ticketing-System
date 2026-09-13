@@ -1,839 +1,1489 @@
-import { useState, useEffect, useRef, useCallback } from "react";
-import { MessageSquare, X, Send, Paperclip, Image as ImageIcon, Smile } from "lucide-react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import {
+  MessageSquare, X, Send, Paperclip, Image as ImageIcon, Users, Plus,
+  Check, CheckCheck, Info, LogOut, Smile, Pencil, Trash2, Loader2, Minus,
+  Reply, Forward, ChevronDown, ChevronLeft, ChevronRight, Maximize2, Minimize2, Search, Pin,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Label } from "@/components/ui/label";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import MultiSelect from "@/components/custom/MultiSelect";
 import axios from "axios";
+import { toast } from "sonner";
+import { playNotificationSound } from "@/lib/notificationSound";
+import { requestNotificationPermission, showNativeNotification } from "@/lib/nativeNotification";
+import { useChatSocket } from "@/hooks/useChatSocket";
+import { useIsMobile } from "@/hooks/useIsMobile";
+
+// A large curated set (not a full emoji library/dependency), organized into
+// browsable categories rather than one flat list - shared by both the
+// composer's emoji picker and a message's quick-reaction picker so both get
+// the same wide, paginated selection (see EmojiPickerGrid below).
+const EMOJI_CATEGORIES = [
+  {
+    label: "😀",
+    name: "Smileys",
+    emojis: [
+      "😀", "😃", "😄", "😁", "😆", "😅", "🤣", "😂", "🙂", "🙃",
+      "😉", "😊", "😇", "😍", "🥰", "😘", "😗", "😙", "😚", "😋",
+      "😛", "😝", "😜", "🤪", "🤑", "🤗", "🤭", "🤫", "🤔", "🤐",
+      "🤨", "😐", "😑", "😶", "😏", "😒", "🙄", "😬", "🤥", "😌",
+      "😔", "😪", "🤤", "😴", "😷", "🤒", "🤕", "🥳",
+    ],
+  },
+  {
+    label: "😢",
+    name: "Reactions",
+    emojis: [
+      "😎", "🤓", "🧐", "😕", "😟", "🙁", "☹️", "😮", "😯", "😲",
+      "😳", "🥺", "😦", "😧", "😨", "😰", "😥", "😢", "😭", "😱",
+      "😖", "😣", "😞", "😓", "😩", "😫", "🥱", "😤", "😡", "😠",
+      "🤬", "😈", "👿", "💀", "👻", "👽", "🤖", "🤡", "💩", "🙈",
+    ],
+  },
+  {
+    label: "👋",
+    name: "Hands",
+    emojis: [
+      "👋", "🤚", "🖐️", "✋", "🖖", "👌", "🤌", "🤏", "✌️", "🤞",
+      "🤟", "🤘", "🤙", "👈", "👉", "👆", "🖕", "👇", "☝️", "👍",
+      "👎", "✊", "👊", "🤛", "🤜", "👏", "🙌", "👐", "🤲", "🙏",
+      "💪", "👀",
+    ],
+  },
+  {
+    label: "🐶",
+    name: "Animals",
+    emojis: [
+      "🐶", "🐱", "🐭", "🐹", "🐰", "🦊", "🐻", "🐼", "🐨", "🐯",
+      "🦁", "🐮", "🐷", "🐸", "🐵", "🙉", "🙊", "🐔", "🐧", "🐦",
+      "🐤", "🦆", "🦉", "🦇", "🐺", "🐗", "🐴", "🦄", "🐝", "🐛",
+      "🦋", "🐌",
+    ],
+  },
+  {
+    label: "🍎",
+    name: "Food",
+    emojis: [
+      "🍎", "🍏", "🍊", "🍋", "🍌", "🍉", "🍇", "🍓", "🫐", "🍈",
+      "🍒", "🍑", "🥭", "🍍", "🥥", "🥝", "🍅", "🍆", "🥑", "🥦",
+      "🥒", "🌶️", "🌽", "🥕", "🍞", "🥐", "🥖", "🧀", "🥚", "🍳",
+      "🥞", "🧇", "🥓", "🍔", "🍟", "🍕", "🌭", "🌮", "🍣", "🍦",
+    ],
+  },
+  {
+    label: "⚽",
+    name: "Activities",
+    emojis: [
+      "⚽", "🏀", "🏈", "⚾", "🎾", "🏐", "🏉", "🎱", "🏓", "🏸",
+      "🥊", "🥋", "⛳", "🎣", "🛹", "🎿", "🏂", "🏋️", "🤸", "🏇",
+      "🏄", "🏊", "🚴", "🎮", "🎲", "🎸", "🎨", "🚗", "✈️", "🚀",
+      "🚁", "⛵", "🚲", "🚕", "🚓", "🚑", "🚒", "🏖️", "🗽", "🎡",
+    ],
+  },
+  {
+    label: "💡",
+    name: "Objects",
+    emojis: [
+      "💡", "📱", "💻", "⌨️", "🖥️", "📷", "🎥", "📺", "🎧", "⏰",
+      "💰", "💳", "💎", "🔧", "🔨", "⚙️", "🔒", "🔑", "📌", "📎",
+      "✏️", "📝", "📚", "🎁", "🎈", "🎉", "🎊", "🏆", "🥇", "⭐",
+      "✅", "❌", "⚠️", "🔥", "✨", "💯", "🔋", "🔌", "🙏", "💤",
+    ],
+  },
+  {
+    label: "❤️",
+    name: "Hearts",
+    emojis: [
+      "❤️", "🧡", "💛", "💚", "💙", "💜", "🖤", "🤍", "🤎", "❣️",
+      "💕", "💞", "💓", "💗", "💖", "💘", "💝", "💌", "💟", "♥️",
+      "💋", "😻", "😽", "🥹",
+    ],
+  },
+];
+
+const EMOJI_PAGE_SIZE = 32;
+
+// Shared category-tabbed, paginated emoji grid used by both the composer's
+// emoji picker and a message's quick-reaction picker. Kept as its own
+// component so each popover instance gets fresh category/page state whenever
+// it's (re)opened, rather than threading that state through the parent.
+function EmojiPickerGrid({ onSelect }) {
+  const [categoryIndex, setCategoryIndex] = useState(0);
+  const [page, setPage] = useState(0);
+  const category = EMOJI_CATEGORIES[categoryIndex];
+  const totalPages = Math.max(1, Math.ceil(category.emojis.length / EMOJI_PAGE_SIZE));
+  const pageEmojis = category.emojis.slice(page * EMOJI_PAGE_SIZE, page * EMOJI_PAGE_SIZE + EMOJI_PAGE_SIZE);
+
+  return (
+    <div className="w-64">
+      <div className="flex items-center gap-0.5 pb-1.5 mb-1.5 border-b border-black/10 dark:border-white/10 overflow-x-auto">
+        {EMOJI_CATEGORIES.map((cat, idx) => (
+          <button
+            key={cat.name}
+            onClick={() => {
+              setCategoryIndex(idx);
+              setPage(0);
+            }}
+            title={cat.name}
+            className={`flex-shrink-0 text-base leading-none w-7 h-7 rounded flex items-center justify-center ${
+              idx === categoryIndex ? "bg-emerald-100 dark:bg-emerald-900/40" : "hover:bg-gray-100 dark:hover:bg-zinc-800"
+            }`}
+          >
+            {cat.label}
+          </button>
+        ))}
+      </div>
+      <div className="grid grid-cols-8 gap-1 min-h-[136px]">
+        {pageEmojis.map((emoji, idx) => (
+          <button
+            key={idx}
+            onClick={() => onSelect(emoji)}
+            className="text-lg leading-none p-1 rounded hover:bg-gray-100 dark:hover:bg-zinc-800 hover:scale-125 transition-transform"
+          >
+            {emoji}
+          </button>
+        ))}
+      </div>
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between pt-1.5 mt-1.5 border-t border-black/10 dark:border-white/10">
+          <button
+            onClick={() => setPage((p) => Math.max(0, p - 1))}
+            disabled={page === 0}
+            className="p-1 rounded text-gray-500 dark:text-zinc-400 disabled:opacity-30 hover:bg-gray-100 dark:hover:bg-zinc-800"
+            title="Previous page"
+          >
+            <ChevronLeft className="w-3.5 h-3.5" />
+          </button>
+          <span className="text-[10px] text-gray-400 dark:text-zinc-500">
+            Page {page + 1} / {totalPages}
+          </span>
+          <button
+            onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+            disabled={page === totalPages - 1}
+            className="p-1 rounded text-gray-500 dark:text-zinc-400 disabled:opacity-30 hover:bg-gray-100 dark:hover:bg-zinc-800"
+            title="Next page"
+          >
+            <ChevronRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 const API = `${process.env.REACT_APP_API_URL}/api`;
+// Attachments live on the backend's own origin, not the /api-suffixed API
+// base - build that separately rather than string-munging API at render
+// time (a previous version did `API.replace("/api", "")`, which silently
+// breaks if the configured URL ever contains "/api" more than once).
+const FILE_ORIGIN = process.env.REACT_APP_API_URL || "";
 
-export default function Chat({ user, openChats, setOpenChats, activeChat, setActiveChat }) {
+function authHeaders() {
+  return { Authorization: `Bearer ${localStorage.getItem("token")}` };
+}
+
+function makeClientId() {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
+  return `local-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function getInitials(name) {
+  if (!name) return "?";
+  return name
+    .split(" ")
+    .map((n) => n[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2);
+}
+
+// "Active now" / "Active 5m ago" / "Last seen yesterday" style presence text.
+function formatPresence(isOnline, lastActive) {
+  if (isOnline) return "Active now";
+  if (!lastActive) return "Offline";
+  let dateStr = lastActive;
+  if (!dateStr.endsWith("Z") && !dateStr.includes("+")) dateStr = dateStr + "Z";
+  const date = new Date(dateStr);
+  const diff = Date.now() - date.getTime();
+  if (isNaN(diff)) return "Offline";
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 1) return "Active now";
+  if (minutes < 60) return `Active ${minutes}m ago`;
+  const hours = Math.floor(diff / 3600000);
+  if (hours < 24) return `Active ${hours}h ago`;
+  const days = Math.floor(diff / 86400000);
+  if (days === 1) return "Active yesterday";
+  if (days < 7) return `Active ${days}d ago`;
+  return `Last seen ${date.toLocaleDateString()}`;
+}
+
+// A group's own name, or a DM partner's name/username.
+function chatTitle(chat) {
+  if (chat.is_group) return chat.name || "Group";
+  return chat.participant?.name || chat.participant?.username || "Unknown";
+}
+
+function withTz(dateStr) {
+  if (!dateStr) return null;
+  return dateStr.endsWith("Z") || dateStr.includes("+") ? dateStr : `${dateStr}Z`;
+}
+
+function formatRelativeTime(dateStr) {
+  const iso = withTz(dateStr);
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (isNaN(date.getTime())) return "";
+  const diff = Date.now() - date.getTime();
+  const minutes = Math.floor(diff / 60000);
+  const hours = Math.floor(diff / 3600000);
+  const days = Math.floor(diff / 86400000);
+  if (minutes < 1) return "now";
+  if (minutes < 60) return `${minutes}m`;
+  if (hours < 24) return `${hours}h`;
+  if (days < 7) return `${days}d`;
+  return date.toLocaleDateString();
+}
+
+function formatTimeLabel(dateStr) {
+  const iso = withTz(dateStr);
+  if (!iso) return "";
+  return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function formatDateLabel(dateStr) {
+  const iso = withTz(dateStr);
+  if (!iso) return "";
+  const date = new Date(iso);
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (date.toDateString() === today.toDateString()) return "Today";
+  if (date.toDateString() === yesterday.toDateString()) return "Yesterday";
+  return date.toLocaleDateString();
+}
+
+// Pinned conversations first; within each group, most recently active first.
+function sortConversations(list) {
+  return [...list].sort((a, b) => {
+    if (!!b.pinned !== !!a.pinned) return b.pinned ? 1 : -1;
+    return new Date(b.updated_at || 0) - new Date(a.updated_at || 0);
+  });
+}
+
+// Builds a single split-regex covering both auto-linked URLs and @mentions of
+// known conversation participants, so message content can be tokenized into
+// link/mention/plain-text spans in one pass. Names are sorted longest-first
+// so e.g. "@Bob" doesn't shadow a match of "@Bob NOC".
+function buildMessageContentRegex(names) {
+  if (!names.length) return /(https?:\/\/[^\s]+)/g;
+  const escaped = [...names]
+    .sort((a, b) => b.length - a.length)
+    .map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  return new RegExp(`(https?:\\/\\/[^\\s]+|@(?:${escaped.join("|")}))`, "g");
+}
+
+export default function Chat({ user, openChats, setOpenChats, activeChat, setActiveChat, isExpanded, setIsExpanded }) {
   const [conversations, setConversations] = useState([]);
   const [users, setUsers] = useState([]);
-  const [showChatList, setShowChatList] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [minimized, setMinimized] = useState(true);
+  // Floating windows use fixed pixel widths/offsets on desktop; on mobile they
+  // instead take over the full viewport so a DM is never cut off half-visible.
+  const isMobile = useIsMobile();
   const [typingUsers, setTypingUsers] = useState({});
+  const [newGroupOpen, setNewGroupOpen] = useState(false);
+  // Full-screen "pop out" mode - a Teams-style conversation list + single
+  // main pane, replacing the floating widget/windows entirely while active.
+  // isExpanded/setIsExpanded are owned by DashboardLayout (not local state)
+  // so the sidebar's "Chat" nav item can open this mode directly too.
+  const [expandedConversationId, setExpandedConversationId] = useState(null);
+  // The message currently staged for the "forward to..." dialog, or null.
+  const [forwardMessage, setForwardMessage] = useState(null);
+  // Single source of truth for every conversation's messages, keyed by
+  // conversation_id: { items, loaded, loading, loadingOlder, hasMore }.
+  // Every previous version of this feature kept a second (or third) copy of
+  // this same data inside openChats/activeChat, and the sync logic between
+  // those copies is exactly where the "message shows late", "read receipt
+  // doesn't update", and "unread count is stale" bugs kept coming from.
+  // There is nowhere else in this file that owns message state.
+  const [messagesByConv, setMessagesByConv] = useState({});
+  // Mirrors messagesByConv so callbacks (applyIncomingMessage) can check
+  // "have we already applied this message" synchronously against the
+  // latest data, without needing messagesByConv itself as a dependency.
+  const messagesByConvRef = useRef({});
+  useEffect(() => {
+    messagesByConvRef.current = messagesByConv;
+  }, [messagesByConv]);
   const fileInputRef = useRef(null);
   const imageInputRef = useRef(null);
+  // Which window's conversation a click on its attach/image button is for -
+  // the file/image <input> elements are shared (one file picker for the
+  // whole widget), so without this, picking a file always uploaded to
+  // whichever conversation happened to be active instead of the window
+  // whose button was actually clicked.
+  const pendingUploadConversationRef = useRef(null);
+  // Files picked/pasted/dropped but not yet sent, keyed by conversation_id -
+  // shown as previews in that window's composer until the user hits send.
+  const [pendingAttachmentsByConv, setPendingAttachmentsByConv] = useState({});
+  // Tracks in-flight/completed loads synchronously so re-opening or
+  // reconnecting can't fire two overlapping fetches for the same
+  // conversation (React state updates are async, so checking
+  // messagesByConv itself here would race).
+  const loadedConvsRef = useRef(new Set());
 
-  // Get token
-  const token = localStorage.getItem("token");
-  const wsRef = useRef(null);
-  const wsConnectedRef = useRef(false);
-  
-  // Ref to store callback for direct message addition in ChatWindowView
-  const messageSentRef = useRef(null);
-  
-  // Function for ChatWindowView to register its callback
-  const registerMessageCallback = useCallback((callback) => {
-    messageSentRef.current = callback;
+  useEffect(() => {
+    requestNotificationPermission();
   }, []);
 
-  // WebSocket for real-time chat
+  const fetchConversations = useCallback(async () => {
+    const response = await axios.get(`${API}/chat/conversations`, { headers: authHeaders() });
+    setConversations(sortConversations(response.data));
+  }, []);
+
+  const fetchUsers = useCallback(async () => {
+    const response = await axios.get(`${API}/chat/users`, { headers: authHeaders() });
+    setUsers(response.data);
+  }, []);
+
   useEffect(() => {
-    if (!token || !user?.id) return;
-
-    // Connect to WebSocket
-    const wsUrl = `${process.env.REACT_APP_WS_URL || 'ws://localhost:8000'}/api/ws/chat/${token}`;
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
-
-    ws.onopen = () => {
-      console.log('WebSocket connected');
-      wsConnectedRef.current = true;
-    };
-
-    ws.onmessage = (event) => {
+    let cancelled = false;
+    (async () => {
       try {
-        const data = JSON.parse(event.data);
-        handleWebSocketMessage(data);
+        await Promise.all([fetchConversations(), fetchUsers()]);
+        if (!cancelled) setLoadError(false);
       } catch (error) {
-        console.error('Error parsing WebSocket message:', error);
+        console.error("Error loading chat data:", error);
+        if (!cancelled) setLoadError(true);
+      } finally {
+        if (!cancelled) setInitialLoading(false);
       }
-    };
-
-    ws.onerror = (error) => {
-      console.error('WebSocket error:', error);
-    };
-
-    ws.onclose = () => {
-      console.log('WebSocket disconnected');
-      wsConnectedRef.current = false;
-      // Reconnect after 3 seconds
-      setTimeout(() => {
-        if (!wsConnectedRef.current && token && user?.id) {
-          const reconnectWs = new WebSocket(wsUrl);
-          wsRef.current = reconnectWs;
-        }
-      }, 3000);
-    };
-
+    })();
     return () => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.close();
-      }
+      cancelled = true;
     };
-  }, [token, user?.id]);
+  }, [fetchConversations, fetchUsers]);
 
-  // Send message via WebSocket
-  const sendWebSocketMessage = (message) => {
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify(message));
-    }
-  };
+  // Presence refresh - messages/read-receipts/edits arrive over the socket,
+  // this poll only exists to refresh online/offline dots, so it's fine to
+  // keep it slow and only run while the dock is open and the tab is visible.
+  useEffect(() => {
+    if (minimized) return;
+    const interval = setInterval(() => {
+      if (!document.hidden) {
+        fetchConversations().catch(() => {});
+        fetchUsers().catch(() => {});
+      }
+    }, 60000);
+    return () => clearInterval(interval);
+  }, [minimized, fetchConversations, fetchUsers]);
 
-  // Callback to directly add message to ChatWindowView's local state for instant display
-  const handleMessageSent = useCallback((messageData) => {
-    const { conversationId, message } = messageData;
-    
-    // Update openChats with the new message
-    setOpenChats((prev) => prev.map(chat =>
-      chat.conversation_id === conversationId
-        ? { ...chat, messages: [...(chat.messages || []), message] }
-        : chat
-    ));
-    
-    // Also update activeChat if it's the same conversation
-    if (activeChat && activeChat.conversation_id === conversationId) {
-      setActiveChat((prev) => ({
+  // A conversation only counts as "currently being looked at" if its
+  // floating window is open AND expanded. activeChat alone isn't enough -
+  // minimizing a window never clears/updates activeChat (only its entry in
+  // openChats), so activeChat can keep naming a conversation that's no
+  // longer actually visible.
+  const isConversationFocused = useCallback(
+    (conversationId) => {
+      if (isExpanded) return expandedConversationId === conversationId;
+      if (!activeChat || activeChat.conversation_id !== conversationId) return false;
+      const entry = openChats.find((c) => c.conversation_id === conversationId);
+      return !!entry && !entry.minimized;
+    },
+    [isExpanded, expandedConversationId, activeChat, openChats]
+  );
+
+  const markAsRead = useCallback(
+    async (conversationId) => {
+      if (!conversationId) return;
+      setConversations((prev) => prev.map((c) => (c.id === conversationId ? { ...c, unread_count: 0 } : c)));
+      setOpenChats((prev) => prev.map((c) => (c.conversation_id === conversationId ? { ...c, unreadCount: 0 } : c)));
+      setMessagesByConv((prev) => {
+        const entry = prev[conversationId];
+        if (!entry) return prev;
+        return {
+          ...prev,
+          [conversationId]: {
+            ...entry,
+            items: entry.items.map((m) =>
+              m.sender_id !== user?.id && !(m.read_by || []).includes(user?.id)
+                ? { ...m, read_by: [...(m.read_by || []), user.id] }
+                : m
+            ),
+          },
+        };
+      });
+      try {
+        await axios.post(`${API}/chat/messages/read`, { conversation_id: conversationId }, { headers: authHeaders() });
+      } catch (error) {
+        console.error("Error marking messages as read:", error);
+      }
+    },
+    [user?.id, setOpenChats]
+  );
+
+  const patchMessage = useCallback((conversationId, messageId, patch) => {
+    setMessagesByConv((prev) => {
+      const entry = prev[conversationId];
+      if (!entry) return prev;
+      return {
         ...prev,
-        messages: [...(prev.messages || []), message],
-      }));
-    }
-    
-    // Update conversations
-    setConversations((prev) => prev.map(conv =>
-      conv.id === conversationId
-        ? { ...conv, unread_count: 0, last_message: message.content, last_message_time: message.created_at, last_message_sender_id: message.sender_id }
-        : conv
-    ));
-  }, [activeChat]);
+        [conversationId]: { ...entry, items: entry.items.map((m) => (m.id === messageId ? { ...m, ...patch } : m)) },
+      };
+    });
+  }, []);
 
-  const handleWebSocketMessage = (data) => {
+  const openConversationWindow = useCallback(
+    (conv) => {
+      const participant = conv.participants?.[0];
+      const existingChat = openChats.find((c) => c.conversation_id === conv.id);
+      if (existingChat) {
+        setOpenChats((prev) => prev.map((c) => (c.conversation_id === conv.id ? { ...c, minimized: false } : c)));
+        setActiveChat({ ...existingChat, minimized: false });
+      } else {
+        const newChat = {
+          conversation_id: conv.id,
+          is_group: !!conv.is_group,
+          name: conv.name || null,
+          participants: conv.participants || [],
+          participant: participant || null,
+          minimized: false,
+          unreadCount: 0,
+        };
+        // Prepended (not appended): the right-offset math below positions
+        // each window based on how many windows come after it in this
+        // array, so putting the new one first gives it the largest offset
+        // - i.e. farthest from the main button/leftmost - while every
+        // already-open window's position is undisturbed.
+        setOpenChats((prev) => [newChat, ...prev]);
+        setActiveChat(newChat);
+      }
+      ensureMessagesLoaded(conv.id);
+      markAsRead(conv.id);
+      // On mobile the opened window takes over the full screen, so tuck the
+      // conversation list (main widget) away instead of leaving both visible.
+      if (isMobile) setMinimized(true);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [openChats, setOpenChats, setActiveChat, markAsRead, isMobile]
+  );
+
+  // Selects a conversation in the full-screen pane (the Teams-like layout's
+  // equivalent of opening a floating window).
+  const selectExpandedConversation = useCallback(
+    (conv) => {
+      setExpandedConversationId(conv.id);
+      ensureMessagesLoaded(conv.id);
+      markAsRead(conv.id);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [markAsRead]
+  );
+
+  // Opens a conversation window by id, refetching the conversation list
+  // first if it's not already known locally - e.g. a toast/notification
+  // click for the very first message from someone you had no prior
+  // conversation with, which arrived before this tab ever fetched them.
+  const openConversationById = useCallback(
+    async (conversationId) => {
+      let conv = conversations.find((c) => c.id === conversationId);
+      if (!conv) {
+        try {
+          const response = await axios.get(`${API}/chat/conversations`, { headers: authHeaders() });
+          const sorted = sortConversations(response.data);
+          setConversations(sorted);
+          conv = sorted.find((c) => c.id === conversationId);
+        } catch (error) {
+          console.error("Error fetching conversations:", error);
+        }
+      }
+      if (conv) openConversationWindow(conv);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [conversations, openConversationWindow]
+  );
+
+  const applyIncomingMessage = useCallback(
+    (message) => {
+      const isOwn = message.sender_id === user?.id;
+      const focused = isConversationFocused(message.conversation_id);
+      // The socket and the polling fallback below can both deliver the same
+      // message - only run the preview/unread/toast side effects the first
+      // time a given message is actually seen.
+      const alreadyHave = messagesByConvRef.current[message.conversation_id]?.items?.some(
+        (m) => m.id === message.id
+      );
+
+      setMessagesByConv((prev) => {
+        const entry = prev[message.conversation_id] || { items: [], loaded: false, loading: false, hasMore: true };
+        const existingIdx = entry.items.findIndex((m) => m.id === message.id);
+        if (existingIdx >= 0) {
+          // We already have this message by id - replace it with the fresh
+          // copy instead of no-oping. The reconnect resync and the polling
+          // fallback both re-fetch messages we may already have, and that's
+          // exactly how a read receipt (or an edit/delete) that the socket
+          // missed actually catches up - a plain "already have this id, skip"
+          // here would silently swallow those updates.
+          const items = entry.items.map((m, i) => (i === existingIdx ? message : m));
+          return { ...prev, [message.conversation_id]: { ...entry, items } };
+        }
+        const clientIdx = message.client_id
+          ? entry.items.findIndex((m) => m.client_id && m.client_id === message.client_id)
+          : -1;
+        const items =
+          clientIdx >= 0
+            ? entry.items.map((m, i) => (i === clientIdx ? message : m))
+            : [...entry.items, message];
+        return { ...prev, [message.conversation_id]: { ...entry, items } };
+      });
+
+      if (alreadyHave) return;
+
+      const preview =
+        message.message_type === "image" ? "📷 Photo" : message.message_type === "file" ? `📎 ${message.file_name || "File"}` : message.content;
+
+      setConversations((prev) =>
+        sortConversations(
+          prev.map((c) =>
+            c.id === message.conversation_id
+              ? {
+                  ...c,
+                  last_message: preview,
+                  last_message_time: message.created_at,
+                  last_message_sender_id: message.sender_id,
+                  updated_at: message.created_at,
+                  unread_count: isOwn || focused ? 0 : (c.unread_count || 0) + 1,
+                }
+              : c
+          )
+        )
+      );
+
+      if (isOwn) return;
+
+      if (!focused) {
+        setOpenChats((prev) =>
+          prev.map((c) =>
+            c.conversation_id === message.conversation_id ? { ...c, unreadCount: (c.unreadCount || 0) + 1 } : c
+          )
+        );
+        const senderName = message.sender_name || "Someone";
+        toast(`${senderName} sent you a message`, {
+          description: preview,
+          action: { label: "Open", onClick: () => openConversationById(message.conversation_id) },
+        });
+        playNotificationSound();
+        if (document.hidden) {
+          showNativeNotification(`${senderName} sent you a message`, preview, () => {
+            openConversationById(message.conversation_id);
+          });
+        }
+      } else {
+        markAsRead(message.conversation_id);
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [user?.id, isConversationFocused, markAsRead, setOpenChats, openConversationById]
+  );
+
+  const applyReadReceipt = useCallback((conversationId, readBy) => {
+    setMessagesByConv((prev) => {
+      const entry = prev[conversationId];
+      if (!entry) return prev;
+      return {
+        ...prev,
+        [conversationId]: {
+          ...entry,
+          items: entry.items.map((m) =>
+            m.sender_id !== readBy && !(m.read_by || []).includes(readBy)
+              ? { ...m, read_by: [...(m.read_by || []), readBy] }
+              : m
+          ),
+        },
+      };
+    });
+  }, []);
+
+  const handleGroupUpdated = useCallback(
+    async (data) => {
+      const { conversation_id, participant_ids } = data;
+      const stillMember = !participant_ids || participant_ids.includes(user?.id);
+      if (!stillMember) {
+        setOpenChats((prev) => prev.filter((c) => c.conversation_id !== conversation_id));
+        setActiveChat((prev) => (prev?.conversation_id === conversation_id ? null : prev));
+        setExpandedConversationId((prev) => (prev === conversation_id ? null : prev));
+        setConversations((prev) => prev.filter((c) => c.id !== conversation_id));
+        return;
+      }
+      try {
+        const response = await axios.get(`${API}/chat/conversations`, { headers: authHeaders() });
+        setConversations(response.data);
+        const fresh = response.data.find((c) => c.id === conversation_id);
+        if (fresh) {
+          setOpenChats((prev) =>
+            prev.map((c) => (c.conversation_id === conversation_id ? { ...c, name: fresh.name, participants: fresh.participants } : c))
+          );
+          setActiveChat((prev) =>
+            prev?.conversation_id === conversation_id ? { ...prev, name: fresh.name, participants: fresh.participants } : prev
+          );
+        }
+      } catch (error) {
+        console.error("Error refreshing group:", error);
+      }
+    },
+    [user?.id, setOpenChats, setActiveChat]
+  );
+
+  const handleSocketMessage = (data) => {
     switch (data.type) {
       case "new_message":
-        handleNewMessage(data.message);
+        applyIncomingMessage(data.message);
         break;
       case "typing":
-        handleTyping(data);
+        setTypingUsers((prev) => ({ ...prev, [data.conversation_id]: data }));
+        setTimeout(() => {
+          setTypingUsers((prev) => {
+            if (prev[data.conversation_id] !== data) return prev;
+            const next = { ...prev };
+            delete next[data.conversation_id];
+            return next;
+          });
+        }, 3000);
         break;
       case "message_read":
-        handleMessageRead(data);
+        applyReadReceipt(data.conversation_id, data.read_by);
+        break;
+      case "message_edited":
+        patchMessage(data.conversation_id, data.message_id, { content: data.content, edited: true, edited_at: data.edited_at });
+        break;
+      case "message_deleted":
+        patchMessage(data.conversation_id, data.message_id, { is_deleted: true, content: "", file_url: null, file_name: null });
+        break;
+      case "message_reaction":
+        patchMessage(data.conversation_id, data.message_id, { reactions: data.reactions });
+        break;
+      case "group_updated":
+        handleGroupUpdated(data);
         break;
       default:
         break;
     }
   };
 
-  const handleNewMessage = (message) => {
-    // Prevent duplicate messages - check if message already exists by ID or by content+sender+time
-    const isDuplicate = (msg) => {
-      // Check by ID first - handle both string and number IDs
-      if (String(msg.id) === String(message.id)) return true;
-      // Check for duplicate local messages (within 5 seconds) - same sender, same conversation, same content
-      const msgTime = new Date(msg.created_at).getTime();
-      const newMsgTime = new Date(message.created_at).getTime();
-      const timeDiff = Math.abs(msgTime - newMsgTime);
-      // Also check if it's the same message based on content + sender + conversation
-      return (
-        msg.sender_id === message.sender_id &&
-        msg.conversation_id === message.conversation_id &&
-        msg.content === message.content &&
-        timeDiff < 5000 // Within 5 seconds
-      );
-    };
-
-    // Check if this is an echo of our own message (sent by us, within last 5 seconds)
-    // If so, we want to replace the local temp message with the server's version
-    const isOwnMessageEcho = () => {
-      const msgTime = new Date(message.created_at).getTime();
-      const now = Date.now();
-      const timeDiff = Math.abs(msgTime - now);
-      return (
-        message.sender_id === user?.id &&
-        timeDiff < 10000 // Within 10 seconds
-      );
-    };
-
-    // Add message to the conversation if it's open
-    if (activeChat && message.conversation_id === activeChat.conversation_id) {
-      setActiveChat((prev) => {
-        // Check if message already exists
-        const exists = (prev.messages || []).some(isDuplicate);
-        if (exists) {
-          // Check if this is an echo of our own message - replace the temp message with server version
-          if (isOwnMessageEcho()) {
-            const updatedMessages = (prev.messages || []).map((msg) => {
-              // Find the local message that matches this server message
-              const isLocalVersion = (
-                msg.sender_id === message.sender_id &&
-                msg.conversation_id === message.conversation_id &&
-                msg.content === message.content &&
-                !msg.id?.includes('-') // Local temp IDs are numeric strings, server IDs are UUIDs
-              );
-              if (isLocalVersion) {
-                return message; // Replace with server version
-              }
-              return msg;
-            });
-            return { ...prev, messages: updatedMessages };
-          }
-          return prev;
-        }
-        return {
-          ...prev,
-          messages: [...(prev.messages || []), message],
-        };
+  // The chat socket just came back up after a drop (a flaky network, a host
+  // that idles/restarts the backend - it can happen for reasons outside
+  // this app's control). Refresh the conversation list and mark every
+  // currently-open window's messages as stale so they re-fetch, instead of
+  // silently sitting on whatever they last had until the user notices and
+  // manually closes/reopens something.
+  const handleSocketReconnected = () => {
+    fetchConversations().catch(() => {});
+    openChats.forEach((chat) => {
+      loadedConvsRef.current.delete(chat.conversation_id);
+      setMessagesByConv((prev) => {
+        const entry = prev[chat.conversation_id];
+        return entry ? { ...prev, [chat.conversation_id]: { ...entry, loaded: false } } : prev;
       });
-    }
-
-    // Also update the message in openChats for consistency
-    setOpenChats((prev) =>
-      prev.map((chat) => {
-        if (chat.conversation_id === message.conversation_id) {
-          // Check if message already exists
-          const exists = (chat.messages || []).some(isDuplicate);
-          if (exists) {
-            // Check if this is an echo of our own message
-            if (isOwnMessageEcho()) {
-              const updatedMessages = (chat.messages || []).map((msg) => {
-                const isLocalVersion = (
-                  msg.sender_id === message.sender_id &&
-                  msg.conversation_id === message.conversation_id &&
-                  msg.content === message.content &&
-                  !msg.id?.includes('-')
-                );
-                if (isLocalVersion) {
-                  return message;
-                }
-                return msg;
-              });
-              return { ...chat, messages: updatedMessages };
-            }
-            return chat;
-          }
-          return {
-            ...chat,
-            messages: [...(chat.messages || []), message],
-          };
-        }
-        return chat;
-      })
-    );
-
-    // Update conversations list - don't increment unread count for own messages
-    const isOwnMessage = message.sender_id === user?.id;
-    setConversations((prev) => {
-      return prev.map((conv) => {
-        if (conv.id === message.conversation_id) {
-          return {
-            ...conv,
-            last_message: message.content,
-            last_message_time: message.created_at,
-            last_message_sender_id: message.sender_id,
-            unread_count: isOwnMessage || activeChat?.conversation_id === message.conversation_id 
-              ? 0 
-              : (conv.unread_count || 0) + 1,
-          };
-        }
-        return conv;
-      });
+      ensureMessagesLoaded(chat.conversation_id);
     });
   };
 
-  const handleTyping = (data) => {
-    setTypingUsers((prev) => ({
+  const { send: sendSocket } = useChatSocket(handleSocketMessage, handleSocketReconnected);
+
+  // Fallback poll: some networks/proxies don't reliably keep the chat
+  // WebSocket open (drops or silently stops delivering even though the
+  // rest of the app works fine), which otherwise means messages only ever
+  // show up after a manual reload. This bounds that gap to a few seconds
+  // regardless of the socket's health - applyIncomingMessage no-ops for a
+  // message it's already applied, so this never duplicates what the socket
+  // already delivered instantly.
+  const pollRef = useRef(null);
+  useEffect(() => {
+    pollRef.current = async () => {
+      if (document.hidden) return;
+      try {
+        await fetchConversations();
+      } catch (error) {
+        // ignore - next tick retries
+      }
+      await Promise.all(
+        openChats.map(async (chat) => {
+          try {
+            const response = await axios.get(
+              `${API}/chat/conversations/${chat.conversation_id}/messages?limit=20`,
+              { headers: authHeaders() }
+            );
+            response.data.forEach((m) => applyIncomingMessage(m));
+          } catch (error) {
+            // ignore - next tick retries
+          }
+        })
+      );
+    };
+  });
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      pollRef.current?.();
+    }, 4000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const ensureMessagesLoaded = useCallback(async (conversationId) => {
+    if (loadedConvsRef.current.has(conversationId)) return;
+    loadedConvsRef.current.add(conversationId);
+
+    setMessagesByConv((prev) => ({
       ...prev,
-      [data.conversation_id]: data,
+      [conversationId]: { items: prev[conversationId]?.items || [], loaded: false, loading: true, hasMore: true },
     }));
 
-    // Clear typing after 3 seconds
-    setTimeout(() => {
-      setTypingUsers((prev) => {
-        const newState = { ...prev };
-        delete newState[data.conversation_id];
-        return newState;
+    try {
+      const response = await axios.get(`${API}/chat/conversations/${conversationId}/messages?limit=50`, {
+        headers: authHeaders(),
       });
-    }, 3000);
-  };
-
-  const handleMessageRead = (data) => {
-    // Update messages as read in the active conversation
-    // When user B reads messages from user A, data.read_by = user B's ID
-    // We want to mark messages from user A as read (messages where sender_id != read_by)
-    if (activeChat && data.conversation_id === activeChat.conversation_id) {
-      setActiveChat((prev) => ({
-        ...prev,
-        messages: prev.messages?.map((msg) => ({
-          ...msg,
-          // Mark as read if the message sender is NOT the one who read (i.e., it's a message from the other person)
-          is_read: msg.sender_id !== data.read_by ? true : msg.is_read,
-        })) || [],
-      }));
+      const items = response.data;
+      setMessagesByConv((prev) => {
+        // Keep any optimistic message sent locally while this fetch was in flight.
+        const existing = prev[conversationId]?.items || [];
+        const localOnly = existing.filter(
+          (m) => !items.some((fetched) => fetched.id === m.id || (m.client_id && fetched.client_id === m.client_id))
+        );
+        return {
+          ...prev,
+          [conversationId]: { items: [...items, ...localOnly], loaded: true, loading: false, hasMore: items.length === 50 },
+        };
+      });
+    } catch (error) {
+      console.error("Error loading messages:", error);
+      loadedConvsRef.current.delete(conversationId);
+      setMessagesByConv((prev) => {
+        const entry = prev[conversationId] || { items: [], hasMore: true };
+        return { ...prev, [conversationId]: { ...entry, loaded: false, loading: false } };
+      });
     }
+  }, []);
 
-    // Also update messages in openChats for consistency
-    setOpenChats((prev) =>
-      prev.map((chat) => {
-        if (chat.conversation_id === data.conversation_id) {
+  const loadOlderMessages = useCallback(
+    async (conversationId) => {
+      const entry = messagesByConv[conversationId];
+      if (!entry || entry.loadingOlder || !entry.hasMore || entry.items.length === 0) return;
+      setMessagesByConv((prev) => ({ ...prev, [conversationId]: { ...prev[conversationId], loadingOlder: true } }));
+      try {
+        const oldest = entry.items[0];
+        const response = await axios.get(
+          `${API}/chat/conversations/${conversationId}/messages?limit=50&before=${encodeURIComponent(oldest.created_at)}`,
+          { headers: authHeaders() }
+        );
+        setMessagesByConv((prev) => {
+          const current = prev[conversationId];
           return {
-            ...chat,
-            messages: chat.messages?.map((msg) => ({
-              ...msg,
-              is_read: msg.sender_id !== data.read_by ? true : msg.is_read,
-            })) || [],
+            ...prev,
+            [conversationId]: {
+              ...current,
+              items: [...response.data, ...current.items],
+              hasMore: response.data.length === 50,
+              loadingOlder: false,
+            },
           };
-        }
-        return chat;
-      })
-    );
-
-    // Also update conversations list to reset unread count
-    setConversations((prev) =>
-      prev.map((conv) => {
-        if (conv.id === data.conversation_id) {
-          return { ...conv, unread_count: 0 };
-        }
-        return conv;
-      })
-    );
-  };
-
-  // Fetch conversations and users
-  useEffect(() => {
-    if (token) {
-      fetchConversations();
-      fetchUsers();
-    }
-  }, [token]);
-
-  // Periodic refresh for online status. New messages/read-receipts already
-  // arrive over the WebSocket above, so this poll only exists to refresh
-  // participants' online/offline indicator - only worth doing while the chat
-  // panel is actually open and the tab is in the foreground, and every 60s
-  // is plenty for a presence indicator (was every 30s regardless of state).
-  useEffect(() => {
-    if (!token || minimized) return;
-
-    const interval = setInterval(() => {
-      if (!document.hidden) {
-        fetchConversations();
-        fetchUsers();
-      }
-    }, 60000);
-
-    return () => clearInterval(interval);
-  }, [token, minimized]);
-
-  const fetchConversations = async () => {
-    try {
-      const response = await axios.get(`${API}/chat/conversations`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      // Merge API response with existing local state to preserve local changes (like unread_count: 0)
-      const apiConversations = response.data;
-      setConversations(prevConversations => {
-        // Create a map of existing conversations for quick lookup
-        const existingConvMap = new Map(prevConversations.map(c => [c.id, c]));
-        
-        // Merge: use API data but preserve local unread_count if it's 0 (meaning user already read)
-        return apiConversations.map(apiConv => {
-          const existingConv = existingConvMap.get(apiConv.id);
-          if (existingConv && existingConv.unread_count === 0) {
-            // Preserve local unread_count: 0
-            return { ...apiConv, unread_count: 0 };
-          }
-          return apiConv;
         });
-      });
-    } catch (error) {
-      console.error("Error fetching conversations:", error);
-    }
-  };
-
-  const fetchUsers = async () => {
-    try {
-      const response = await axios.get(`${API}/chat/users`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      setUsers(response.data);
-    } catch (error) {
-      console.error("Error fetching users:", error);
-    }
-  };
+      } catch (error) {
+        console.error("Error loading older messages:", error);
+        setMessagesByConv((prev) => ({ ...prev, [conversationId]: { ...prev[conversationId], loadingOlder: false } }));
+      }
+    },
+    [messagesByConv]
+  );
 
   const startConversation = async (otherUser) => {
-    console.log("startConversation called with:", otherUser);
     try {
-      const response = await axios.post(
-        `${API}/chat/conversations`,
-        { participant_id: otherUser.id },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-
-      console.log("Conversation created:", response.data);
-      const conversation = response.data;
-
-      // Check if already in open chats
-      const existingChat = openChats.find((c) => c.conversation_id === conversation.id);
-      if (existingChat) {
-        // If minimized, maximize it
-        if (existingChat.minimized) {
-          setOpenChats(prev => prev.map(chat => 
-            chat.conversation_id === conversation.id 
-              ? { ...chat, minimized: false } 
-              : chat
-          ));
-        }
-        setActiveChat(existingChat);
-      } else {
-        // Add to open chats with user info
-        const newChat = {
-          conversation_id: conversation.id,
-          participant: conversation.participants[0],
-          messages: [],
-          unreadCount: 0,
-          minimized: false,
-        };
-        console.log("Adding new chat to openChats:", newChat);
-        setOpenChats((prev) => [...prev, newChat]);
-        setActiveChat(newChat);
-      }
+      const response = await axios.post(`${API}/chat/conversations`, { participant_id: otherUser.id }, { headers: authHeaders() });
+      setConversations((prev) => (prev.some((c) => c.id === response.data.id) ? prev : [response.data, ...prev]));
+      openConversationWindow(response.data);
     } catch (error) {
       console.error("Error creating conversation:", error);
-      console.error("Error response:", error.response?.data);
     }
   };
 
-  const sendMessage = async (content, messageType = "text", fileData = null, conversationId = null) => {
-    // Use provided conversationId or fall back to activeChat
-    const targetConversationId = conversationId || (activeChat ? activeChat.conversation_id : null);
-    
-    if (!targetConversationId || (!content.trim() && !fileData)) return;
+  const startConversationExpanded = async (otherUser) => {
+    try {
+      const response = await axios.post(`${API}/chat/conversations`, { participant_id: otherUser.id }, { headers: authHeaders() });
+      setConversations((prev) => (prev.some((c) => c.id === response.data.id) ? prev : [response.data, ...prev]));
+      selectExpandedConversation(response.data);
+    } catch (error) {
+      console.error("Error creating conversation:", error);
+    }
+  };
 
-    // Create local message immediately for better UX
+  const createGroup = async (name, participantIds) => {
+    const response = await axios.post(`${API}/chat/conversations/group`, { name, participant_ids: participantIds }, { headers: authHeaders() });
+    setConversations((prev) => [response.data, ...prev]);
+    openConversationWindow(response.data);
+    setNewGroupOpen(false);
+  };
+
+  const updateGroup = async (conversationId, name, participantIds) => {
+    const response = await axios.put(
+      `${API}/chat/conversations/${conversationId}/group`,
+      { name, participant_ids: participantIds },
+      { headers: authHeaders() }
+    );
+    const updated = response.data;
+    setOpenChats((prev) =>
+      prev.map((c) => (c.conversation_id === conversationId ? { ...c, name: updated.name, participants: updated.participants } : c))
+    );
+    setActiveChat((prev) =>
+      prev?.conversation_id === conversationId ? { ...prev, name: updated.name, participants: updated.participants } : prev
+    );
+    setConversations((prev) => prev.map((c) => (c.id === conversationId ? { ...c, ...updated } : c)));
+  };
+
+  const leaveGroup = async (conversationId) => {
+    await axios.post(`${API}/chat/conversations/${conversationId}/leave`, null, { headers: authHeaders() });
+    setOpenChats((prev) => prev.filter((c) => c.conversation_id !== conversationId));
+    setActiveChat((prev) => (prev?.conversation_id === conversationId ? null : prev));
+    setConversations((prev) => prev.filter((c) => c.id !== conversationId));
+  };
+
+  const sendMessage = async (conversationId, content, messageType = "text", fileData = null, extra = {}) => {
+    const trimmed = content.trim();
+    if (!trimmed && !fileData) return;
+
+    const clientId = makeClientId();
     const localMessage = {
-      id: Date.now().toString(),
-      conversation_id: targetConversationId,
+      id: clientId,
+      client_id: clientId,
+      conversation_id: conversationId,
       sender_id: user.id,
       sender_name: user.name,
-      content: content.trim(),
+      content: trimmed,
       message_type: messageType,
       file_url: fileData?.file_url,
       file_name: fileData?.file_name,
-      is_read: false,
+      file_size: fileData?.file_size,
+      file_mime_type: fileData?.file_mime_type,
+      read_by: [],
+      edited: false,
+      is_deleted: false,
+      reply_to: extra.reply_to || null,
+      is_forwarded: !!extra.is_forwarded,
+      forwarded_from: extra.is_forwarded ? extra.forwarded_from || null : null,
       created_at: new Date().toISOString(),
     };
 
-    // Update local state immediately
-    if (activeChat && activeChat.conversation_id === targetConversationId) {
-      setActiveChat((prev) => ({
-        ...prev,
-        messages: [...(prev.messages || []), localMessage],
-      }));
-    }
+    setMessagesByConv((prev) => {
+      const entry = prev[conversationId] || { items: [], loaded: true, hasMore: false };
+      return { ...prev, [conversationId]: { ...entry, items: [...entry.items, localMessage] } };
+    });
+    setConversations((prev) =>
+      sortConversations(
+        prev.map((c) =>
+          c.id === conversationId
+            ? {
+                ...c,
+                unread_count: 0,
+                last_message: trimmed || (messageType === "image" ? "📷 Photo" : `📎 ${fileData?.file_name || "File"}`),
+                last_message_time: localMessage.created_at,
+                last_message_sender_id: user.id,
+                updated_at: localMessage.created_at,
+              }
+            : c
+        )
+      )
+    );
 
-    setOpenChats((prev) => prev.map(chat =>
-      chat.conversation_id === targetConversationId
-        ? { ...chat, messages: [...(chat.messages || []), localMessage] }
-        : chat
-    ));
-
-    setConversations((prev) => prev.map(conv =>
-      conv.id === targetConversationId
-        ? { ...conv, unread_count: 0, last_message: content.trim(), last_message_time: localMessage.created_at, last_message_sender_id: user.id }
-        : conv
-    ));
-
-    // Call the callback for instant update in ChatWindowView
-    if (messageSentRef.current) {
-      messageSentRef.current(localMessage);
-    }
-
-    // Send to API
     try {
-      await axios.post(
+      const response = await axios.post(
         `${API}/chat/messages`,
         {
-          conversation_id: targetConversationId,
-          content: content.trim(),
+          conversation_id: conversationId,
+          content: trimmed,
           message_type: messageType,
           file_url: fileData?.file_url,
           file_name: fileData?.file_name,
           file_size: fileData?.file_size,
           file_mime_type: fileData?.file_mime_type,
+          client_id: clientId,
+          reply_to_id: extra.reply_to_id || undefined,
+          is_forwarded: !!extra.is_forwarded,
+          forwarded_from: extra.is_forwarded ? extra.forwarded_from || undefined : undefined,
         },
-        { headers: { Authorization: `Bearer ${token}` } }
+        { headers: authHeaders() }
       );
+      applyIncomingMessage(response.data);
     } catch (error) {
       console.error("Error sending message:", error);
+      setMessagesByConv((prev) => {
+        const entry = prev[conversationId];
+        if (!entry) return prev;
+        return {
+          ...prev,
+          [conversationId]: { ...entry, items: entry.items.map((m) => (m.id === clientId ? { ...m, failed: true } : m)) },
+        };
+      });
     }
   };
 
-  const sendTyping = (conversationId = null) => {
-    // Send typing indicator via WebSocket
-    const targetConvId = conversationId || (activeChat ? activeChat.conversation_id : null);
-    if (!targetConvId) return;
-    
-    const targetChat = conversationId 
-      ? openChats.find(c => c.conversation_id === conversationId)
-      : activeChat;
-    
-    if (!targetChat?.participant) return;
-    
-    sendWebSocketMessage({
-      type: "typing",
-      conversation_id: targetConvId,
-      user_id: user.id,
-      recipient_id: targetChat.participant.id
+  const editMessage = async (conversationId, messageId, content) => {
+    const response = await axios.put(`${API}/chat/messages/${messageId}`, { content }, { headers: authHeaders() });
+    patchMessage(conversationId, messageId, { content: response.data.content, edited: true, edited_at: response.data.edited_at });
+  };
+
+  const deleteMessage = async (conversationId, messageId) => {
+    await axios.delete(`${API}/chat/messages/${messageId}`, { headers: authHeaders() });
+    patchMessage(conversationId, messageId, { is_deleted: true, content: "", file_url: null, file_name: null });
+  };
+
+  const sendTyping = (conversationId) => {
+    sendSocket({ type: "typing", conversation_id: conversationId });
+  };
+
+  const uploadFile = async (file, type, conversationId, extra = {}) => {
+    if (!file || !conversationId) return;
+    const formData = new FormData();
+    formData.append("file", file);
+    try {
+      const response = await axios.post(`${API}/chat/upload`, formData, {
+        headers: { ...authHeaders(), "Content-Type": "multipart/form-data" },
+      });
+      const fileData = response.data;
+      const messageType = type === "image" || fileData.is_image ? "image" : "file";
+      sendMessage(conversationId, file.name, messageType, fileData, extra);
+    } catch (error) {
+      console.error("Error uploading file:", error);
+      toast.error(error.response?.status === 413 ? "That file is too large (8MB max)." : "Could not upload the file.");
+    }
+  };
+
+  // Stages a file for a conversation's composer instead of uploading it right
+  // away - the user sees a preview and decides whether to actually send it.
+  const addPendingFiles = (conversationId, files) => {
+    if (!conversationId || !files || files.length === 0) return;
+    const items = Array.from(files).map((file) => ({
+      id: makeClientId(),
+      file,
+      isImage: file.type.startsWith("image/"),
+      previewUrl: file.type.startsWith("image/") ? URL.createObjectURL(file) : null,
+    }));
+    setPendingAttachmentsByConv((prev) => ({
+      ...prev,
+      [conversationId]: [...(prev[conversationId] || []), ...items],
+    }));
+  };
+
+  const removePendingAttachment = (conversationId, attachmentId) => {
+    setPendingAttachmentsByConv((prev) => {
+      const current = prev[conversationId] || [];
+      const target = current.find((a) => a.id === attachmentId);
+      if (target?.previewUrl) URL.revokeObjectURL(target.previewUrl);
+      return { ...prev, [conversationId]: current.filter((a) => a.id !== attachmentId) };
     });
   };
 
-  const markAsRead = async (conversationId = null) => {
-    const targetConvId = conversationId || (activeChat ? activeChat.conversation_id : null);
-    const targetChat = conversationId 
-      ? openChats.find(c => c.conversation_id === conversationId)
-      : activeChat;
-    
-    if (!targetConvId || !targetChat?.participant) return;
-    
-    const otherUserId = targetChat.participant.id;
-    
-    // Mark as read via API
-    try {
-      await axios.post(
-        `${API}/chat/messages/read`,
-        {
-          conversation_id: targetConvId,
-          other_user_id: otherUserId,
-        },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      
-      // Notify other user via WebSocket for real-time update
-      sendWebSocketMessage({
-        type: "message_read",
-        conversation_id: targetConvId,
-        read_by: user.id,
-        recipient_id: otherUserId
-      });
-    } catch (error) {
-      console.error("Error marking as read:", error);
-    }
-    
-    // Update local message read status for messages from the other user
-    const updateMessagesReadStatus = (msgs) => {
-      return (msgs || []).map(msg => {
-        // Mark as read if it's from the other user
-        if (msg.sender_id === otherUserId) {
-          return { ...msg, is_read: true };
+  // Uploads every staged attachment (each as its own message, in the order
+  // added) and then sends the typed text, if any, as a separate message.
+  // replyToMessage (if set) is attached to whichever of those ends up being
+  // the first thing actually sent.
+  const sendComposedMessage = async (conversationId, text, attachments, replyToMessage) => {
+    setPendingAttachmentsByConv((prev) => ({ ...prev, [conversationId]: [] }));
+    const trimmed = text.trim();
+    const replySnapshot = replyToMessage
+      ? {
+          id: replyToMessage.id,
+          sender_id: replyToMessage.sender_id,
+          sender_name: replyToMessage.sender_name,
+          content: replyToMessage.content,
+          message_type: replyToMessage.message_type,
+          file_name: replyToMessage.file_name,
+          is_deleted: replyToMessage.is_deleted,
         }
-        return msg;
-      });
-    };
-    
-    // Update activeChat if it's the target conversation
-    if (activeChat && activeChat.conversation_id === targetConvId) {
-      setActiveChat(prev => ({
-        ...prev,
-        messages: updateMessagesReadStatus(prev.messages)
-      }));
+      : null;
+    let replyConsumed = !replySnapshot;
+    for (const att of attachments) {
+      const extra = !replyConsumed && !trimmed ? { reply_to_id: replySnapshot.id, reply_to: replySnapshot } : {};
+      if (extra.reply_to_id) replyConsumed = true;
+      await uploadFile(att.file, att.isImage ? "image" : "file", conversationId, extra);
+      if (att.previewUrl) URL.revokeObjectURL(att.previewUrl);
     }
-    
-    // Update openChats
-    setOpenChats(prev => prev.map(chat => {
-      if (chat.conversation_id === targetConvId) {
-        return { 
-          ...chat, 
-          unreadCount: 0,
-          messages: updateMessagesReadStatus(chat.messages)
-        };
-      }
-      return chat;
-    }));
-    
-    setConversations(prev => prev.map(conv =>
-      conv.id === targetConvId
-        ? { ...conv, unread_count: 0 }
-        : conv
-    ));
+    if (trimmed) {
+      const extra = replySnapshot ? { reply_to_id: replySnapshot.id, reply_to: replySnapshot } : {};
+      sendMessage(conversationId, trimmed, "text", null, extra);
+    }
   };
 
-  const handleFileUpload = async (event, type = "file", conversationId = null) => {
-    const file = event.target.files[0];
-    if (!file) return;
+  // Sends a copy of an existing message into a different conversation.
+  const forwardMessageTo = (targetConversationId, message) => {
+    if (!message) return;
+    const fileData = message.file_url
+      ? {
+          file_url: message.file_url,
+          file_name: message.file_name,
+          file_size: message.file_size,
+          file_mime_type: message.file_mime_type,
+        }
+      : null;
+    // If this message was itself already forwarded, keep pointing at the
+    // true original author rather than whoever forwarded it last.
+    const originalSender = message.is_forwarded && message.forwarded_from ? message.forwarded_from : message.sender_name;
+    sendMessage(targetConversationId, message.content || "", message.message_type, fileData, {
+      is_forwarded: true,
+      forwarded_from: originalSender,
+    });
+    setForwardMessage(null);
+    toast.success("Message forwarded");
+  };
 
-    const formData = new FormData();
-    formData.append("file", file);
+  const searchConversation = async (conversationId, query) => {
+    const response = await axios.get(`${API}/chat/conversations/${conversationId}/search`, {
+      params: { q: query },
+      headers: authHeaders(),
+    });
+    return response.data;
+  };
 
+  const deleteGroup = async (conversationId) => {
+    await axios.delete(`${API}/chat/conversations/${conversationId}/group`, { headers: authHeaders() });
+    setOpenChats((prev) => prev.filter((c) => c.conversation_id !== conversationId));
+    setActiveChat((prev) => (prev?.conversation_id === conversationId ? null : prev));
+    setExpandedConversationId((prev) => (prev === conversationId ? null : prev));
+    setConversations((prev) => prev.filter((c) => c.id !== conversationId));
+  };
+
+  const togglePinConversation = async (conversationId) => {
     try {
-      const response = await axios.post(`${API}/chat/upload`, formData, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "multipart/form-data",
-        },
-      });
-
-      const fileData = response.data;
-      const messageType = type === "image" || fileData.is_image ? "image" : "file";
-      sendMessage(file.name, messageType, fileData, conversationId);
+      const response = await axios.post(`${API}/chat/conversations/${conversationId}/pin`, null, { headers: authHeaders() });
+      setConversations((prev) =>
+        sortConversations(prev.map((c) => (c.id === conversationId ? { ...c, pinned: response.data.pinned } : c)))
+      );
     } catch (error) {
-      console.error("Error uploading file:", error);
+      console.error("Error toggling pin:", error);
     }
-
-    // Reset input
-    event.target.value = "";
   };
 
-  const getInitials = (name) => {
-    if (!name) return "?";
-    return name
-      .split(" ")
-      .map((n) => n[0])
-      .join("")
-      .toUpperCase()
-      .slice(0, 2);
+  const toggleReaction = async (conversationId, messageId, emoji) => {
+    try {
+      const response = await axios.post(
+        `${API}/chat/messages/${messageId}/react`,
+        { emoji },
+        { headers: authHeaders() }
+      );
+      patchMessage(conversationId, messageId, { reactions: response.data.reactions });
+    } catch (error) {
+      console.error("Error toggling reaction:", error);
+    }
   };
 
-  // Calculate total unread
   const totalUnread = conversations.reduce((sum, c) => sum + (c.unread_count || 0), 0);
 
-  // Handle minimize/maximize individual chat windows
   const toggleChatMinimize = (conversationId) => {
-    setOpenChats(prev => {
-      const updated = prev.map(chat => 
-        chat.conversation_id === conversationId 
-          ? { ...chat, minimized: !chat.minimized } 
-          : chat
-      );
-      // Find the chat after update to set activeChat
-      const expanded = updated.find(c => c.conversation_id === conversationId);
-      if (expanded && !expanded.minimized) {
-        // Use callback form to ensure we have latest state
-        setActiveChat(expanded);
+    setOpenChats((prev) => {
+      const updated = prev.map((c) => (c.conversation_id === conversationId ? { ...c, minimized: !c.minimized } : c));
+      const target = updated.find((c) => c.conversation_id === conversationId);
+      if (target && !target.minimized) {
+        setActiveChat(target);
+        ensureMessagesLoaded(conversationId);
+        markAsRead(conversationId);
       }
       return updated;
     });
   };
 
-  // Handle close individual chat window
   const closeChatWindow = (conversationId, e) => {
     if (e) e.stopPropagation();
-    setOpenChats(prev => prev.filter(c => c.conversation_id !== conversationId));
+    setOpenChats((prev) => prev.filter((c) => c.conversation_id !== conversationId));
     if (activeChat?.conversation_id === conversationId) {
-      setActiveChat(openChats.find(c => c.conversation_id !== conversationId) || null);
+      const remaining = openChats.filter((c) => c.conversation_id !== conversationId);
+      setActiveChat(remaining.length ? remaining[remaining.length - 1] : null);
     }
   };
 
-  // Handle click on chat tab - always toggle minimize/maximize
-  const handleChatTabClick = (chat) => {
-    toggleChatMinimize(chat.conversation_id);
+  const isAdmin = user?.role === "admin";
+
+  // A conversation, shaped the way ChatWindowView expects its `chat` prop -
+  // shared by the floating windows and the full-screen pane so they can't
+  // drift apart.
+  const toWindowChat = (conv) => ({
+    conversation_id: conv.id,
+    is_group: !!conv.is_group,
+    name: conv.name || null,
+    participants: conv.participants || [],
+    participant: conv.participants?.[0] || null,
+  });
+
+  // Every prop ChatWindowView needs, keyed off a conversation id - reused by
+  // both the floating windows and the full-screen pane's single main pane.
+  const renderChatWindow = (chatShape, { fullScreen = false, onClose, onMinimize } = {}) => {
+    const conversationId = chatShape.conversation_id;
+    const entry = messagesByConv[conversationId] || { items: [], loaded: false, loading: false, hasMore: false };
+    return (
+      <ChatWindowView
+        key={conversationId}
+        fullScreen={fullScreen}
+        chat={chatShape}
+        user={user}
+        allUsers={users}
+        messages={entry.items}
+        loaded={entry.loaded}
+        loading={entry.loading}
+        hasMore={entry.hasMore}
+        loadingOlder={entry.loadingOlder}
+        onLoadOlder={() => loadOlderMessages(conversationId)}
+        onSend={(text, attachments, replyToMessage) => sendComposedMessage(conversationId, text, attachments, replyToMessage)}
+        onTyping={() => sendTyping(conversationId)}
+        typingUser={typingUsers[conversationId]}
+        pendingAttachments={pendingAttachmentsByConv[conversationId] || []}
+        onAddFiles={(files) => addPendingFiles(conversationId, files)}
+        onRemoveAttachment={(id) => removePendingAttachment(conversationId, id)}
+        onAttachFileClick={() => {
+          pendingUploadConversationRef.current = conversationId;
+          fileInputRef.current?.click();
+        }}
+        onAttachImageClick={() => {
+          pendingUploadConversationRef.current = conversationId;
+          imageInputRef.current?.click();
+        }}
+        onClose={onClose}
+        onMinimize={onMinimize}
+        onUpdateGroup={(name, ids) => updateGroup(conversationId, name, ids)}
+        onLeaveGroup={() => leaveGroup(conversationId)}
+        onDeleteGroup={() => deleteGroup(conversationId)}
+        onEditMessage={(messageId, content) => editMessage(conversationId, messageId, content)}
+        onDeleteMessage={(messageId) => deleteMessage(conversationId, messageId)}
+        onForwardMessage={(msg) => setForwardMessage(msg)}
+        onSearchMessages={(q) => searchConversation(conversationId, q)}
+        onToggleReaction={(messageId, emoji) => toggleReaction(conversationId, messageId, emoji)}
+      />
+    );
   };
+
+  const expandedConv = conversations.find((c) => c.id === expandedConversationId);
+  // Stable reference (unlike the floating windows' `chat`, which lives in
+  // state and only changes on a real update) - toWindowChat() otherwise
+  // builds a brand-new object every render of this component (which happens
+  // often - typing, incoming messages, polling), and passing a new `chat`
+  // object into ChatWindowView on every one of those re-renders is exactly
+  // the kind of thing that can make its own dialogs (Group Info included)
+  // flicker open-then-closed instead of staying open.
+  const expandedWindowChat = useMemo(
+    () => (expandedConv ? toWindowChat(expandedConv) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [expandedConv]
+  );
 
   return (
     <>
-      {/* Floating Chat Windows - positioned to the left of the main button */}
-      {openChats.map((chat, index) => {
-        // Calculate right position based on the cumulative width of all chats after this one
-        // Also account for main tab's width (380px maximized, 60px minimized)
-        const mainTabWidth = minimized ? 60 : 380;
-        const chatsAfter = openChats.slice(index + 1);
-        const offsetAfter = chatsAfter.reduce((sum, c) => sum + (c.minimized ? 158 : 388), 0);
-        const rightPos = 16 + mainTabWidth + 4 + offsetAfter;
-        
-        return (
-        <div
-          key={chat.conversation_id}
-          className={`fixed z-40 flex flex-col bg-white dark:bg-black border border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white transition-all duration-300 ${
-            chat.minimized 
-              ? "bottom-2" 
-              : "bottom-2"
-          }`}
-          style={{ 
-            right: `${rightPos}px`,
-            width: chat.minimized ? "150px" : "380px",
-            height: chat.minimized ? "50px" : "500px"
-          }}
-        >
-          {/* Chat Header - only show when minimized */}
-          {chat.minimized && (
-            <div 
-              className="flex items-center justify-between px-3 py-2 bg-white dark:bg-zinc-900 border-b border-gray-200 dark:border-zinc-700 cursor-pointer hover:bg-gray-100 dark:hover:bg-zinc-800"
-              onClick={() => handleChatTabClick(chat)}
-            >
-              <div className="flex items-center gap-2 min-w-0 flex-1">
-                <span className="font-medium truncate text-sm flex items-center gap-1 mr-6">
-                  {chat.participant?.name || chat.participant?.username}
-                  {chat.unreadCount > 0 && (
-                    <Badge className="bg-red-500 text-gray-900 dark:text-white text-xs min-w-[18px] h-[18px] flex items-center justify-center p-0">
-                      {chat.unreadCount > 99 ? '99+' : chat.unreadCount}
-                    </Badge>
-                  )}
-                </span>
-              </div>
-              <div className="flex items-center gap-1 flex-shrink-0">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="p-1 h-6 w-6 text-gray-500 dark:text-zinc-400 hover:text-red-400"
-                  onClick={(e) => closeChatWindow(chat.conversation_id, e)}
-                >
-                  <X className="w-3 h-3" />
+      {isExpanded ? (
+        // absolute, not fixed - Chat now mounts inside DashboardLayout's
+        // <main> (which is positioned relative), so this fills only the
+        // content area to the right of the sidebar instead of the whole
+        // viewport. z-40 (not the old z-[70]) keeps it below the shared
+        // Dialog primitives (z-50 in ui/dialog.jsx) - at z-[70] every
+        // dialog opened from here (Group Info included) rendered behind
+        // this panel and was invisible/unclickable.
+        <div className="absolute inset-0 z-40 flex flex-col bg-white dark:bg-black text-gray-900 dark:text-white">
+          <div className="flex items-center justify-between px-4 py-2 border-b border-black/10 dark:border-white/10 flex-shrink-0">
+            <div className="flex items-center gap-2 font-medium">
+              <MessageSquare className="w-5 h-5" /> Chat
+            </div>
+            <div className="flex items-center gap-1">
+              {isAdmin && (
+                <Button variant="ghost" size="sm" className="p-1 h-8 w-8" onClick={() => setNewGroupOpen(true)} title="New group">
+                  <Plus className="w-4 h-4" />
                 </Button>
+              )}
+              <Button variant="ghost" size="sm" className="p-1 h-8 w-8" onClick={() => setIsExpanded(false)} title="Exit full screen">
+                <Minimize2 className="w-4 h-4" />
+              </Button>
+            </div>
+          </div>
+          {/* On mobile, the list and the open conversation can't sit side by side -
+              a 320px list alone left almost no room for the chat pane, crushing it
+              to a sliver. Show exactly one at a time instead, master-detail style;
+              the chat pane's own header gets a back button (above) to return to
+              the list. Desktop keeps the unchanged side-by-side layout. */}
+          <div className="flex flex-1 overflow-hidden">
+            {(!isMobile || !expandedConv) && (
+              <div
+                className={
+                  isMobile
+                    ? "w-full flex flex-col overflow-hidden"
+                    : "w-80 flex-shrink-0 border-r border-black/10 dark:border-white/10 flex flex-col overflow-hidden"
+                }
+              >
+                <ChatListView
+                  conversations={conversations}
+                  users={users}
+                  loading={initialLoading}
+                  error={loadError}
+                  onRetry={() => {
+                    setInitialLoading(true);
+                    Promise.all([fetchConversations(), fetchUsers()])
+                      .then(() => setLoadError(false))
+                      .catch(() => setLoadError(true))
+                      .finally(() => setInitialLoading(false));
+                  }}
+                  onSelectConversation={selectExpandedConversation}
+                  onStartConversation={startConversationExpanded}
+                  onTogglePin={togglePinConversation}
+                  userId={user?.id}
+                  activeConversationId={expandedConversationId}
+                />
               </div>
-            </div>
-          )}
-
-          {/* Chat Content - shown inside floating window */}
-          {!chat.minimized && (
-            <div className="flex-1 overflow-hidden flex flex-col" style={{ minHeight: 0 }}>
-              <ChatWindowView
-                chat={chat}
-                user={user}
-                onSendMessage={(content, type, fileData) => sendMessage(content, type, fileData, chat.conversation_id)}
-                onRegisterMessageCallback={registerMessageCallback}
-                onTyping={sendTyping}
-                onMarkAsRead={() => markAsRead(chat.conversation_id)}
-                typingUser={typingUsers[chat.conversation_id]}
-                onFileUpload={(e, t) => handleFileUpload(e, t, chat.conversation_id)}
-                fileInputRef={fileInputRef}
-                imageInputRef={imageInputRef}
-                getInitials={getInitials}
-                onClose={() => closeChatWindow(chat.conversation_id)}
-                onMinimize={() => toggleChatMinimize(chat.conversation_id)}
-                isFloating={true}
-              />
-            </div>
-          )}
-        </div>
-      );
-      })}
-
-      {/* Main Chat Widget */}
-      <div
-        className={`fixed bottom-0 right-4 z-50 flex flex-col bg-white dark:bg-black border border-gray-200 dark:border-zinc-800 ${
-          minimized ? "h-12" : "h-[500px]"
-        } transition-all duration-300 text-gray-900 dark:text-white`}
-        style={{ width: minimized ? "60px" : "380px" }}
-      >
-      {/* Header */}
-      <div
-        className="flex items-center justify-between px-3 py-2 bg-white dark:bg-zinc-900 border-b border-black/10 dark:border-white/10 rounded-t-lg cursor-pointer hover:bg-gray-100 dark:hover:bg-zinc-800"
-        onClick={() => setMinimized(!minimized)}
-      >
-        <div className="flex items-center gap-2">
-          <div className="relative">
-            <MessageSquare className="w-5 h-5" />
-            {minimized && totalUnread > 0 && (
-              <Badge className="absolute -top-2 -right-2 bg-red-500 text-gray-900 dark:text-white text-xs min-w-[18px] h-[18px] flex items-center justify-center p-0">
-                {totalUnread > 99 ? '99+' : totalUnread}
-              </Badge>
+            )}
+            {(!isMobile || expandedConv) && (
+              <div className="flex-1 flex flex-col overflow-hidden">
+                {expandedWindowChat ? (
+                  renderChatWindow(expandedWindowChat, {
+                    fullScreen: true,
+                    onClose: () => setExpandedConversationId(null),
+                  })
+                ) : (
+                  <div className="flex-1 flex items-center justify-center text-gray-400 text-sm">
+                    Select a conversation to start chatting
+                  </div>
+                )}
+              </div>
             )}
           </div>
-          {!minimized && <span className="font-medium">Messages</span>}
         </div>
-        <div className="flex items-center gap-2">
-        </div>
-      </div>
-
-      {!minimized && (
+      ) : (
         <>
-          {/* Chat List View - Coming soon message instead */}
-          <div className="flex flex-col flex-1 bg-white dark:bg-black border border-t-0 border-gray-200 dark:border-gray-800 rounded-b-lg overflow-hidden p-4">
-            <div className="flex-1 flex items-center justify-center">
-              <div className="text-gray-900 dark:text-white text-lg">Coming soon...</div>
+          {/* Floating Chat Windows - positioned to the left of the main button */}
+          {openChats.map((chat, index) => {
+            const mainTabWidth = minimized ? 60 : 380;
+            const chatsAfter = openChats.slice(index + 1);
+            const offsetAfter = chatsAfter.reduce((sum, c) => sum + (c.minimized ? 158 : 388), 0);
+            const rightPos = 16 + mainTabWidth + 4 + offsetAfter;
+            // On mobile an open (non-minimized) window takes over the whole
+            // screen instead of the fixed 380px desktop box, which otherwise
+            // overflows the viewport and shows only half the window. Minimized
+            // tabs stay small but their right offset is clamped so they never
+            // get pushed off-screen on a narrow phone.
+            const isChatFullScreen = isMobile && !chat.minimized;
+            const clampedRight = isMobile
+              ? Math.min(rightPos, Math.max(8, window.innerWidth - (chat.minimized ? 150 : 380) - 8))
+              : rightPos;
+
+            return (
+              <div
+                key={chat.conversation_id}
+                className={
+                  isChatFullScreen
+                    ? "fixed inset-0 z-50 flex flex-col bg-white dark:bg-black text-gray-900 dark:text-white"
+                    : "fixed z-40 flex flex-col bg-white dark:bg-black border border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white transition-all duration-300 bottom-2"
+                }
+                style={
+                  isChatFullScreen
+                    ? undefined
+                    : { right: `${clampedRight}px`, width: chat.minimized ? "150px" : "380px", height: chat.minimized ? "50px" : "500px" }
+                }
+              >
+                {chat.minimized && (
+                  <div
+                    className="flex items-center justify-between px-3 py-2 bg-white dark:bg-zinc-900 border-b border-gray-200 dark:border-zinc-700 cursor-pointer hover:bg-gray-100 dark:hover:bg-zinc-800"
+                    onClick={() => toggleChatMinimize(chat.conversation_id)}
+                  >
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      <span className="font-medium truncate text-sm flex items-center gap-1 mr-6">
+                        {chatTitle(chat)}
+                        {chat.unreadCount > 0 && (
+                          <Badge className="bg-red-500 text-white text-xs min-w-[18px] h-[18px] flex items-center justify-center p-0">
+                            {chat.unreadCount > 99 ? "99+" : chat.unreadCount}
+                          </Badge>
+                        )}
+                      </span>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="p-1 h-6 w-6 text-gray-500 dark:text-zinc-400 hover:text-red-400"
+                      onClick={(e) => closeChatWindow(chat.conversation_id, e)}
+                    >
+                      <X className="w-3 h-3" />
+                    </Button>
+                  </div>
+                )}
+
+                {!chat.minimized && (
+                  <div className="flex-1 overflow-hidden flex flex-col" style={{ minHeight: 0 }}>
+                    {renderChatWindow(chat, {
+                      onClose: () => closeChatWindow(chat.conversation_id),
+                      onMinimize: () => toggleChatMinimize(chat.conversation_id),
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          {/* Main Chat Widget - full screen on mobile when expanded, same reasoning
+              as the per-conversation windows above (a fixed 380px box otherwise
+              overflows a phone's viewport). */}
+          <div
+            className={
+              isMobile && !minimized
+                ? "fixed inset-0 z-50 flex flex-col bg-white dark:bg-black text-gray-900 dark:text-white"
+                : `fixed bottom-0 right-4 z-50 flex flex-col bg-white dark:bg-black border border-gray-200 dark:border-zinc-800 ${
+                    minimized ? "h-12" : "h-[500px]"
+                  } transition-all duration-300 text-gray-900 dark:text-white`
+            }
+            style={isMobile && !minimized ? undefined : { width: minimized ? "60px" : "380px" }}
+          >
+            <div
+              className="flex items-center justify-between px-3 py-2 bg-white dark:bg-zinc-900 border-b border-black/10 dark:border-white/10 rounded-t-lg cursor-pointer hover:bg-gray-100 dark:hover:bg-zinc-800"
+              onClick={() => setMinimized(!minimized)}
+            >
+              <div className="flex items-center gap-2">
+                <div className="relative">
+                  <MessageSquare className="w-5 h-5" />
+                  {minimized && totalUnread > 0 && (
+                    <Badge className="absolute -top-2 -right-2 bg-red-500 text-white text-xs min-w-[18px] h-[18px] flex items-center justify-center p-0">
+                      {totalUnread > 99 ? "99+" : totalUnread}
+                    </Badge>
+                  )}
+                </div>
+                {!minimized && <span className="font-medium">Messages</span>}
+              </div>
+              <div className="flex items-center gap-1">
+                {!minimized && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="p-1 h-7 w-7 text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white"
+                    title="Open full screen"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsExpanded(true);
+                    }}
+                  >
+                    <Maximize2 className="w-4 h-4" />
+                  </Button>
+                )}
+                {!minimized && isAdmin && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="p-1 h-7 w-7 text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white"
+                    title="New group"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setNewGroupOpen(true);
+                    }}
+                  >
+                    <Plus className="w-4 h-4" />
+                  </Button>
+                )}
+                {!minimized && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="p-1 h-7 w-7 text-gray-500 dark:text-zinc-400 hover:text-red-400"
+                    title="Close"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setMinimized(true);
+                    }}
+                  >
+                    <X className="w-4 h-4" />
+                  </Button>
+                )}
+              </div>
             </div>
+
+            {!minimized && (
+              <ChatListView
+                conversations={conversations}
+                users={users}
+                loading={initialLoading}
+                error={loadError}
+                onRetry={() => {
+                  setInitialLoading(true);
+                  Promise.all([fetchConversations(), fetchUsers()])
+                    .then(() => setLoadError(false))
+                    .catch(() => setLoadError(true))
+                    .finally(() => setInitialLoading(false));
+                }}
+                onSelectConversation={openConversationWindow}
+                onStartConversation={startConversation}
+                onTogglePin={togglePinConversation}
+                userId={user?.id}
+              />
+            )}
           </div>
         </>
       )}
 
-      {/* Hidden file inputs */}
+      {/* Hidden file inputs - shared by every open window (and the
+          full-screen pane), so which conversation an upload belongs to
+          comes from pendingUploadConversationRef (set when a window's
+          attach/image button triggers the click), not activeChat. */}
       <input
         type="file"
         ref={fileInputRef}
         className="hidden"
-        onChange={(e) => handleFileUpload(e, "file")}
+        onChange={(e) => {
+          const file = e.target.files[0];
+          e.target.value = "";
+          if (file && pendingUploadConversationRef.current) addPendingFiles(pendingUploadConversationRef.current, [file]);
+        }}
         accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar"
       />
       <input
         type="file"
         ref={imageInputRef}
         className="hidden"
-        onChange={(e) => handleFileUpload(e, "image")}
+        onChange={(e) => {
+          const file = e.target.files[0];
+          e.target.value = "";
+          if (file && pendingUploadConversationRef.current) addPendingFiles(pendingUploadConversationRef.current, [file]);
+        }}
         accept="image/*"
       />
-    </div>
+
+      {isAdmin && <NewGroupDialog open={newGroupOpen} onOpenChange={setNewGroupOpen} users={users} onCreate={createGroup} />}
+
+      <ForwardDialog
+        open={!!forwardMessage}
+        onOpenChange={(open) => !open && setForwardMessage(null)}
+        conversations={conversations}
+        onForward={(targetConversationId) => forwardMessageTo(targetConversationId, forwardMessage)}
+      />
     </>
   );
 }
 
-// Chat List View Component
-function ChatListView({
-  conversations,
-  users,
-  onSelectConversation,
-  onStartConversation,
-  userId,
-  getInitials,
-}) {
+function ChatListView({ conversations, users, loading, error, onRetry, onSelectConversation, onStartConversation, onTogglePin, userId, activeConversationId }) {
   const [searchQuery, setSearchQuery] = useState("");
+  // Collapsed by default - the list of everyone you haven't messaged yet
+  // can be long and isn't what most people are scanning for on open.
+  const [otherUsersExpanded, setOtherUsersExpanded] = useState(false);
 
-  // Filter conversations by search query
   const filteredConversations = conversations.filter((conv) => {
     if (!searchQuery) return true;
-    const participant = conv.participants?.[0];
-    return (
-      participant?.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      conv.last_message?.toLowerCase().includes(searchQuery.toLowerCase())
-    );
+    const title = conv.is_group ? conv.name : conv.participants?.[0]?.name;
+    const q = searchQuery.toLowerCase();
+    return title?.toLowerCase().includes(q) || conv.last_message?.toLowerCase().includes(q);
   });
 
   const filteredUsers = users.filter((u) => {
     if (!searchQuery) return true;
-    return (
-      u.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      u.username?.toLowerCase().includes(searchQuery.toLowerCase())
-    );
+    const q = searchQuery.toLowerCase();
+    return u.name?.toLowerCase().includes(q) || u.username?.toLowerCase().includes(q);
   });
 
-  // Get users who don't have a conversation yet
-  const conversationUserIds = new Set(conversations.map(c => c.participants?.[0]?.id));
-  const usersWithoutConversations = filteredUsers.filter(u => !conversationUserIds.has(u.id));
-
-  const formatTime = (dateStr) => {
-    if (!dateStr) return "";
-    // Parse the date - if no timezone info, append 'Z' to treat as UTC
-    // JavaScript will then convert to local time for display
-    let dateStrWithTz = dateStr;
-    if (!dateStr.endsWith('Z') && !dateStr.includes('+') && !dateStr.endsWith('Z')) {
-      dateStrWithTz = dateStr + 'Z';
-    }
-    const date = new Date(dateStrWithTz);
-    const now = new Date();
-    
-    // Use local time for comparison
-    const dateTime = date.getTime();
-    const nowTime = now.getTime();
-    
-    // Handle invalid dates
-    if (isNaN(dateTime)) return "";
-    
-    const diff = nowTime - dateTime;
-    const minutes = Math.floor(diff / 60000);
-    const hours = Math.floor(diff / 3600000);
-    const days = Math.floor(diff / 86400000);
-
-    if (minutes < 1) return "now";
-    if (minutes < 60) return `${minutes}m`;
-    if (hours < 24) return `${hours}h`;
-    if (days < 7) return `${days}d`;
-    return date.toLocaleDateString();
-  };
+  // "Other Users" only lists people you haven't DM'd yet - group membership
+  // doesn't count, since you can always start a separate DM with someone
+  // in a group.
+  const conversationUserIds = new Set(conversations.filter((c) => !c.is_group).map((c) => c.participants?.[0]?.id));
+  const usersWithoutConversations = filteredUsers.filter((u) => !conversationUserIds.has(u.id));
 
   return (
     <div className="flex flex-col flex-1 bg-white dark:bg-black border border-t-0 border-gray-200 dark:border-gray-800 rounded-b-lg overflow-hidden">
-      {/* Search */}
       <div className="p-2 border-b border-gray-200 dark:border-zinc-800">
         <Input
           placeholder="Search messages..."
@@ -843,559 +1493,1421 @@ function ChatListView({
         />
       </div>
 
-      {/* List - Combined list showing conversations and users without conversations */}
       <div className="flex-1 overflow-y-auto">
-        <div className="p-2">
-          {/* Show conversations */}
-          {filteredConversations.length > 0 && filteredConversations.map((conv) => {
-            const participant = conv.participants?.[0];
-            return (
-              <div
-                key={conv.id}
-                className="flex items-center gap-3 p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg cursor-pointer"
-                onClick={() => onSelectConversation(conv)}
-              >
-                <div className="relative">
-                  <Avatar className="w-10 h-10">
-                    <AvatarFallback className="bg-emerald-600 text-gray-900 dark:text-white">
-                      {getInitials(participant?.name)}
-                    </AvatarFallback>
-                  </Avatar>
-                  {participant?.is_online && (
-                    <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 rounded-full border-2 border-gray-900" />
-                  )}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between">
-                    <div className="font-medium truncate text-gray-900 dark:text-white">{participant?.name}</div>
-                    <div className="text-xs text-zinc-500">
-                      {formatTime(conv.last_message_time)}
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div className="text-sm text-gray-400 truncate">
-                      {conv.last_message_sender_id === userId && "You: "}
-                      {conv.last_message || "No messages yet"}
-                    </div>
-                    {conv.unread_count > 0 && (
-                      <Badge className="bg-emerald-600 text-gray-900 dark:text-white text-xs min-w-[20px] h-5 flex items-center justify-center">
-                        {conv.unread_count}
-                      </Badge>
-                    )}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-          {filteredConversations.length === 0 && (
-            <div className="text-center text-gray-400 py-8">No conversations yet</div>
-          )}
-          
-          {/* Show users without conversations */}
-          {usersWithoutConversations.length > 0 && (
-            <>
-              {filteredConversations.length > 0 && (
-                <div className="text-xs text-gray-500 mt-4 mb-2 px-2">Other Users</div>
-              )}
-              {usersWithoutConversations.map((user) => (
+        {loading && (
+          <div className="flex flex-col items-center justify-center gap-2 text-gray-400 py-10">
+            <Loader2 className="w-5 h-5 animate-spin" />
+            <span className="text-sm">Loading conversations...</span>
+          </div>
+        )}
+
+        {!loading && error && (
+          <div className="flex flex-col items-center justify-center gap-2 text-gray-400 py-10 px-4 text-center">
+            <span className="text-sm">Couldn't load your messages.</span>
+            <Button variant="outline" size="sm" onClick={onRetry}>
+              Retry
+            </Button>
+          </div>
+        )}
+
+        {!loading && !error && (
+          <div className="p-2">
+            {filteredConversations.map((conv) => {
+              const participant = conv.participants?.[0];
+              const title = conv.is_group ? conv.name : participant?.name;
+              return (
                 <div
-                  key={user.id}
-                  className="flex items-center gap-3 p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg cursor-pointer"
-                  onClick={() => onStartConversation(user)}
+                  key={conv.id}
+                  className={`group flex items-center gap-3 p-2 rounded-lg cursor-pointer ${
+                    conv.id === activeConversationId ? "bg-gray-100 dark:bg-gray-800" : "hover:bg-gray-100 dark:hover:bg-gray-800"
+                  }`}
+                  onClick={() => onSelectConversation(conv)}
                 >
                   <div className="relative">
                     <Avatar className="w-10 h-10">
-                      <AvatarFallback className="bg-emerald-600 text-gray-900 dark:text-white">
-                        {getInitials(user.name)}
+                      <AvatarFallback className={conv.is_group ? "bg-blue-600 text-white" : "bg-emerald-600 text-white"}>
+                        {conv.is_group ? <Users className="w-5 h-5" /> : getInitials(participant?.name)}
                       </AvatarFallback>
                     </Avatar>
-                    {user.is_online && (
-                      <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 rounded-full border-2 border-gray-900" />
+                    {!conv.is_group && participant?.is_online && (
+                      <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 rounded-full border-2 border-white dark:border-black" />
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="font-medium truncate text-gray-900 dark:text-white">{user.name}</div>
-                    <div className="text-xs text-gray-500 truncate">{user.is_online ? 'Online' : 'Offline'}</div>
+                    <div className="flex items-center justify-between">
+                      <div className="font-medium truncate text-gray-900 dark:text-white">{title}</div>
+                      <div className="text-xs text-zinc-500">{formatRelativeTime(conv.last_message_time)}</div>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <div className="text-sm text-gray-400 truncate">
+                        {conv.last_message_sender_id === userId && "You: "}
+                        {conv.last_message || (conv.is_group ? `${(conv.participants?.length || 0) + 1} members` : "No messages yet")}
+                      </div>
+                      {conv.unread_count > 0 && (
+                        <Badge className="bg-emerald-600 text-white text-xs min-w-[20px] h-5 flex items-center justify-center">
+                          {conv.unread_count}
+                        </Badge>
+                      )}
+                    </div>
                   </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onTogglePin(conv.id);
+                    }}
+                    className={`p-1 flex-shrink-0 rounded transition-opacity ${
+                      conv.pinned
+                        ? "text-emerald-500 opacity-100"
+                        : "text-gray-400 opacity-0 group-hover:opacity-100 hover:text-gray-700 dark:hover:text-gray-200"
+                    }`}
+                    title={conv.pinned ? "Unpin" : "Pin"}
+                  >
+                    <Pin className={`w-3.5 h-3.5 ${conv.pinned ? "fill-current" : ""}`} />
+                  </button>
                 </div>
-              ))}
-            </>
-          )}
-        </div>
+              );
+            })}
+
+            {usersWithoutConversations.length > 0 && (
+              <>
+                <button
+                  className="w-full flex items-center justify-between text-xs text-gray-500 dark:text-zinc-400 mt-4 mb-1 px-2 py-1 hover:text-gray-700 dark:hover:text-gray-300"
+                  onClick={() => setOtherUsersExpanded((v) => !v)}
+                >
+                  <span>Other Users ({usersWithoutConversations.length})</span>
+                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${otherUsersExpanded || searchQuery ? "rotate-180" : ""}`} />
+                </button>
+                {(otherUsersExpanded || searchQuery) && usersWithoutConversations.map((u) => (
+                  <div
+                    key={u.id}
+                    className="flex items-center gap-3 p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg cursor-pointer"
+                    onClick={() => onStartConversation(u)}
+                  >
+                    <div className="relative">
+                      <Avatar className="w-10 h-10">
+                        <AvatarFallback className="bg-emerald-600 text-white">{getInitials(u.name)}</AvatarFallback>
+                      </Avatar>
+                      {u.is_online && <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 rounded-full border-2 border-white dark:border-black" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium truncate text-gray-900 dark:text-white">{u.name}</div>
+                      <div className="text-xs text-gray-500 truncate">{formatPresence(u.is_online, u.last_active)}</div>
+                    </div>
+                  </div>
+                ))}
+              </>
+            )}
+
+            {filteredConversations.length === 0 && usersWithoutConversations.length === 0 && (
+              <div className="text-center text-gray-400 py-10 px-4 text-sm">{searchQuery ? "No matches." : "No one to message yet."}</div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-// Chat Window View Component
-function ChatWindowView({
-  chat,
-  user,
-  onSendMessage,
-  onRegisterMessageCallback,
-  onTyping,
-  onMarkAsRead,
-  typingUser,
-  onFileUpload,
-  fileInputRef,
-  imageInputRef,
-  getInitials,
-  onClose,
-  onMinimize,
-}) {
-  const [message, setMessage] = useState("");
-  const [messages, setMessages] = useState([]);
-  const [hasLoadedFromApi, setHasLoadedFromApi] = useState(false);
-  const [hasMarkedAsRead, setHasMarkedAsRead] = useState(false);
-  const messagesEndRef = useRef(null);
-  const inputRef = useRef(null);
-  const [loading, setLoading] = useState(false);
-  const [hasMore, setHasMore] = useState(true);
-  const messagesContainerRef = useRef(null);
+function NewGroupDialog({ open, onOpenChange, users, onCreate }) {
+  const [name, setName] = useState("");
+  const [memberIds, setMemberIds] = useState([]);
+  const [submitting, setSubmitting] = useState(false);
 
-  // Register callback for direct message addition when sending messages
   useEffect(() => {
-    if (onRegisterMessageCallback) {
-      onRegisterMessageCallback((messageData) => {
-        // Directly add message to local state for instant display
-        setMessages(prev => [...prev, messageData.message]);
-      });
+    if (!open) {
+      setName("");
+      setMemberIds([]);
+      setSubmitting(false);
     }
-  }, [onRegisterMessageCallback]);
+  }, [open]);
 
-  // Load messages function wrapped in useCallback - must be defined before useEffect that uses it
-  const loadMessages = useCallback(async () => {
-    if (!chat.conversation_id) return;
-    setLoading(true);
+  const handleCreate = async () => {
+    if (!name.trim() || memberIds.length === 0) return;
+    setSubmitting(true);
     try {
-      const response = await axios.get(
-        `${API}/chat/conversations/${chat.conversation_id}/messages?limit=50`,
-        { headers: { Authorization: `Bearer ${localStorage.getItem("token")}` } }
-      );
-      const apiMessages = response.data;
-      setHasMore(apiMessages.length === 50);
-      
-      // Merge API messages with any existing local messages (e.g., messages sent while loading)
-      // Use functional update to avoid stale closure
-      setMessages(prevMessages => {
-        if (prevMessages.length === 0) {
-          // No local messages - just use API messages
-          return apiMessages;
-        }
-        
-        // There are local messages - need to merge
-        // Get IDs from API messages to check what's already on server
-        const apiMessageIds = new Set(apiMessages.map(m => m.id));
-        
-        // Filter local messages that are NOT in API response
-        // These are messages that were sent locally but not yet acknowledged by server
-        const localOnlyMessages = prevMessages.filter(m => !apiMessageIds.has(m.id));
-        
-        // Combine API messages with local-only messages
-        return [...apiMessages, ...localOnlyMessages];
-      });
-      setHasLoadedFromApi(true);
+      await onCreate(name.trim(), memberIds);
     } catch (error) {
-      console.error("Error loading messages:", error);
-    }
-    setLoading(false);
-  }, [chat.conversation_id]);
-
-  // Reset loaded state when conversation changes
-  useEffect(() => {
-    if (chat.conversation_id) {
-      setHasLoadedFromApi(false);
-      setHasMarkedAsRead(false);
-    }
-  }, [chat.conversation_id]);
-
-  // Load and sync messages when conversation changes
-  useEffect(() => {
-    if (!chat.conversation_id) return;
-    
-    // Load from API if we haven't loaded yet
-    if (!loading && messages.length === 0) {
-      loadMessages();
-      return;
-    }
-    
-    // Sync messages from parent to local state
-    // Always sync when parent has messages to ensure UI stays up to date
-    if (hasLoadedFromApi && chat.messages) {
-      // Check if parent has different messages than local state
-      const parentIds = new Set(chat.messages.map(m => m.id));
-      const localIds = new Set(messages.map(m => m.id));
-      
-      // Check if there's any message in parent that's not in local
-      const hasNewMessages = chat.messages.some(m => !localIds.has(m.id));
-      
-      // Also check if local has messages not in parent (shouldn't happen but handle it)
-      const hasLocalOnly = messages.some(m => !parentIds.has(m.id));
-      
-      // Sync if there are new messages or local-only messages
-      if (hasNewMessages || hasLocalOnly) {
-        // Merge parent messages with local read status preserved
-        const mergedMessages = chat.messages.map(parentMsg => {
-          const localMsg = messages.find(m => m.id === parentMsg.id);
-          // If local has is_read=true, preserve it - never overwrite with false
-          if (localMsg?.is_read === true) {
-            return { ...parentMsg, is_read: true };
-          }
-          return { ...parentMsg, is_read: parentMsg.is_read || false };
-        });
-        
-        // Add any local-only messages (should be rare)
-        const localOnlyMessages = messages.filter(m => !parentIds.has(m.id));
-        
-        setMessages([...mergedMessages, ...localOnlyMessages]);
-      }
-    }
-  }, [chat.conversation_id, chat.messages, hasLoadedFromApi, loadMessages, loading, messages.length]);
-
-  // Mark as read after messages are loaded - only mark as read when there are UNREAD messages
-  useEffect(() => {
-    if (chat.conversation_id && messages.length > 0 && !hasMarkedAsRead && hasLoadedFromApi) {
-      // Check if there are any unread messages from other users
-      const hasUnreadMessages = messages.some(msg => 
-        msg.sender_id !== user?.id && msg.is_read !== true
-      );
-      
-      // Only mark as read if there are unread messages
-      if (hasUnreadMessages) {
-        setHasMarkedAsRead(true);
-        onMarkAsRead?.();
-      } else {
-        // Already all read, just mark as done
-        setHasMarkedAsRead(true);
-      }
-    }
-  }, [chat.conversation_id, messages.length, hasLoadedFromApi, hasMarkedAsRead, user, onMarkAsRead]);
-
-  // Scroll to bottom when new messages arrive
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
-
-  const handleSend = () => {
-    if (!message.trim()) return;
-    onSendMessage(message);
-    setMessage("");
-  };
-
-  const handleKeyPress = (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    } else {
-      // Send typing indicator with debounce
-      clearTimeout(window.typingTimeout);
-      onTyping();
-      window.typingTimeout = setTimeout(() => {}, 500);
-    }
-  };
-
-  const handleScroll = async () => {
-    if (!messagesContainerRef.current || loading || !hasMore) return;
-
-    const { scrollTop } = messagesContainerRef.current;
-    if (scrollTop === 0) {
-      // Load more messages
-      setLoading(true);
-      try {
-        const oldestMessage = messages[0];
-        const response = await axios.get(
-          `${API}/chat/conversations/${chat.conversation_id}/messages?limit=50&before=${oldestMessage.created_at}`,
-          { headers: { Authorization: `Bearer ${localStorage.getItem("token")}` } }
-        );
-        setMessages((prev) => [...response.data, ...prev]);
-        setHasMore(response.data.length === 50);
-      } catch (error) {
-        console.error("Error loading more messages:", error);
-      }
-      setLoading(false);
-    }
-  };
-
-  const formatTime = (dateStr) => {
-    if (!dateStr) return "";
-    // Parse the date - if no timezone info, append 'Z' to treat as UTC
-    // JavaScript will then convert to local time for display
-    let dateStrWithTz = dateStr;
-    if (!dateStr.endsWith('Z') && !dateStr.includes('+') && !dateStr.endsWith('Z')) {
-      dateStrWithTz = dateStr + 'Z';
-    }
-    const date = new Date(dateStrWithTz);
-    // Use toLocaleTimeString which automatically converts UTC to local timezone
-    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  };
-
-  const formatDate = (dateStr) => {
-    if (!dateStr) return "";
-    // Parse the date - if no timezone info, append 'Z' to treat as UTC
-    let dateStrWithTz = dateStr;
-    if (!dateStr.endsWith('Z') && !dateStr.includes('+') && !dateStr.endsWith('Z')) {
-      dateStrWithTz = dateStr + 'Z';
-    }
-    const date = new Date(dateStrWithTz);
-    const today = new Date();
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-
-    if (date.toDateString() === today.toDateString()) return "Today";
-    if (date.toDateString() === yesterday.toDateString()) return "Yesterday";
-    return date.toLocaleDateString();
-  };
-
-  const groupMessagesByDate = () => {
-    const groups = [];
-    let currentDate = null;
-
-    messages.forEach((msg) => {
-      const msgDate = new Date(msg.created_at).toDateString();
-      if (msgDate !== currentDate) {
-        currentDate = msgDate;
-        groups.push({ type: "date", date: msg.created_at });
-      }
-      groups.push({ type: "message", data: msg });
-    });
-
-    return groups;
-  };
-
-  const handlePaste = async (e) => {
-    const items = e.clipboardData?.items;
-    if (!items) return;
-
-    for (let i = 0; i < items.length; i++) {
-      if (items[i].type.indexOf("image") !== -1) {
-        e.preventDefault();
-        const file = items[i].getAsFile();
-        const formData = new FormData();
-        formData.append("file", file);
-
-        try {
-          const response = await axios.post(
-            `${API}/chat/upload`,
-            formData,
-            {
-              headers: {
-                Authorization: `Bearer ${localStorage.getItem("token")}`,
-                "Content-Type": "multipart/form-data",
-              },
-            }
-          );
-          onSendMessage(file.name, "image", response.data);
-        } catch (error) {
-          console.error("Error uploading pasted image:", error);
-        }
-        break;
-      }
+      console.error("Error creating group:", error);
+    } finally {
+      setSubmitting(false);
     }
   };
 
   return (
-    <div className="flex flex-col flex-1 bg-white dark:bg-black border border-t-0 border-gray-200 dark:border-gray-800 rounded-b-lg overflow-hidden" style={{ minHeight: 0 }}>
-      {/* Chat Header */}
-      <div className="flex items-center justify-between gap-2 px-2 py-1 border-b border-black/10 dark:border-white/10 bg-white dark:bg-zinc-900">
-        <div className="flex items-center gap-2">
-          <div className="relative">
-            <Avatar className="w-8 h-8">
-              <AvatarFallback className="bg-emerald-600 text-gray-900 dark:text-white text-xs">
-                {getInitials(chat.participant?.name)}
-              </AvatarFallback>
-            </Avatar>
-            {chat.participant?.is_online && (
-              <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-white dark:border-gray-800" />
-            )}
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="bg-white dark:bg-zinc-900 border-black/10 dark:border-white/10 text-gray-900 dark:text-white">
+        <DialogHeader>
+          <DialogTitle>New Group</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="space-y-1">
+            <Label className="text-gray-500 dark:text-zinc-400">Group name</Label>
+            <Input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. NOC Team"
+              className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white"
+            />
           </div>
-          <div>
-            <div className="font-medium text-sm text-gray-900 dark:text-white">{chat.participant?.name}</div>
-            <div className="text-[10px] text-gray-500 dark:text-zinc-400">
-              {chat.participant?.is_online ? "Online" : "Offline"}
+          <div className="space-y-1">
+            <Label className="text-gray-500 dark:text-zinc-400">Members</Label>
+            <MultiSelect
+              options={users.map((u) => ({ value: u.id, label: u.name || u.username }))}
+              value={memberIds}
+              onValueChange={setMemberIds}
+              placeholder="Select members..."
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} className="border-gray-200 dark:border-zinc-700">
+            Cancel
+          </Button>
+          <Button
+            onClick={handleCreate}
+            disabled={!name.trim() || memberIds.length === 0 || submitting}
+            className="bg-emerald-500 text-black hover:bg-emerald-400"
+          >
+            Create Group
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ForwardDialog({ open, onOpenChange, conversations, onForward }) {
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedId, setSelectedId] = useState(null);
+
+  useEffect(() => {
+    if (!open) {
+      setSearchQuery("");
+      setSelectedId(null);
+    }
+  }, [open]);
+
+  const filtered = conversations.filter((conv) => {
+    if (!searchQuery) return true;
+    const title = conv.is_group ? conv.name : conv.participants?.[0]?.name;
+    return title?.toLowerCase().includes(searchQuery.toLowerCase());
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="bg-white dark:bg-zinc-900 border-black/10 dark:border-white/10 text-gray-900 dark:text-white">
+        <DialogHeader>
+          <DialogTitle>Forward message</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-2">
+          <Input
+            placeholder="Search chats..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white"
+          />
+          <div className="max-h-60 overflow-y-auto space-y-1">
+            {filtered.length === 0 && <div className="text-sm text-gray-400 py-4 text-center">No chats found.</div>}
+            {filtered.map((conv) => {
+              const participant = conv.participants?.[0];
+              const title = conv.is_group ? conv.name : participant?.name;
+              return (
+                <div
+                  key={conv.id}
+                  onClick={() => setSelectedId(conv.id)}
+                  className={`flex items-center gap-2 p-2 rounded-lg cursor-pointer ${
+                    selectedId === conv.id ? "bg-emerald-100 dark:bg-emerald-900/30" : "hover:bg-gray-100 dark:hover:bg-zinc-800"
+                  }`}
+                >
+                  <Avatar className="w-8 h-8">
+                    <AvatarFallback className={conv.is_group ? "bg-blue-600 text-white text-xs" : "bg-emerald-600 text-white text-xs"}>
+                      {conv.is_group ? <Users className="w-4 h-4" /> : getInitials(title)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <span className="text-sm truncate">{title}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} className="border-gray-200 dark:border-zinc-700">
+            Cancel
+          </Button>
+          <Button
+            onClick={() => onForward(selectedId)}
+            disabled={!selectedId}
+            className="bg-emerald-500 text-black hover:bg-emerald-400"
+          >
+            Forward
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// Admin can rename the group / add-remove members here; any member can leave.
+function GroupInfoDialog({ open, onOpenChange, chat, currentUser, allUsers, onSave, onLeave, onDeleteGroup }) {
+  const isAdmin = currentUser?.role === "admin";
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState("");
+  const [memberIds, setMemberIds] = useState([]);
+  const [submitting, setSubmitting] = useState(false);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [deletingGroup, setDeletingGroup] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      setName(chat?.name || "");
+      setMemberIds([...(currentUser?.id ? [currentUser.id] : []), ...(chat?.participants || []).map((p) => p.id)]);
+      setEditing(false);
+      setConfirmDeleteOpen(false);
+    }
+  }, [open, chat, currentUser]);
+
+  const handleDeleteGroup = async () => {
+    setDeletingGroup(true);
+    try {
+      await onDeleteGroup?.();
+      setConfirmDeleteOpen(false);
+      onOpenChange(false);
+    } catch (error) {
+      console.error("Error deleting group:", error);
+      toast.error("Failed to delete group");
+    } finally {
+      setDeletingGroup(false);
+    }
+  };
+
+  const handleSave = async () => {
+    if (!name.trim() || memberIds.length < 2) return;
+    setSubmitting(true);
+    try {
+      await onSave(name.trim(), memberIds);
+      setEditing(false);
+    } catch (error) {
+      console.error("Error updating group:", error);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="bg-white dark:bg-zinc-900 border-black/10 dark:border-white/10 text-gray-900 dark:text-white">
+        <DialogHeader>
+          <DialogTitle>{editing ? "Edit Group" : chat?.name || "Group"}</DialogTitle>
+        </DialogHeader>
+
+        {editing ? (
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label className="text-gray-500 dark:text-zinc-400">Group name</Label>
+              <Input value={name} onChange={(e) => setName(e.target.value)} className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-gray-500 dark:text-zinc-400">Members</Label>
+              <MultiSelect
+                options={allUsers.map((u) => ({ value: u.id, label: u.name || u.username }))}
+                value={memberIds.filter((id) => id !== currentUser?.id)}
+                onValueChange={(ids) => setMemberIds([...(currentUser?.id ? [currentUser.id] : []), ...ids])}
+                placeholder="Select members..."
+              />
             </div>
           </div>
-        </div>
-        <div className="flex items-center gap-1">
-          {onMinimize && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="p-1 h-6 w-6 text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white"
-              onClick={onMinimize}
-              title="Minimize"
-            >
-              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
-              </svg>
-            </Button>
-          )}
-          {onClose && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="p-1 h-6 w-6 text-gray-500 dark:text-zinc-400 hover:text-red-400"
-              onClick={onClose}
-              title="Close"
-            >
-              <X className="w-3 h-3" />
-            </Button>
-          )}
-        </div>
-      </div>
-
-      {/* Messages */}
-      <div
-        className="flex-1 p-2 overflow-y-auto"
-        style={{ flex: '1 1 auto', minHeight: '0' }}
-        ref={messagesContainerRef}
-        onScroll={handleScroll}
-      >
-        {loading && messages.length === 0 && (
-          <div className="text-center text-gray-500 dark:text-zinc-400 py-4">Loading...</div>
-        )}
-        {groupMessagesByDate().map((item, index) => {
-          if (item.type === "date") {
-            return (
-              <div key={`date-${index}`} className="text-center text-[10px] text-zinc-500 my-1">
-                {formatDate(item.date)}
+        ) : (
+          <div className="space-y-1 max-h-60 overflow-y-auto">
+            <div className="text-xs text-gray-500 dark:text-zinc-400 mb-1">{(chat?.participants?.length || 0) + 1} members</div>
+            <div className="flex items-center gap-2 p-1.5">
+              <Avatar className="w-7 h-7">
+                <AvatarFallback className="bg-emerald-600 text-white text-xs">{getInitials(currentUser?.name)}</AvatarFallback>
+              </Avatar>
+              <span className="text-sm">{currentUser?.name} (you)</span>
+            </div>
+            {(chat?.participants || []).map((p) => (
+              <div key={p.id} className="flex items-center gap-2 p-1.5">
+                <div className="relative">
+                  <Avatar className="w-7 h-7">
+                    <AvatarFallback className="bg-emerald-600 text-white text-xs">{getInitials(p.name)}</AvatarFallback>
+                  </Avatar>
+                  {p.is_online && <div className="absolute -bottom-0.5 -right-0.5 w-2 h-2 bg-green-500 rounded-full border border-white dark:border-black" />}
+                </div>
+                <div>
+                  <div className="text-sm">{p.name}</div>
+                  <div className="text-[10px] text-gray-500 dark:text-zinc-400">{formatPresence(p.is_online, p.last_active)}</div>
+                </div>
               </div>
-            );
-          }
+            ))}
+          </div>
+        )}
 
-          const msg = item.data;
-          const isOwn = msg.sender_id === user.id;
-          const isImage = msg.message_type === "image";
+        <DialogFooter className="flex-row items-center justify-between sm:justify-between w-full">
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={onLeave} className="border-red-300 dark:border-red-900 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20">
+              <LogOut className="w-3.5 h-3.5 mr-1.5" />
+              Leave
+            </Button>
+            {isAdmin && !editing && (
+              <Button variant="outline" onClick={() => setConfirmDeleteOpen(true)} className="border-red-300 dark:border-red-900 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20">
+                <Trash2 className="w-3.5 h-3.5 mr-1.5" />
+                Delete Group
+              </Button>
+            )}
+          </div>
+          <div className="flex gap-2">
+            {isAdmin && !editing && (
+              <Button variant="outline" onClick={() => setEditing(true)} className="border-gray-200 dark:border-zinc-700">
+                Edit
+              </Button>
+            )}
+            {isAdmin && editing && (
+              <>
+                <Button variant="outline" onClick={() => setEditing(false)} className="border-gray-200 dark:border-zinc-700">
+                  Cancel
+                </Button>
+                <Button onClick={handleSave} disabled={!name.trim() || memberIds.length < 2 || submitting} className="bg-emerald-500 text-black hover:bg-emerald-400">
+                  Save
+                </Button>
+              </>
+            )}
+          </div>
+        </DialogFooter>
+      </DialogContent>
 
-          return (
-            <div
-              key={msg.id}
-              className={`flex mb-1 ${isOwn ? "justify-end" : "justify-start"}`}
-            >
-              <div
-                className={`max-w-[70%] rounded px-2 py-1 text-sm ${
-                  isOwn
-                    ? "bg-emerald-600 text-gray-900 dark:text-white"
-                    : "bg-gray-200 dark:bg-zinc-700 text-gray-900 dark:text-zinc-100"
-                }`}
+      <Dialog open={confirmDeleteOpen} onOpenChange={(v) => !deletingGroup && setConfirmDeleteOpen(v)}>
+        <DialogContent className="bg-white dark:bg-zinc-900 border-black/10 dark:border-white/10 text-gray-900 dark:text-white">
+          <DialogHeader>
+            <DialogTitle>Delete this group?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-gray-700 dark:text-zinc-300">
+            This permanently deletes "{chat?.name}" and all its messages for every member. This can't be undone.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmDeleteOpen(false)} disabled={deletingGroup} className="border-gray-200 dark:border-zinc-700">
+              Cancel
+            </Button>
+            <Button onClick={handleDeleteGroup} disabled={deletingGroup} className="bg-red-600 text-white hover:bg-red-700">
+              {deletingGroup ? "Deleting..." : "Delete Group"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </Dialog>
+  );
+}
+
+function ChatWindowView({
+  chat,
+  user,
+  allUsers,
+  messages,
+  loaded,
+  loading,
+  hasMore,
+  loadingOlder,
+  onLoadOlder,
+  onSend,
+  onTyping,
+  typingUser,
+  pendingAttachments,
+  onAddFiles,
+  onRemoveAttachment,
+  onAttachFileClick,
+  onAttachImageClick,
+  onClose,
+  onMinimize,
+  onUpdateGroup,
+  onLeaveGroup,
+  onDeleteGroup,
+  onEditMessage,
+  onDeleteMessage,
+  onForwardMessage,
+  onSearchMessages,
+  onToggleReaction,
+  fullScreen,
+}) {
+  const [message, setMessage] = useState("");
+  const [groupInfoOpen, setGroupInfoOpen] = useState(false);
+  const [emojiOpen, setEmojiOpen] = useState(false);
+  const [editingMessageId, setEditingMessageId] = useState(null);
+  const [editingText, setEditingText] = useState("");
+  const [deleteMessageId, setDeleteMessageId] = useState(null);
+  const [deletingMessage, setDeletingMessage] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
+  const [lightboxUrl, setLightboxUrl] = useState(null);
+  const [replyTo, setReplyTo] = useState(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+  // Which message's quick-reaction popover is open, if any - a single
+  // shared value rather than one open-state per message row.
+  const [reactionPickerFor, setReactionPickerFor] = useState(null);
+  // Swipe-down-to-minimize on mobile, where this window fills the screen and
+  // there's no room for a desktop-style title bar full of small icon buttons.
+  const isMobile = useIsMobile();
+  const swipeStartYRef = useRef(null);
+  const handleHeaderTouchStart = (e) => {
+    if (!isMobile) return;
+    swipeStartYRef.current = e.touches[0].clientY;
+  };
+  const handleHeaderTouchEnd = (e) => {
+    if (!isMobile || swipeStartYRef.current == null) return;
+    const deltaY = e.changedTouches[0].clientY - swipeStartYRef.current;
+    swipeStartYRef.current = null;
+    if (deltaY > 70) {
+      (onMinimize || onClose)?.();
+    }
+  };
+  // @mention autocomplete: mentionQuery is null when no "@..." is currently
+  // being typed; mentionStart is the index of the triggering "@" within
+  // whichever text field (message or editingText) is currently active.
+  const [mentionQuery, setMentionQuery] = useState(null);
+  const [mentionStart, setMentionStart] = useState(null);
+  const [mentionActiveIndex, setMentionActiveIndex] = useState(0);
+  const messagesEndRef = useRef(null);
+  const messagesContainerRef = useRef(null);
+  const inputRef = useRef(null);
+  const typingTimeoutRef = useRef(null);
+  // Tracks the last message's id (not just the count) so loading older
+  // history - which also grows the array, by prepending - doesn't trigger
+  // a jump to the bottom the way a genuinely new message should.
+  const lastMessageIdRef = useRef(null);
+  const hasScrolledInitiallyRef = useRef(false);
+
+  const isGroup = !!chat.is_group;
+  const memberCount = (chat.participants?.length || 0) + 1; // + self
+
+  // Everyone mentionable in this conversation (never includes self - you
+  // don't @mention yourself), and the regex used to both detect and render
+  // mentions of them.
+  const mentionCandidates = useMemo(
+    () => (isGroup ? chat.participants || [] : chat.participant ? [chat.participant] : []),
+    [isGroup, chat.participants, chat.participant]
+  );
+  const mentionNames = useMemo(() => mentionCandidates.map((p) => p.name).filter(Boolean), [mentionCandidates]);
+  const contentRegex = useMemo(() => buildMessageContentRegex(mentionNames), [mentionNames]);
+  const filteredMentionCandidates = useMemo(() => {
+    if (mentionQuery === null) return [];
+    const q = mentionQuery.toLowerCase();
+    return mentionCandidates.filter((p) => p.name?.toLowerCase().includes(q)).slice(0, 6);
+  }, [mentionCandidates, mentionQuery]);
+
+  useEffect(() => {
+    if (!loaded) return;
+    const lastId = messages.length ? messages[messages.length - 1].id : null;
+    if (!hasScrolledInitiallyRef.current) {
+      // Opening (or re-opening) this chat window - always land on the
+      // latest message immediately rather than wherever it happened to
+      // render, and without a smooth-scroll animation that can look like
+      // nothing happened if the jump is long.
+      messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
+      hasScrolledInitiallyRef.current = true;
+      lastMessageIdRef.current = lastId;
+      return;
+    }
+    if (lastId && lastId !== lastMessageIdRef.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+    lastMessageIdRef.current = lastId;
+  }, [messages, loaded]);
+
+  useEffect(() => {
+    if (!lightboxUrl) return;
+    const onKeyDown = (e) => {
+      if (e.key === "Escape") setLightboxUrl(null);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [lightboxUrl]);
+
+  useEffect(() => {
+    // Revoke any preview object URLs still around when this window unmounts
+    // (e.g. the chat is closed with attachments still staged).
+    return () => {
+      pendingAttachments.forEach((att) => {
+        if (att.previewUrl) URL.revokeObjectURL(att.previewUrl);
+      });
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const isEditing = !!editingMessageId;
+
+  const handleSend = () => {
+    if (isEditing) {
+      saveEditingMessage();
+      return;
+    }
+    if (!message.trim() && pendingAttachments.length === 0) return;
+    onSend(message, pendingAttachments, replyTo);
+    setMessage("");
+    setReplyTo(null);
+    setMentionQuery(null);
+    setMentionStart(null);
+  };
+
+  // dragenter/dragleave fire for every child element as the cursor moves
+  // over them, not just the drop zone's own boundary, so a plain "leave
+  // clears the flag" handler flickers constantly while dragging over
+  // messages. A counter that only reaches zero once every enter has a
+  // matching leave avoids that.
+  const dragCounterRef = useRef(0);
+
+  const handleDragEnter = (e) => {
+    e.preventDefault();
+    dragCounterRef.current += 1;
+    if (e.dataTransfer?.types?.includes("Files")) setDragActive(true);
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    dragCounterRef.current -= 1;
+    if (dragCounterRef.current <= 0) {
+      dragCounterRef.current = 0;
+      setDragActive(false);
+    }
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    dragCounterRef.current = 0;
+    setDragActive(false);
+    if (e.dataTransfer?.files?.length) onAddFiles(e.dataTransfer.files);
+  };
+
+  const handleKeyDown = (e) => {
+    if (mentionQuery !== null && filteredMentionCandidates.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setMentionActiveIndex((i) => (i + 1) % filteredMentionCandidates.length);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setMentionActiveIndex((i) => (i - 1 + filteredMentionCandidates.length) % filteredMentionCandidates.length);
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        insertMention(filteredMentionCandidates[mentionActiveIndex] || filteredMentionCandidates[0]);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setMentionQuery(null);
+        setMentionStart(null);
+        return;
+      }
+    }
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    } else if (e.key === "Escape" && isEditing) {
+      e.preventDefault();
+      cancelEditingMessage();
+    }
+  };
+
+  // Looks at the text up to the cursor for a "@partial" token being typed
+  // right now - an "@" not glued to a preceding word and with no whitespace
+  // typed after it yet - and opens/updates/closes the mention dropdown
+  // accordingly.
+  const updateMentionState = (text, cursorPos) => {
+    const upToCursor = text.slice(0, cursorPos);
+    const atIndex = upToCursor.lastIndexOf("@");
+    if (atIndex === -1) {
+      setMentionQuery(null);
+      return;
+    }
+    const between = upToCursor.slice(atIndex + 1);
+    if (/\s/.test(between)) {
+      setMentionQuery(null);
+      return;
+    }
+    const before = upToCursor.slice(0, atIndex);
+    if (before && !/\s$/.test(before)) {
+      setMentionQuery(null);
+      return;
+    }
+    setMentionStart(atIndex);
+    setMentionQuery(between);
+    setMentionActiveIndex(0);
+  };
+
+  const handleChange = (e) => {
+    const value = e.target.value;
+    const cursorPos = e.target.selectionStart ?? value.length;
+    if (isEditing) {
+      setEditingText(value);
+    } else {
+      setMessage(value);
+      if (!typingTimeoutRef.current) {
+        onTyping();
+        typingTimeoutRef.current = setTimeout(() => {
+          typingTimeoutRef.current = null;
+        }, 2000);
+      }
+    }
+    updateMentionState(value, cursorPos);
+  };
+
+  const insertMention = (participant) => {
+    if (!participant || mentionStart === null) return;
+    const text = isEditing ? editingText : message;
+    const cursorPos = inputRef.current?.selectionStart ?? text.length;
+    const before = text.slice(0, mentionStart);
+    const after = text.slice(cursorPos);
+    const inserted = `@${participant.name} `;
+    const newText = before + inserted + after;
+    if (isEditing) {
+      setEditingText(newText);
+    } else {
+      setMessage(newText);
+    }
+    setMentionQuery(null);
+    setMentionStart(null);
+    const newCursor = before.length + inserted.length;
+    requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.setSelectionRange(newCursor, newCursor);
+    });
+  };
+
+  const handleScroll = () => {
+    if (!messagesContainerRef.current || loadingOlder || !hasMore) return;
+    if (messagesContainerRef.current.scrollTop === 0) onLoadOlder();
+  };
+
+  const handlePaste = (e) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    const files = [];
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].kind === "file") {
+        const file = items[i].getAsFile();
+        if (file) files.push(file);
+      }
+    }
+    if (files.length) {
+      e.preventDefault();
+      onAddFiles(files);
+    }
+  };
+
+  const insertEmoji = (emoji) => {
+    if (isEditing) {
+      setEditingText((prev) => prev + emoji);
+    } else {
+      setMessage((prev) => prev + emoji);
+    }
+    setEmojiOpen(false);
+    inputRef.current?.focus();
+  };
+
+  const startEditingMessage = (msg) => {
+    setEditingMessageId(msg.id);
+    setEditingText(msg.content);
+    setReplyTo(null);
+    setMentionQuery(null);
+    setMentionStart(null);
+    inputRef.current?.focus();
+  };
+
+  const cancelEditingMessage = () => {
+    setEditingMessageId(null);
+    setEditingText("");
+    setMentionQuery(null);
+    setMentionStart(null);
+  };
+
+  const startReplyingTo = (msg) => {
+    setReplyTo(msg);
+    setEditingMessageId(null);
+    setEditingText("");
+    setMentionQuery(null);
+    setMentionStart(null);
+    inputRef.current?.focus();
+  };
+
+  const cancelReply = () => setReplyTo(null);
+
+  // Briefly highlights and scrolls to a message already present in the
+  // loaded window - clicking a reply quote or a search result that's
+  // further back than what's loaded is a no-op rather than an error, since
+  // pulling in arbitrary older history just to jump to one message is out
+  // of scope here.
+  const scrollToMessage = (id) => {
+    const el = messagesContainerRef.current?.querySelector(`[data-message-id="${id}"]`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    el.classList.add("ring-2", "ring-emerald-400");
+    setTimeout(() => el.classList.remove("ring-2", "ring-emerald-400"), 1500);
+  };
+
+  const runSearch = async () => {
+    const q = searchQuery.trim();
+    if (!q) {
+      setSearchResults([]);
+      return;
+    }
+    setSearching(true);
+    try {
+      const results = await onSearchMessages?.(q);
+      setSearchResults(results || []);
+    } catch (error) {
+      console.error("Error searching messages:", error);
+      toast.error("Search failed");
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const saveEditingMessage = async () => {
+    if (!editingText.trim() || !editingMessageId) return;
+    const messageId = editingMessageId;
+    const content = editingText.trim();
+    setEditingMessageId(null);
+    setEditingText("");
+    try {
+      await onEditMessage?.(messageId, content);
+    } catch (error) {
+      console.error("Error editing message:", error);
+      toast.error("Failed to edit message");
+    }
+  };
+
+  const handleConfirmDeleteMessage = async () => {
+    if (!deleteMessageId) return;
+    setDeletingMessage(true);
+    try {
+      await onDeleteMessage?.(deleteMessageId);
+      setDeleteMessageId(null);
+    } catch (error) {
+      console.error("Error deleting message:", error);
+      toast.error("Failed to delete message");
+    } finally {
+      setDeletingMessage(false);
+    }
+  };
+
+  const groups = [];
+  let currentDate = null;
+  messages.forEach((msg) => {
+    const msgDate = new Date(msg.created_at).toDateString();
+    if (msgDate !== currentDate) {
+      currentDate = msgDate;
+      groups.push({ type: "date", date: msg.created_at });
+    }
+    groups.push({ type: "message", data: msg });
+  });
+
+  return (
+    <>
+      <div
+        className="relative flex flex-col flex-1 bg-white dark:bg-black border border-t-0 border-gray-200 dark:border-gray-800 rounded-b-lg overflow-hidden"
+        style={{ minHeight: 0 }}
+        onDragEnter={handleDragEnter}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
+        {dragActive && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-emerald-600/10 border-2 border-dashed border-emerald-500 pointer-events-none">
+            <span className="text-sm font-medium text-emerald-700 dark:text-emerald-300 bg-white dark:bg-zinc-900 px-3 py-1.5 rounded shadow">
+              Drop to attach
+            </span>
+          </div>
+        )}
+        <div
+          className="flex items-center justify-between gap-2 px-2 py-1 border-b border-black/10 dark:border-white/10 bg-white dark:bg-zinc-900"
+          onTouchStart={handleHeaderTouchStart}
+          onTouchEnd={handleHeaderTouchEnd}
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            {fullScreen && isMobile && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="p-1 h-8 w-8 flex-shrink-0 text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white"
+                onClick={onClose}
+                title="Back to conversations"
               >
-                {/* Image message */}
-                {isImage && msg.file_url && (
-                  <div className="mb-1">
-                    <img
-                      src={`${API.replace("/api", "")}${msg.file_url}`}
-                      alt={msg.file_name || "Image"}
-                      className="max-w-full rounded"
-                      loading="lazy"
-                    />
+                <ChevronLeft className="w-5 h-5" />
+              </Button>
+            )}
+            <div className="relative flex-shrink-0">
+              <Avatar className="w-8 h-8">
+                <AvatarFallback className={isGroup ? "bg-blue-600 text-white text-xs" : "bg-emerald-600 text-white text-xs"}>
+                  {isGroup ? <Users className="w-4 h-4" /> : getInitials(chat.participant?.name)}
+                </AvatarFallback>
+              </Avatar>
+              {!isGroup && chat.participant?.is_online && (
+                <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-white dark:border-gray-800" />
+              )}
+            </div>
+            <div className="min-w-0">
+              <div className="font-medium text-sm text-gray-900 dark:text-white truncate">{chatTitle(chat)}</div>
+              <div className="text-[10px] text-gray-500 dark:text-zinc-400 truncate">
+                {isGroup ? `${memberCount} members` : formatPresence(chat.participant?.is_online, chat.participant?.last_active)}
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              className={`p-1 h-6 w-6 text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white ${searchOpen ? "bg-gray-100 dark:bg-zinc-800" : ""}`}
+              onClick={() => setSearchOpen((v) => !v)}
+              title="Search in chat"
+            >
+              <Search className="w-3.5 h-3.5" />
+            </Button>
+            {isGroup && (
+              <Button variant="ghost" size="sm" className="p-1 h-6 w-6 text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white" onClick={() => setGroupInfoOpen(true)} title="Group info">
+                <Info className="w-3.5 h-3.5" />
+              </Button>
+            )}
+            {!fullScreen && (
+              <Button variant="ghost" size="sm" className="p-1 h-6 w-6 text-gray-500 dark:text-zinc-400" onClick={onMinimize} title="Minimize">
+                <Minus className="w-3 h-3" />
+              </Button>
+            )}
+            {!fullScreen && (
+              <Button variant="ghost" size="sm" className="p-1 h-6 w-6 text-gray-500 dark:text-zinc-400 hover:text-red-400" onClick={onClose} title="Close">
+                <X className="w-3 h-3" />
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {searchOpen && (
+          <div className="border-b border-black/10 dark:border-white/10 bg-white dark:bg-zinc-900 flex-shrink-0">
+            <div className="flex items-center gap-1 px-2 py-1.5">
+              <Input
+                autoFocus
+                placeholder="Search in this chat..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") runSearch();
+                  if (e.key === "Escape") {
+                    setSearchOpen(false);
+                    setSearchQuery("");
+                    setSearchResults([]);
+                  }
+                }}
+                className="flex-1 h-7 text-xs bg-gray-200 dark:bg-zinc-700 border-gray-300 dark:border-zinc-600 text-gray-900 dark:text-white"
+              />
+              <Button variant="ghost" size="sm" className="p-1 h-7 w-7" onClick={runSearch} title="Search">
+                <Search className="w-3.5 h-3.5" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="p-1 h-7 w-7"
+                onClick={() => {
+                  setSearchOpen(false);
+                  setSearchQuery("");
+                  setSearchResults([]);
+                }}
+                title="Close search"
+              >
+                <X className="w-3.5 h-3.5" />
+              </Button>
+            </div>
+            {searching && <div className="px-2 pb-2 text-xs text-gray-400">Searching...</div>}
+            {!searching && searchQuery.trim() && (
+              <div className="max-h-48 overflow-y-auto border-t border-black/5 dark:border-white/5">
+                {searchResults.length === 0 ? (
+                  <div className="px-2 py-2 text-xs text-gray-400">No matches.</div>
+                ) : (
+                  searchResults.map((r) => (
+                    <button
+                      key={r.id}
+                      onClick={() => scrollToMessage(r.id)}
+                      className="w-full text-left px-2 py-1.5 hover:bg-gray-100 dark:hover:bg-zinc-800 border-b border-black/5 dark:border-white/5 last:border-0"
+                    >
+                      <div className="text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+                        {r.sender_name} · {formatDateLabel(r.created_at)} · {formatTimeLabel(r.created_at)}
+                      </div>
+                      <div className="text-xs truncate text-gray-700 dark:text-zinc-300">
+                        {r.message_type === "image" ? "📷 Photo" : r.message_type === "file" ? `📎 ${r.file_name || "File"}` : r.content}
+                      </div>
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="flex-1 p-2 overflow-y-auto" style={{ flex: "1 1 auto", minHeight: "0" }} ref={messagesContainerRef} onScroll={handleScroll}>
+          {loadingOlder && (
+            <div className="flex justify-center py-1">
+              <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
+            </div>
+          )}
+
+          {!loaded && loading && (
+            <div className="flex flex-col items-center justify-center gap-2 text-gray-500 dark:text-zinc-400 py-8">
+              <Loader2 className="w-5 h-5 animate-spin" />
+              <span className="text-xs">Loading messages...</span>
+            </div>
+          )}
+
+          {loaded && messages.length === 0 && (
+            <div className="flex items-center justify-center text-center text-gray-400 text-sm py-8 px-4">
+              No messages yet. Say hi to {chatTitle(chat)}!
+            </div>
+          )}
+
+          {groups.map((item, index) => {
+            if (item.type === "date") {
+              return (
+                <div key={`date-${index}`} className="text-center text-[10px] text-zinc-500 my-1">
+                  {formatDateLabel(item.date)}
+                </div>
+              );
+            }
+
+            const msg = item.data;
+            const isOwn = msg.sender_id === user.id;
+            const isImage = msg.message_type === "image";
+            const isEditingThis = editingMessageId === msg.id;
+            const otherCount = chat.participants?.length || 0;
+            const readByCount = (msg.read_by || []).length;
+            const readByNames = isGroup ? (msg.read_by || []).map((id) => chat.participants?.find((p) => p.id === id)?.name).filter(Boolean) : [];
+
+            return (
+              <div
+                key={msg.id}
+                data-message-id={msg.id}
+                className={`group flex mb-1 items-end gap-1 ${isOwn ? "justify-end" : "justify-start"}`}
+              >
+                {isOwn && !msg.is_deleted && !isEditingThis && (
+                  <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                    {msg.message_type === "text" && (
+                      <button onClick={() => startEditingMessage(msg)} className="p-1 text-gray-400 hover:text-gray-900 dark:hover:text-white" title="Edit message">
+                        <Pencil className="w-3 h-3" />
+                      </button>
+                    )}
+                    <button onClick={() => startReplyingTo(msg)} className="p-1 text-gray-400 hover:text-gray-900 dark:hover:text-white" title="Reply">
+                      <Reply className="w-3 h-3" />
+                    </button>
+                    <button onClick={() => onForwardMessage?.(msg)} className="p-1 text-gray-400 hover:text-gray-900 dark:hover:text-white" title="Forward">
+                      <Forward className="w-3 h-3" />
+                    </button>
+                    <Popover open={reactionPickerFor === msg.id} onOpenChange={(o) => setReactionPickerFor(o ? msg.id : null)}>
+                      <PopoverTrigger asChild>
+                        <button className="p-1 text-gray-400 hover:text-gray-900 dark:hover:text-white" title="React">
+                          <Smile className="w-3 h-3" />
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent align="end" className="w-auto p-2 bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700">
+                        <EmojiPickerGrid
+                          onSelect={(emoji) => {
+                            onToggleReaction?.(msg.id, emoji);
+                            setReactionPickerFor(null);
+                          }}
+                        />
+                      </PopoverContent>
+                    </Popover>
+                    <button onClick={() => setDeleteMessageId(msg.id)} className="p-1 text-gray-400 hover:text-red-400" title="Delete message">
+                      <Trash2 className="w-3 h-3" />
+                    </button>
                   </div>
                 )}
+                <div
+                  className={`max-w-[70%] rounded px-2 py-1 text-sm ${isOwn ? "bg-emerald-600 text-white" : "bg-gray-200 dark:bg-zinc-700 text-gray-900 dark:text-zinc-100"} ${
+                    isEditingThis ? "ring-2 ring-emerald-400 ring-offset-1 ring-offset-white dark:ring-offset-black" : ""
+                  }`}
+                >
+                  {isGroup && !isOwn && <div className="text-[10px] font-medium text-emerald-500 mb-0.5">{msg.sender_name}</div>}
 
-                {/* File message */}
-                {msg.message_type === "file" && msg.file_url && (
-                  <a
-                    href={`${API.replace("/api", "")}${msg.file_url}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={`flex items-center gap-2 mb-1 ${
-                      isOwn ? "text-emerald-200 hover:text-gray-900 dark:hover:text-white" : "text-emerald-400 hover:text-emerald-300"
-                    }`}
-                  >
-                    <Paperclip className="w-3 h-3" />
-                    <span className="text-xs underline">{msg.file_name || "File"}</span>
-                  </a>
-                )}
-
-                {/* Text content - detect links */}
-                {msg.content && (
-                  <div className="break-words">
-                    {msg.content.split(/(https?:\/\/[^\s]+)/g).map((part, i) =>
-                      part.match(/https?:\/\/[^\s]+/) ? (
-                        <a
-                          key={i}
-                          href={part}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className={`underline ${
-                            isOwn ? "text-emerald-200 hover:text-gray-900 dark:hover:text-white" : "text-emerald-400 hover:text-emerald-300"
+                  {msg.is_deleted ? (
+                    <div className="italic text-xs opacity-70">This message was deleted</div>
+                  ) : (
+                    <>
+                      {isEditingThis && (
+                        <div className="text-[10px] italic opacity-80 mb-0.5">Editing - use the box below</div>
+                      )}
+                      {msg.is_forwarded && (
+                        <div className="text-[10px] italic opacity-75 mb-0.5 flex items-center gap-1">
+                          <Forward className="w-2.5 h-2.5" />
+                          {msg.forwarded_from ? `Forwarded from ${msg.forwarded_from}` : "Forwarded"}
+                        </div>
+                      )}
+                      {msg.reply_to && (
+                        <div
+                          onClick={() => scrollToMessage(msg.reply_to.id)}
+                          className={`mb-1 px-1.5 py-1 rounded border-l-2 text-xs cursor-pointer ${
+                            isOwn ? "border-white/60 bg-black/10 hover:bg-black/20" : "border-emerald-500 bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10"
                           }`}
                         >
-                          {part}
+                          <div className="font-medium opacity-90 truncate">{msg.reply_to.sender_name}</div>
+                          <div className="truncate opacity-75">
+                            {msg.reply_to.is_deleted
+                              ? "Message deleted"
+                              : msg.reply_to.message_type === "image"
+                              ? "📷 Photo"
+                              : msg.reply_to.message_type === "file"
+                              ? `📎 ${msg.reply_to.file_name || "File"}`
+                              : msg.reply_to.content}
+                          </div>
+                        </div>
+                      )}
+                      {isImage && msg.file_url && (
+                        <div className="mb-1">
+                          <img
+                            src={`${FILE_ORIGIN}${msg.file_url}`}
+                            alt={msg.file_name || "Image"}
+                            className="max-w-full rounded cursor-pointer"
+                            loading="lazy"
+                            onClick={() => setLightboxUrl(`${FILE_ORIGIN}${msg.file_url}`)}
+                          />
+                        </div>
+                      )}
+
+                      {msg.message_type === "file" && msg.file_url && (
+                        <a
+                          href={`${FILE_ORIGIN}${msg.file_url}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={`flex items-center gap-2 mb-1 ${isOwn ? "text-emerald-100 hover:text-white" : "text-emerald-600 dark:text-emerald-400"}`}
+                        >
+                          <Paperclip className="w-3 h-3" />
+                          <span className="text-xs underline">{msg.file_name || "File"}</span>
                         </a>
+                      )}
+
+                      {msg.content && (
+                        <div className="break-words">
+                          {msg.content.split(contentRegex).map((part, i) =>
+                            /^https?:\/\/[^\s]+$/.test(part) ? (
+                              <a
+                                key={i}
+                                href={part}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className={`underline ${isOwn ? "text-emerald-100 hover:text-white" : "text-emerald-600 dark:text-emerald-400"}`}
+                              >
+                                {part}
+                              </a>
+                            ) : part.startsWith("@") && mentionNames.includes(part.slice(1)) ? (
+                              <span
+                                key={i}
+                                className={`font-medium rounded px-0.5 ${
+                                  isOwn ? "bg-white/20" : "bg-emerald-500/20 text-emerald-700 dark:text-emerald-300"
+                                }`}
+                              >
+                                {part}
+                              </span>
+                            ) : (
+                              <span key={i}>{part}</span>
+                            )
+                          )}
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {!msg.is_deleted && msg.reactions && Object.keys(msg.reactions).length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {Object.entries(msg.reactions)
+                        .filter(([, userIds]) => userIds.length > 0)
+                        .map(([emoji, userIds]) => (
+                          <button
+                            key={emoji}
+                            onClick={() => onToggleReaction?.(msg.id, emoji)}
+                            title={userIds.includes(user.id) ? "Click to remove your reaction" : "Click to react"}
+                            className={`text-xs px-1.5 py-0.5 rounded-full border flex items-center gap-1 ${
+                              userIds.includes(user.id)
+                                ? "bg-emerald-500/20 border-emerald-500"
+                                : `border-transparent ${isOwn ? "bg-black/10 hover:bg-black/20" : "bg-black/5 dark:bg-white/10 hover:bg-black/10 dark:hover:bg-white/20"}`
+                            }`}
+                          >
+                            <span>{emoji}</span>
+                            <span>{userIds.length}</span>
+                          </button>
+                        ))}
+                    </div>
+                  )}
+
+                  <div className={`flex items-center justify-end gap-1 text-[10px] mt-0.5 ${isOwn ? "text-emerald-100" : "text-gray-500 dark:text-zinc-400"}`}>
+                    <span>{formatTimeLabel(msg.created_at)}</span>
+                    {msg.edited && !msg.is_deleted && <span className="italic">(edited)</span>}
+                    {isOwn && msg.failed && <span>Failed to send</span>}
+                    {isOwn && !msg.failed && !msg.is_deleted && (
+                      readByCount === 0 ? (
+                        <Check className="w-3 h-3" title="Sent" />
+                      ) : isGroup ? (
+                        <div className="relative group/read inline-flex">
+                          {otherCount > 0 && readByCount >= otherCount ? (
+                            <CheckCheck className="w-3 h-3" />
+                          ) : (
+                            <Check className="w-3 h-3" />
+                          )}
+                          <div className="hidden group-hover/read:block absolute bottom-full right-0 mb-1 z-20 w-48 max-h-40 overflow-y-auto rounded border border-gray-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-lg py-1 text-left">
+                            <div className="text-[9px] font-medium uppercase tracking-wide text-gray-400 dark:text-zinc-500 px-2 pb-1">
+                              Read by
+                            </div>
+                            {readByNames.length === 0 ? (
+                              <div className="text-xs text-gray-400 dark:text-zinc-500 px-2 py-1">No one yet</div>
+                            ) : (
+                              readByNames.map((name) => (
+                                <div key={name} className="flex items-center gap-1.5 px-2 py-0.5">
+                                  <Avatar className="w-4 h-4 flex-shrink-0">
+                                    <AvatarFallback className="bg-emerald-600 text-white text-[7px]">{getInitials(name)}</AvatarFallback>
+                                  </Avatar>
+                                  <span className="text-xs text-gray-700 dark:text-zinc-200 truncate">{name}</span>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        </div>
                       ) : (
-                        <span key={i}>{part}</span>
+                        <CheckCheck className="w-3 h-3" title="Read" />
                       )
                     )}
                   </div>
-                )}
-
-                {/* Timestamp */}
-                <div
-                  className={`text-[10px] mt-0.5 ${
-                    isOwn ? "text-emerald-200" : "text-gray-400"
-                  }`}
-                >
-                  {formatTime(msg.created_at)}
-                  {isOwn && msg.is_read && " • Read"}
                 </div>
+                {!isOwn && !msg.is_deleted && (
+                  <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button onClick={() => startReplyingTo(msg)} className="p-1 text-gray-400 hover:text-gray-900 dark:hover:text-white" title="Reply">
+                      <Reply className="w-3 h-3" />
+                    </button>
+                    <button onClick={() => onForwardMessage?.(msg)} className="p-1 text-gray-400 hover:text-gray-900 dark:hover:text-white" title="Forward">
+                      <Forward className="w-3 h-3" />
+                    </button>
+                    <Popover open={reactionPickerFor === msg.id} onOpenChange={(o) => setReactionPickerFor(o ? msg.id : null)}>
+                      <PopoverTrigger asChild>
+                        <button className="p-1 text-gray-400 hover:text-gray-900 dark:hover:text-white" title="React">
+                          <Smile className="w-3 h-3" />
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent align="start" className="w-auto p-2 bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700">
+                        <EmojiPickerGrid
+                          onSelect={(emoji) => {
+                            onToggleReaction?.(msg.id, emoji);
+                            setReactionPickerFor(null);
+                          }}
+                        />
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+                )}
               </div>
-            </div>
-          );
-        })}
+            );
+          })}
 
-        {/* Typing indicator */}
-        {typingUser && typingUser.user_id !== user.id && (
-          <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-zinc-400 mb-1">
-            <div className="flex gap-1">
-              <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-              <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-              <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+          {typingUser && typingUser.user_id !== user.id && (
+            <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-zinc-400 mb-1">
+              <div className="flex gap-1">
+                <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+                <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+                <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+              </div>
+              <span>{typingUser.user_name} is typing...</span>
             </div>
-            <span>{typingUser.user_name} is typing...</span>
+          )}
+
+          <div ref={messagesEndRef} />
+        </div>
+
+        {pendingAttachments.length > 0 && (
+          <div className="flex flex-wrap gap-2 px-2 pt-2 border-t border-black/10 dark:border-white/10 bg-white dark:bg-zinc-900">
+            {pendingAttachments.map((att) => (
+              <div key={att.id} className="relative">
+                {att.isImage ? (
+                  <img src={att.previewUrl} alt={att.file.name} className="w-14 h-14 object-cover rounded border border-gray-300 dark:border-zinc-700" />
+                ) : (
+                  <div className="w-14 h-14 flex flex-col items-center justify-center gap-0.5 rounded border border-gray-300 dark:border-zinc-700 bg-gray-100 dark:bg-zinc-800 p-1">
+                    <Paperclip className="w-4 h-4 text-gray-500 dark:text-zinc-400" />
+                    <span className="text-[9px] leading-tight truncate w-full text-center text-gray-600 dark:text-zinc-400">{att.file.name}</span>
+                  </div>
+                )}
+                <button
+                  onClick={() => onRemoveAttachment(att.id)}
+                  className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-black/70 text-white flex items-center justify-center leading-none"
+                  title="Remove"
+                >
+                  <X className="w-2.5 h-2.5" />
+                </button>
+              </div>
+            ))}
           </div>
         )}
 
-        <div ref={messagesEndRef} />
+        {isEditing && (
+          <div className="flex items-center justify-between px-2 py-1 border-t border-black/10 dark:border-white/10 bg-emerald-50 dark:bg-emerald-900/20 text-xs text-emerald-700 dark:text-emerald-300">
+            <span className="flex items-center gap-1 font-medium">
+              <Pencil className="w-3 h-3" /> Editing message - press Enter to save
+            </span>
+            <button onClick={cancelEditingMessage} className="hover:text-emerald-900 dark:hover:text-emerald-100" title="Cancel edit">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+
+        {!isEditing && replyTo && (
+          <div className="flex items-center justify-between gap-2 px-2 py-1 border-t border-black/10 dark:border-white/10 bg-gray-50 dark:bg-zinc-800/60 text-xs">
+            <div className="min-w-0">
+              <div className="flex items-center gap-1 font-medium text-gray-700 dark:text-zinc-300">
+                <Reply className="w-3 h-3" /> Replying to {replyTo.sender_name}
+              </div>
+              <div className="truncate text-gray-500 dark:text-zinc-400">
+                {replyTo.message_type === "image" ? "📷 Photo" : replyTo.message_type === "file" ? `📎 ${replyTo.file_name || "File"}` : replyTo.content}
+              </div>
+            </div>
+            <button onClick={cancelReply} className="text-gray-400 hover:text-gray-900 dark:hover:text-white flex-shrink-0" title="Cancel reply">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+
+        {mentionQuery !== null && filteredMentionCandidates.length > 0 && (
+          <div className="max-h-40 overflow-y-auto border-t border-black/10 dark:border-white/10 bg-white dark:bg-zinc-900">
+            {filteredMentionCandidates.map((p, idx) => (
+              <button
+                key={p.id}
+                // mousedown (not click) + preventDefault so selecting a
+                // candidate never blurs the input first - keeps focus and
+                // cursor position intact for the refocus in insertMention.
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  insertMention(p);
+                }}
+                className={`w-full flex items-center gap-2 text-left px-2 py-1.5 text-xs ${
+                  idx === mentionActiveIndex ? "bg-emerald-50 dark:bg-emerald-900/30" : "hover:bg-gray-100 dark:hover:bg-zinc-800"
+                }`}
+              >
+                <Avatar className="w-5 h-5">
+                  <AvatarFallback className="bg-emerald-600 text-white text-[9px]">{getInitials(p.name)}</AvatarFallback>
+                </Avatar>
+                <span className="font-medium text-gray-900 dark:text-white">{p.name}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div className="flex items-center gap-1 px-2 py-1 border-t border-black/10 dark:border-white/10 bg-white dark:bg-zinc-900">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="p-1 h-8 w-8"
+            onClick={onAttachFileClick}
+            disabled={isEditing}
+            title={isEditing ? "Finish editing to attach a file" : "Attach file"}
+          >
+            <Paperclip className="w-4 h-4 text-gray-500 dark:text-zinc-400" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="p-1 h-8 w-8"
+            onClick={onAttachImageClick}
+            disabled={isEditing}
+            title={isEditing ? "Finish editing to send an image" : "Send image"}
+          >
+            <ImageIcon className="w-4 h-4 text-zinc-500" />
+          </Button>
+          <Popover open={emojiOpen} onOpenChange={setEmojiOpen}>
+            <PopoverTrigger asChild>
+              <Button variant="ghost" size="sm" className="p-1 h-8 w-8" title="Emoji">
+                <Smile className="w-4 h-4 text-zinc-500" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-auto p-2 bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700">
+              <EmojiPickerGrid onSelect={insertEmoji} />
+            </PopoverContent>
+          </Popover>
+          <Input
+            ref={inputRef}
+            placeholder={isEditing ? "Edit your message..." : "Type a message..."}
+            value={isEditing ? editingText : message}
+            onChange={handleChange}
+            onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
+            className={`flex-1 h-8 text-sm bg-gray-200 dark:bg-zinc-700 border-gray-300 dark:border-zinc-600 text-gray-900 dark:text-white placeholder:text-gray-500 dark:placeholder:text-zinc-400 ${
+              isEditing ? "ring-1 ring-emerald-400" : ""
+            }`}
+          />
+          <Button
+            variant="ghost"
+            size="sm"
+            className="p-1 h-8 w-8"
+            onClick={handleSend}
+            disabled={isEditing ? !editingText.trim() : !message.trim() && pendingAttachments.length === 0}
+            title={isEditing ? "Save" : "Send"}
+          >
+            {isEditing ? (
+              <Check className={`w-4 h-4 ${editingText.trim() ? "text-emerald-500" : "text-gray-400"}`} />
+            ) : (
+              <Send className={`w-4 h-4 ${message.trim() || pendingAttachments.length > 0 ? "text-emerald-500" : "text-gray-400"}`} />
+            )}
+          </Button>
+        </div>
       </div>
 
-      {/* Message Input */}
-      <div className="flex items-center gap-1 px-2 py-1 border-t border-black/10 dark:border-white/10 bg-white dark:bg-zinc-900">
-        <Button
-          variant="ghost"
-          size="sm"
-          className="p-1 h-8 w-8"
-          onClick={() => fileInputRef.current?.click()}
-          title="Attach file"
+      {lightboxUrl && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90"
+          onClick={() => setLightboxUrl(null)}
         >
-          <Paperclip className="w-4 h-4 text-gray-500 dark:text-zinc-400" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="p-1 h-8 w-8"
-          onClick={() => imageInputRef.current?.click()}
-          title="Send image"
-        >
-          <ImageIcon className="w-4 h-4 text-zinc-500" />
-        </Button>
-        <Input
-          ref={inputRef}
-          placeholder="Type a message..."
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
-          onKeyPress={handleKeyPress}
-          onPaste={handlePaste}
-          className="flex-1 h-8 text-sm bg-gray-200 dark:bg-zinc-700 border-gray-300 dark:border-zinc-600 text-gray-900 dark:text-white placeholder:text-gray-500 dark:placeholder:text-zinc-400"
+          <button
+            className="absolute top-4 right-4 text-white/80 hover:text-white"
+            onClick={() => setLightboxUrl(null)}
+            title="Close"
+          >
+            <X className="w-6 h-6" />
+          </button>
+          <img
+            src={lightboxUrl}
+            alt="Full size"
+            className="max-w-[95vw] max-h-[95vh] object-contain"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
+
+      {isGroup && (
+        <GroupInfoDialog
+          open={groupInfoOpen}
+          onOpenChange={setGroupInfoOpen}
+          chat={chat}
+          currentUser={user}
+          allUsers={allUsers || []}
+          onSave={onUpdateGroup}
+          onLeave={() => {
+            setGroupInfoOpen(false);
+            onLeaveGroup?.();
+          }}
+          onDeleteGroup={onDeleteGroup}
         />
-        <Button
-          variant="ghost"
-          size="sm"
-          className="p-1 h-8 w-8"
-          onClick={handleSend}
-          disabled={!message.trim()}
-        >
-          <Send className={`w-4 h-4 ${message.trim() ? "text-emerald-400" : "text-gray-500"}`} />
-        </Button>
-      </div>
-    </div>
+      )}
+
+      <Dialog open={!!deleteMessageId} onOpenChange={(open) => !deletingMessage && !open && setDeleteMessageId(null)}>
+        <DialogContent className="bg-white dark:bg-zinc-900 border-black/10 dark:border-white/10 text-gray-900 dark:text-white">
+          <DialogHeader>
+            <DialogTitle>Delete message?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-gray-700 dark:text-zinc-300">This can't be undone.</p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteMessageId(null)} disabled={deletingMessage} className="border-gray-200 dark:border-zinc-700">
+              Cancel
+            </Button>
+            <Button onClick={handleConfirmDeleteMessage} disabled={deletingMessage} className="bg-red-600 text-white hover:bg-red-700">
+              {deletingMessage ? "Deleting..." : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
