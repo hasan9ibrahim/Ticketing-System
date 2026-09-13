@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { ChevronLeft, ChevronRight, Save, FileText, FileUp } from "lucide-react";
 import { toast } from "sonner";
 import { fetchCached } from "@/lib/dataCache";
+import { FieldError, RequiredAsterisk } from "@/components/ui/field-error";
 
 const API = `${process.env.REACT_APP_API_URL}/api`;
 
@@ -68,6 +69,7 @@ export default function NOCSchedulePage() {
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editData, setEditData] = useState(null);
   const [importing, setImporting] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState({});
   const fileInputRef = useRef(null);
 
   const user = getCurrentUser();
@@ -232,14 +234,21 @@ export default function NOCSchedulePage() {
       shiftType: schedule?.shift_type || "off",
       notes: schedule?.notes || ""
     });
+    setFieldErrors({});
     setEditDialogOpen(true);
   };
 
   const saveEdit = async () => {
     if (!editData) return;
-    
+
+    if (!editData.shiftType) {
+      setFieldErrors({ shiftType: true });
+      return;
+    }
+    setFieldErrors({});
+
     console.log("Saving edit:", editData);
-    
+
     try {
       let result;
       if (editData.scheduleId) {
@@ -640,12 +649,15 @@ export default function NOCSchedulePage() {
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div>
-              <label className="text-sm text-gray-500 dark:text-zinc-400 mb-1 block">Shift</label>
-              <Select 
-                value={editData?.shiftType || "off"} 
-                onValueChange={(value) => setEditData({ ...editData, shiftType: value })}
+              <label className="text-sm text-gray-500 dark:text-zinc-400 mb-1 block">Shift <RequiredAsterisk /></label>
+              <Select
+                value={editData?.shiftType || "off"}
+                onValueChange={(value) => {
+                  setEditData({ ...editData, shiftType: value });
+                  setFieldErrors((prev) => ({ ...prev, shiftType: false }));
+                }}
               >
-                <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
+                <SelectTrigger className={`bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 ${fieldErrors.shiftType ? "border-red-500 focus:ring-red-500" : ""}`}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
@@ -656,6 +668,7 @@ export default function NOCSchedulePage() {
                   ))}
                 </SelectContent>
               </Select>
+              {fieldErrors.shiftType && <FieldError />}
             </div>
             <div>
               <label className="text-sm text-gray-500 dark:text-zinc-400 mb-1 block">Notes (optional)</label>

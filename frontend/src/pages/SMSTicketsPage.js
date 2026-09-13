@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Label } from "@/components/ui/label";
+import { FieldError, RequiredAsterisk } from "@/components/ui/field-error";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -82,6 +83,7 @@ export default function SMSTicketsPage() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editingTicket, setEditingTicket] = useState(null);
   const [formData, setFormData] = useState({});
+  const [fieldErrors, setFieldErrors] = useState({});
   const [currentUser, setCurrentUser] = useState(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [ticketToDelete, setTicketToDelete] = useState(null);
@@ -711,6 +713,19 @@ export default function SMSTicketsPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    // Compute inline (red-border) errors for every mandatory field up front so
+    // all of them light up together, in addition to the existing toast checks below.
+    const newFieldErrors = {};
+    if (!formData.priority) newFieldErrors.priority = true;
+    if (!formData.status) newFieldErrors.status = true;
+    if (!formData.volume) newFieldErrors.volume = true;
+    if (!formData.customer_id) newFieldErrors.customer_id = true;
+    if (!formData.customer_trunk) newFieldErrors.customer_trunk = true;
+    if (!formData.destination) newFieldErrors.destination = true;
+    const hasIssueTypeValue = (formData.issue_types && formData.issue_types.length > 0) || (formData.issue_other && formData.issue_other.trim().length > 0);
+    if (!hasIssueTypeValue) newFieldErrors.issue_type = true;
+    setFieldErrors(newFieldErrors);
 
     // ✅ Priority required
     if (!formData.priority) {
@@ -1522,9 +1537,9 @@ export default function SMSTicketsPage() {
           <form onSubmit={handleSubmit} className="space-y-4 mt-6">
             {/* Priority */}
             <div className="space-y-2">
-              <Label className="text-gray-900 dark:text-white">Priority *</Label>
-              <Select value={formData.priority} onValueChange={(value) => setFormData({ ...formData, priority: value })} required>
-                <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white"><SelectValue placeholder="Select priority" /></SelectTrigger>
+              <Label className="text-gray-900 dark:text-white">Priority <RequiredAsterisk /></Label>
+              <Select value={formData.priority} onValueChange={(value) => { setFormData({ ...formData, priority: value }); setFieldErrors(prev => ({ ...prev, priority: false })); }} required>
+                <SelectTrigger className={`bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white ${fieldErrors.priority ? "border-red-500 focus:ring-red-500" : ""}`}><SelectValue placeholder="Select priority" /></SelectTrigger>
                 <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
                   <SelectItem value="Low" className="text-gray-900 dark:text-white">Low</SelectItem>
                   <SelectItem value="Medium" className="text-gray-900 dark:text-white">Medium</SelectItem>
@@ -1532,37 +1547,45 @@ export default function SMSTicketsPage() {
                   <SelectItem value="Urgent" className="text-gray-900 dark:text-white">Urgent</SelectItem>
                 </SelectContent>
               </Select>
+              {fieldErrors.priority && <FieldError>Please select a priority</FieldError>}
             </div>
 
             {/* Volume */}
-            <div className="space-y-2"><Label className="text-gray-900 dark:text-white">Volume *</Label><Input value={formData.volume || ""} onChange={(e) => setFormData({ ...formData, volume: e.target.value })} className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white" placeholder="Enter volume" required disabled={isAM} /></div>
+            <div className="space-y-2">
+              <Label className="text-gray-900 dark:text-white">Volume <RequiredAsterisk /></Label>
+              <Input value={formData.volume || ""} onChange={(e) => { setFormData({ ...formData, volume: e.target.value }); setFieldErrors(prev => ({ ...prev, volume: false })); }} className={`bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white ${fieldErrors.volume ? "border-red-500 focus-visible:ring-red-500" : ""}`} placeholder="Enter volume" required disabled={isAM} />
+              {fieldErrors.volume && <FieldError />}
+            </div>
 
             {/* Customer */}
             <div className="space-y-2">
-              <Label>Customer *</Label>
-              <SearchableSelect 
-                options={enterprises.filter(e => e.enterprise_type === "sms").map(e => ({ value: e.id, label: e.name }))} 
-                value={formData.customer_id} 
+              <Label>Customer <RequiredAsterisk /></Label>
+              <SearchableSelect
+                options={enterprises.filter(e => e.enterprise_type === "sms").map(e => ({ value: e.id, label: e.name }))}
+                value={formData.customer_id}
                 onChange={(value) => {
-                  setFormData({ 
-                    ...formData, 
+                  setFormData({
+                    ...formData,
                     customer_id: value,
                     customer_trunk: "" // Clear trunk when enterprise changes
                   });
-                }} 
-                placeholder="Search SMS enterprise..." 
-                isRequired={true} 
-                isDisabled={isAM} 
+                  setFieldErrors(prev => ({ ...prev, customer_id: false }));
+                }}
+                placeholder="Search SMS enterprise..."
+                isRequired={true}
+                isDisabled={isAM}
+                hasError={!!fieldErrors.customer_id}
               />
+              {fieldErrors.customer_id && <FieldError>Please select a customer</FieldError>}
             </div>
 
             {/* Customer Trunk */}
             <div className="space-y-2">
-              <Label className="text-gray-900 dark:text-white">Customer Trunk *</Label>
-              <Select value={formData.customer_trunk || ""} onValueChange={(value) => setFormData({ ...formData, customer_trunk: value })} required disabled={isAM || !formData.customer_id}>
-                <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white"><SelectValue placeholder={formData.customer_id ? "Select customer trunk" : "Select customer first"} /></SelectTrigger>
+              <Label className="text-gray-900 dark:text-white">Customer Trunk <RequiredAsterisk /></Label>
+              <Select value={formData.customer_trunk || ""} onValueChange={(value) => { setFormData({ ...formData, customer_trunk: value }); setFieldErrors(prev => ({ ...prev, customer_trunk: false })); }} required disabled={isAM || !formData.customer_id}>
+                <SelectTrigger className={`bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white ${fieldErrors.customer_trunk ? "border-red-500 focus:ring-red-500" : ""}`}><SelectValue placeholder={formData.customer_id ? "Select customer trunk" : "Select customer first"} /></SelectTrigger>
                 <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
-                  {(formData.customer_id 
+                  {(formData.customer_id
                     ? enterprises.find(e => e.id === formData.customer_id)?.customer_trunks || []
                     : customerTrunkOptions
                   ).map((trunk) => (
@@ -1570,20 +1593,26 @@ export default function SMSTicketsPage() {
                   ))}
                 </SelectContent>
               </Select>
+              {fieldErrors.customer_trunk && <FieldError>Please select a customer trunk</FieldError>}
             </div>
 
             {/* Destination */}
-            <div className="space-y-2"><Label>Destination *</Label><Input value={formData.destination || ""} onChange={(e) => setFormData({ ...formData, destination: e.target.value })} className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white" placeholder="Country - Network (e.g., USA - Verizon, UK - Vodafone)" required disabled={isAM} /></div>
+            <div className="space-y-2">
+              <Label>Destination <RequiredAsterisk /></Label>
+              <Input value={formData.destination || ""} onChange={(e) => { setFormData({ ...formData, destination: e.target.value }); setFieldErrors(prev => ({ ...prev, destination: false })); }} className={`bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white ${fieldErrors.destination ? "border-red-500 focus-visible:ring-red-500" : ""}`} placeholder="Country - Network (e.g., USA - Verizon, UK - Vodafone)" required disabled={isAM} />
+              {fieldErrors.destination && <FieldError />}
+            </div>
 
             {/* Issue Types - Multi-select checklist */}
             <IssueTypeSelect
               selectedTypes={formData.issue_types || []}
               otherText={formData.issue_other || ""}
-              onTypesChange={(types) => setFormData({ ...formData, issue_types: types })}
-              onOtherChange={(text) => setFormData({ ...formData, issue_other: text })}
+              onTypesChange={(types) => { setFormData({ ...formData, issue_types: types }); setFieldErrors(prev => ({ ...prev, issue_type: false })); }}
+              onOtherChange={(text) => { setFormData({ ...formData, issue_other: text }); setFieldErrors(prev => ({ ...prev, issue_type: false })); }}
               disabled={isAM}
               ticketType="sms"
             />
+            {fieldErrors.issue_type && <FieldError>Please select at least one issue type</FieldError>}
 
             {/* Opened Via - Multi-select checklist */}
             <OpenedViaSelect
@@ -1601,9 +1630,9 @@ export default function SMSTicketsPage() {
 
             {/* Status */}
             <div className="space-y-2">
-              <Label className="text-gray-900 dark:text-white">Status *</Label>
-              <Select value={formData.status} onValueChange={(value) => setFormData({ ...formData, status: value, assigned_to: value === "Unassigned" ? "" : formData.assigned_to })} required>
-                <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white"><SelectValue /></SelectTrigger>
+              <Label className="text-gray-900 dark:text-white">Status <RequiredAsterisk /></Label>
+              <Select value={formData.status} onValueChange={(value) => { setFormData({ ...formData, status: value, assigned_to: value === "Unassigned" ? "" : formData.assigned_to }); setFieldErrors(prev => ({ ...prev, status: false })); }} required>
+                <SelectTrigger className={`bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white ${fieldErrors.status ? "border-red-500 focus:ring-red-500" : ""}`}><SelectValue /></SelectTrigger>
                 <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
                   <SelectItem value="Unassigned" className="text-gray-900 dark:text-white">Unassigned</SelectItem>
                   <SelectItem value="Assigned" className="text-gray-900 dark:text-white">Assigned</SelectItem>
@@ -1614,6 +1643,7 @@ export default function SMSTicketsPage() {
                   <SelectItem value="Unresolved" className="text-gray-900 dark:text-white">Unresolved</SelectItem>
                 </SelectContent>
               </Select>
+              {fieldErrors.status && <FieldError>Please select a status</FieldError>}
             </div>
 
             {/* SMS-Specific Fields */}

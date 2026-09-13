@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { FieldError, RequiredAsterisk } from "@/components/ui/field-error";
 import { useDebounce } from "@/hooks/useDebounce";
 import { fetchCached } from "@/lib/dataCache";
 
@@ -24,6 +25,7 @@ export default function DepartmentsPage() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editingDepartment, setEditingDepartment] = useState(null);
   const [formData, setFormData] = useState({});
+  const [fieldErrors, setFieldErrors] = useState({});
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [departmentToDelete, setDepartmentToDelete] = useState(null);
 
@@ -99,17 +101,29 @@ export default function DepartmentsPage() {
       can_edit_users: false,
       can_view_all_tickets: true,
     });
+    setFieldErrors({});
     setSheetOpen(true);
   };
 
   const openEditSheet = (dept) => {
     setEditingDepartment(dept);
     setFormData(dept);
+    setFieldErrors({});
     setSheetOpen(true);
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    const errors = {};
+    if (!formData.name?.trim()) errors.name = true;
+
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      return;
+    }
+    setFieldErrors({});
+
     try {
       const token = localStorage.getItem("token");
       const headers = { Authorization: `Bearer ${token}` };
@@ -275,13 +289,17 @@ export default function DepartmentsPage() {
           </SheetHeader>
           <form onSubmit={handleSubmit} className="space-y-4 mt-6">
             <div className="space-y-2">
-              <Label>Department Name *</Label>
+              <Label>Department Name <RequiredAsterisk /></Label>
               <Input
                 value={formData.name || ""}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white"
+                onChange={(e) => {
+                  setFormData({ ...formData, name: e.target.value });
+                  setFieldErrors((prev) => ({ ...prev, name: false }));
+                }}
+                className={`bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white ${fieldErrors.name ? "border-red-500 focus-visible:ring-red-500" : ""}`}
                 required
               />
+              {fieldErrors.name && <FieldError />}
             </div>
             <div className="space-y-2">
               <Label>Description</Label>

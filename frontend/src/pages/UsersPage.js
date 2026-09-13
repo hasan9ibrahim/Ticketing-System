@@ -10,6 +10,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { FieldError, RequiredAsterisk } from "@/components/ui/field-error";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -35,6 +36,7 @@ export default function UsersPage() {
   const [multiFilters, setMultiFilters] = useState([]);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [formData, setFormData] = useState({});
+  const [fieldErrors, setFieldErrors] = useState({});
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [userToDelete, setUserToDelete] = useState(null);
   const [editingUser, setEditingUser] = useState(null);
@@ -143,11 +145,13 @@ export default function UsersPage() {
   const openCreateSheet = () => {
     setEditingUser(null);
     setFormData({ role: "noc" });
+    setFieldErrors({});
     setSheetOpen(true);
   };
 
   const openEditSheet = (user) => {
     setEditingUser(user);
+    setFieldErrors({});
     setFormData({
       name: user.name || "",
       username: user.username || "",
@@ -165,9 +169,22 @@ export default function UsersPage() {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
+    const errors = {};
+    if (!formData.name?.trim()) errors.name = true;
+    if (!formData.username?.trim()) errors.username = true;
+    if (!formData.email?.trim()) errors.email = true;
+    if (!editingUser && !formData.password?.trim()) errors.password = true;
+    if (!formData.department_id) errors.department_id = true;
+
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      return;
+    }
+    setFieldErrors({});
+
     try {
       const token = localStorage.getItem("token");
-      
+
       if (editingUser) {
         // Update existing user
         const res = await axios.put(`${API}/users/${editingUser.id}`, formData, {
@@ -396,37 +413,49 @@ export default function UsersPage() {
           </SheetHeader>
           <form onSubmit={handleSubmit} className="space-y-4 mt-6">
             <div className="space-y-2">
-                      <Label>Full Name *</Label>
+                      <Label>Full Name <RequiredAsterisk /></Label>
               <Input
                 value={formData.name || ""}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white"
+                onChange={(e) => {
+                  setFormData({ ...formData, name: e.target.value });
+                  setFieldErrors((prev) => ({ ...prev, name: false }));
+                }}
+                className={`bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white ${fieldErrors.name ? "border-red-500 focus-visible:ring-red-500" : ""}`}
                 data-testid="name-input"
                 required
               />
+              {fieldErrors.name && <FieldError />}
             </div>
 
             <div className="space-y-2">
-              <Label>Username *</Label>
+              <Label>Username <RequiredAsterisk /></Label>
               <Input
                 value={formData.username || ""}
-                onChange={(e) => setFormData({ ...formData, username: e.target.value })}
-                className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white"
+                onChange={(e) => {
+                  setFormData({ ...formData, username: e.target.value });
+                  setFieldErrors((prev) => ({ ...prev, username: false }));
+                }}
+                className={`bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white ${fieldErrors.username ? "border-red-500 focus-visible:ring-red-500" : ""}`}
                 data-testid="username-input"
                 required
               />
+              {fieldErrors.username && <FieldError />}
             </div>
 
             <div className="space-y-2">
-                <Label>Email *</Label>
+                <Label>Email <RequiredAsterisk /></Label>
               <Input
                 type="email"
                 value={formData.email || ""}
-                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white"
+                onChange={(e) => {
+                  setFormData({ ...formData, email: e.target.value });
+                  setFieldErrors((prev) => ({ ...prev, email: false }));
+                }}
+                className={`bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white ${fieldErrors.email ? "border-red-500 focus-visible:ring-red-500" : ""}`}
                        data-testid="email-input"
                  required
               />
+              {fieldErrors.email && <FieldError />}
             </div>
 
             <div className="space-y-2">
@@ -439,25 +468,32 @@ export default function UsersPage() {
             </div>
 
             <div className="space-y-2">
-              <Label>Password {editingUser ? "" : "*"}</Label>
+              <Label>Password {!editingUser && <RequiredAsterisk />}</Label>
               <Input
                 type="password"
                 value={formData.password || ""}
-                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white"
+                onChange={(e) => {
+                  setFormData({ ...formData, password: e.target.value });
+                  setFieldErrors((prev) => ({ ...prev, password: false }));
+                }}
+                className={`bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white ${fieldErrors.password ? "border-red-500 focus-visible:ring-red-500" : ""}`}
                 data-testid="password-input"
                 required={!editingUser}
               />
+              {fieldErrors.password && <FieldError />}
             </div>
 
             <div className="space-y-2">
-              <Label>Department *</Label>
+              <Label>Department <RequiredAsterisk /></Label>
               <Select
                 value={formData.department_id}
-                onValueChange={(value) => setFormData({ ...formData, department_id: value })}
+                onValueChange={(value) => {
+                  setFormData({ ...formData, department_id: value });
+                  setFieldErrors((prev) => ({ ...prev, department_id: false }));
+                }}
                 required
               >
-                <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700" data-testid="department-select">
+                <SelectTrigger className={`bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 ${fieldErrors.department_id ? "border-red-500 focus:ring-red-500" : ""}`} data-testid="department-select">
                   <SelectValue placeholder="Select department" />
                 </SelectTrigger>
                 <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
@@ -468,6 +504,7 @@ export default function UsersPage() {
                   ))}
                 </SelectContent>
               </Select>
+              {fieldErrors.department_id && <FieldError>Please select a department</FieldError>}
             </div>
 
             {/* Legacy role field - kept for backward compatibility */}

@@ -22,6 +22,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import StatusBadge from "@/components/custom/StatusBadge";
 import PriorityIndicator from "@/components/custom/PriorityIndicator";
 import SearchableSelect from "@/components/custom/SearchableSelect";
+import { FieldError, RequiredAsterisk } from "@/components/ui/field-error";
 import { DateRangePickerWithRange } from "@/components/custom/DateRangePickerWithRange";
 import IssueTypeSelect, { VOICE_ISSUE_TYPES } from "@/components/custom/IssueTypeSelect";
 import OpenedViaSelect from "@/components/custom/OpenedViaSelect";
@@ -76,6 +77,7 @@ export default function VoiceTicketsPage() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editingTicket, setEditingTicket] = useState(null);
   const [formData, setFormData] = useState({});
+  const [fieldErrors, setFieldErrors] = useState({});
   const [currentUser, setCurrentUser] = useState(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [ticketToDelete, setTicketToDelete] = useState(null);
@@ -617,6 +619,27 @@ export default function VoiceTicketsPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    // Compute inline (red border / FieldError) state for all mandatory fields
+    // up front, so every missing field is highlighted at once. The individual
+    // toast-driven checks below are left as-is and still gate the API call.
+    const hasIssueTypeValue = (formData.issue_types && formData.issue_types.length > 0) || (formData.issue_other && formData.issue_other.trim().length > 0);
+    const mandatoryErrors = {
+      priority: !formData.priority,
+      status: !formData.status,
+      volume: !formData.volume,
+      customer_id: !formData.customer_id,
+      customer_trunk: !formData.customer_trunk,
+      destination: !formData.destination,
+      issue_type: !hasIssueTypeValue,
+      opened_via: !formData.opened_via || formData.opened_via.length === 0,
+      assigned_to: formData.status === "Assigned" && !formData.assigned_to,
+    };
+    if (Object.values(mandatoryErrors).some(Boolean)) {
+      setFieldErrors(mandatoryErrors);
+    } else {
+      setFieldErrors({});
+    }
 
     // ✅ Priority required
     if (!formData.priority) {
@@ -1292,9 +1315,9 @@ export default function VoiceTicketsPage() {
           <form onSubmit={handleSubmit} className="space-y-4 mt-6">
             {/* Priority */}
             <div className="space-y-2">
-              <Label>Priority *</Label>
-              <Select value={formData.priority} onValueChange={(value) => setFormData({ ...formData, priority: value })} required disabled={isAM}>
-                <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white"><SelectValue placeholder="Select priority" /></SelectTrigger>
+              <Label>Priority <RequiredAsterisk /></Label>
+              <Select value={formData.priority} onValueChange={(value) => { setFormData({ ...formData, priority: value }); setFieldErrors(prev => ({ ...prev, priority: false })); }} required disabled={isAM}>
+                <SelectTrigger className={`bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white ${fieldErrors.priority ? "border-red-500 focus:ring-red-500" : ""}`}><SelectValue placeholder="Select priority" /></SelectTrigger>
                 <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
                   <SelectItem value="Low" className="text-gray-900 dark:text-white">Low</SelectItem>
                   <SelectItem value="Medium" className="text-gray-900 dark:text-white">Medium</SelectItem>
@@ -1302,40 +1325,45 @@ export default function VoiceTicketsPage() {
                   <SelectItem value="Urgent" className="text-gray-900 dark:text-white">Urgent</SelectItem>
                 </SelectContent>
               </Select>
+              {fieldErrors.priority && <FieldError />}
             </div>
 
             {/* Volume */}
             <div className="space-y-2">
-              <Label>Volume *</Label>
-              <Input value={formData.volume || ""} onChange={(e) => setFormData({ ...formData, volume: e.target.value })} className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white" placeholder="Enter volume" required disabled={isAM} />
+              <Label>Volume <RequiredAsterisk /></Label>
+              <Input value={formData.volume || ""} onChange={(e) => { setFormData({ ...formData, volume: e.target.value }); setFieldErrors(prev => ({ ...prev, volume: false })); }} className={`bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white ${fieldErrors.volume ? "border-red-500 focus-visible:ring-red-500" : ""}`} placeholder="Enter volume" required disabled={isAM} />
+              {fieldErrors.volume && <FieldError />}
             </div>
 
             {/* Customer */}
             <div className="space-y-2">
-              <Label>Customer *</Label>
-              <SearchableSelect 
-                options={enterprises.filter(e => e.enterprise_type === "voice").map(e => ({ value: e.id, label: e.name }))} 
-                value={formData.customer_id} 
+              <Label>Customer <RequiredAsterisk /></Label>
+              <SearchableSelect
+                options={enterprises.filter(e => e.enterprise_type === "voice").map(e => ({ value: e.id, label: e.name }))}
+                value={formData.customer_id}
                 onChange={(value) => {
-                  setFormData({ 
-                    ...formData, 
+                  setFormData({
+                    ...formData,
                     customer_id: value,
                     customer_trunk: "" // Clear trunk when enterprise changes
                   });
-                }} 
-                placeholder="Search customer..." 
-                isRequired={true} 
-                isDisabled={isAM} 
+                  setFieldErrors(prev => ({ ...prev, customer_id: false }));
+                }}
+                placeholder="Search customer..."
+                isRequired={true}
+                isDisabled={isAM}
+                hasError={!!fieldErrors.customer_id}
               />
+              {fieldErrors.customer_id && <FieldError>Please select a customer</FieldError>}
             </div>
 
             {/* Customer Trunk */}
             <div className="space-y-2">
-              <Label>Customer Trunk *</Label>
-              <Select value={formData.customer_trunk || ""} onValueChange={(value) => setFormData({ ...formData, customer_trunk: value })} required disabled={isAM || !formData.customer_id}>
-                <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700"><SelectValue placeholder={formData.customer_id ? "Select customer trunk" : "Select customer first"} /></SelectTrigger>
+              <Label>Customer Trunk <RequiredAsterisk /></Label>
+              <Select value={formData.customer_trunk || ""} onValueChange={(value) => { setFormData({ ...formData, customer_trunk: value }); setFieldErrors(prev => ({ ...prev, customer_trunk: false })); }} required disabled={isAM || !formData.customer_id}>
+                <SelectTrigger className={`bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 ${fieldErrors.customer_trunk ? "border-red-500 focus:ring-red-500" : ""}`}><SelectValue placeholder={formData.customer_id ? "Select customer trunk" : "Select customer first"} /></SelectTrigger>
                 <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
-                  {(formData.customer_id 
+                  {(formData.customer_id
                     ? enterprises.find(e => e.id === formData.customer_id)?.customer_trunks || []
                     : customerTrunkOptions
                   ).map((trunk) => (
@@ -1343,12 +1371,14 @@ export default function VoiceTicketsPage() {
                   ))}
                 </SelectContent>
               </Select>
+              {fieldErrors.customer_trunk && <FieldError>Please select a customer trunk</FieldError>}
             </div>
 
             {/* Destination */}
             <div className="space-y-2">
-              <Label>Destination *</Label>
-              <Input value={formData.destination || ""} onChange={(e) => setFormData({ ...formData, destination: e.target.value })} className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white" placeholder="Country - Network (e.g., USA - Verizon, UK - Vodafone)" required disabled={isAM} />
+              <Label>Destination <RequiredAsterisk /></Label>
+              <Input value={formData.destination || ""} onChange={(e) => { setFormData({ ...formData, destination: e.target.value }); setFieldErrors(prev => ({ ...prev, destination: false })); }} className={`bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white ${fieldErrors.destination ? "border-red-500 focus-visible:ring-red-500" : ""}`} placeholder="Country - Network (e.g., USA - Verizon, UK - Vodafone)" required disabled={isAM} />
+              {fieldErrors.destination && <FieldError />}
             </div>
             <div className="space-y-2">
               <Label>ANI/Origination</Label>
@@ -1360,32 +1390,35 @@ export default function VoiceTicketsPage() {
               selectedTypes={formData.issue_types || []}
               otherText={formData.issue_other || ""}
               fasType={formData.fas_type || ""}
-              onTypesChange={(types) => setFormData({ ...formData, issue_types: types })}
-              onOtherChange={(text) => setFormData({ ...formData, issue_other: text })}
+              onTypesChange={(types) => { setFormData({ ...formData, issue_types: types }); setFieldErrors(prev => ({ ...prev, issue_type: false })); }}
+              onOtherChange={(text) => { setFormData({ ...formData, issue_other: text }); setFieldErrors(prev => ({ ...prev, issue_type: false })); }}
               onFasTypeChange={(text) => setFormData({ ...formData, fas_type: text })}
               disabled={isAM}
               ticketType="voice"
             />
+            {fieldErrors.issue_type && <FieldError>Please select at least one issue type</FieldError>}
 
             {/* Opened Via - Multi-select checklist */}
             <OpenedViaSelect
               selectedOptions={formData.opened_via || []}
-              onChange={(options) => setFormData({ ...formData, opened_via: options })}
+              onChange={(options) => { setFormData({ ...formData, opened_via: options }); setFieldErrors(prev => ({ ...prev, opened_via: false })); }}
               disabled={isAM}
               ticketType="voice"
             />
+            {fieldErrors.opened_via && <FieldError>Please select at least one option</FieldError>}
 
             {/* Assigned To */}
             <div className="space-y-2">
-              <Label>Assigned To</Label>
-              <SearchableSelect options={users.map(u => ({ value: u.id, label: u.username }))} value={formData.assigned_to} onChange={(value) => setFormData({ ...formData, assigned_to: value })} placeholder="Search NOC member..." isDisabled={isAM} />
+              <Label>Assigned To {formData.status === "Assigned" && <RequiredAsterisk />}</Label>
+              <SearchableSelect options={users.map(u => ({ value: u.id, label: u.username }))} value={formData.assigned_to} onChange={(value) => { setFormData({ ...formData, assigned_to: value }); setFieldErrors(prev => ({ ...prev, assigned_to: false })); }} placeholder="Search NOC member..." isDisabled={isAM} hasError={!!fieldErrors.assigned_to} />
+              {fieldErrors.assigned_to && <FieldError>Please assign a NOC member for an "Assigned" status</FieldError>}
             </div>
 
             {/* Status */}
             <div className="space-y-2">
-              <Label className="text-gray-900 dark:text-white">Status *</Label>
-              <Select value={formData.status} onValueChange={(value) => setFormData({ ...formData, status: value, assigned_to: value === "Unassigned" ? "" : formData.assigned_to })} required disabled={isAM}>
-                <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white"><SelectValue /></SelectTrigger>
+              <Label className="text-gray-900 dark:text-white">Status <RequiredAsterisk /></Label>
+              <Select value={formData.status} onValueChange={(value) => { setFormData({ ...formData, status: value, assigned_to: value === "Unassigned" ? "" : formData.assigned_to }); setFieldErrors(prev => ({ ...prev, status: false, assigned_to: value === "Assigned" ? prev.assigned_to : false })); }} required disabled={isAM}>
+                <SelectTrigger className={`bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white ${fieldErrors.status ? "border-red-500 focus:ring-red-500" : ""}`}><SelectValue /></SelectTrigger>
                 <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
                   <SelectItem value="Unassigned" className="text-gray-900 dark:text-white">Unassigned</SelectItem>
                   <SelectItem value="Assigned" className="text-gray-900 dark:text-white">Assigned</SelectItem>
@@ -1396,6 +1429,7 @@ export default function VoiceTicketsPage() {
                   <SelectItem value="Unresolved" className="text-gray-900 dark:text-white">Unresolved</SelectItem>
                 </SelectContent>
               </Select>
+              {fieldErrors.status && <FieldError />}
             </div>
 
             <div className="border-t border-gray-200 dark:border-zinc-700 pt-4 mt-4">

@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
+import { FieldError, RequiredAsterisk } from "@/components/ui/field-error";
 import MultiFilter from "@/components/custom/MultiFilter";
 import { useDebounce } from "@/hooks/useDebounce";
 import {
@@ -131,6 +132,9 @@ export default function ReferencesPage() {
     custom_traffic_type: "",
     vendor_entries: []
   });
+  // Inline validation errors for the create/edit reference list dialog -
+  // maps field name -> boolean, set on submit and cleared as the user edits.
+  const [fieldErrors, setFieldErrors] = useState({});
 
   useEffect(() => {
     fetchData();
@@ -401,6 +405,7 @@ export default function ReferencesPage() {
       });
       setVendorSearchQuery("");  // Reset vendor search when opening dialog
     }
+    setFieldErrors({});
     setDialogOpen(true);
   };
 
@@ -423,6 +428,7 @@ export default function ReferencesPage() {
         custom_traffic_type: selectedListForView.custom_traffic_type || "",
         vendor_entries: selectedListForView.vendor_entries || []
       });
+      setFieldErrors({});
       setDialogOpen(true);
     }
   };
@@ -436,7 +442,16 @@ export default function ReferencesPage() {
         ? formData.custom_traffic_type 
         : formData.traffic_type;
       
-      if (!formData.name || !formData.destination || !formData.traffic_type) {
+      // Compute which mandatory fields are empty and mark them for inline
+      // red-border / FieldError display, in addition to the toast below.
+      const newFieldErrors = {};
+      if (!formData.name || !formData.name.trim()) newFieldErrors.name = true;
+      if (!formData.destination || !formData.destination.trim()) newFieldErrors.destination = true;
+      if (!formData.traffic_type) newFieldErrors.traffic_type = true;
+      if (formData.vendor_entries.length === 0) newFieldErrors.vendor_entries = true;
+
+      if (Object.keys(newFieldErrors).length > 0) {
+        setFieldErrors(newFieldErrors);
         toast({
           variant: "destructive",
           title: "Error",
@@ -444,8 +459,9 @@ export default function ReferencesPage() {
         });
         return;
       }
-      
+
       if (formData.traffic_type === "Other" && !formData.custom_traffic_type) {
+        setFieldErrors((prev) => ({ ...prev, custom_traffic_type: true }));
         toast({
           variant: "destructive",
           title: "Error",
@@ -453,6 +469,8 @@ export default function ReferencesPage() {
         });
         return;
       }
+
+      setFieldErrors({});
 
       // Validate vendor entries have numeric cost
       for (const entry of formData.vendor_entries) {
@@ -735,6 +753,7 @@ export default function ReferencesPage() {
         ...formData,
         vendor_entries: [...formData.vendor_entries, { trunk, cost: "", notes: "" }]
       });
+      setFieldErrors(prev => ({ ...prev, vendor_entries: false }));
     }
   };
 
@@ -1497,22 +1516,29 @@ export default function ReferencesPage() {
             {/* Basic Info */}
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="name" className="text-gray-900 dark:text-white">List Name *</Label>
+                <Label htmlFor="name" className="text-gray-900 dark:text-white">List Name <RequiredAsterisk /></Label>
                 <Input
                   id="name"
                   value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  onChange={(e) => {
+                    setFormData({ ...formData, name: e.target.value });
+                    setFieldErrors(prev => ({ ...prev, name: false }));
+                  }}
                   placeholder="e.g., Backup Vendors USA OTP"
-                  className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white placeholder:text-zinc-500"
+                  className={`bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white placeholder:text-zinc-500 ${fieldErrors.name ? "border-red-500 focus-visible:ring-red-500" : ""}`}
                 />
+                {fieldErrors.name && <FieldError />}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="traffic_type" className="text-gray-900 dark:text-white">Traffic Type *</Label>
+                <Label htmlFor="traffic_type" className="text-gray-900 dark:text-white">Traffic Type <RequiredAsterisk /></Label>
                 <Select
                   value={formData.traffic_type}
-                  onValueChange={(value) => setFormData({ ...formData, traffic_type: value })}
+                  onValueChange={(value) => {
+                    setFormData({ ...formData, traffic_type: value });
+                    setFieldErrors(prev => ({ ...prev, traffic_type: false }));
+                  }}
                 >
-                  <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white">
+                  <SelectTrigger className={`bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white ${fieldErrors.traffic_type ? "border-red-500 focus:ring-red-500" : ""}`}>
                     <SelectValue placeholder="Select traffic type" className="text-gray-500 dark:text-zinc-400" />
                   </SelectTrigger>
                   <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
@@ -1521,31 +1547,42 @@ export default function ReferencesPage() {
                     ))}
                   </SelectContent>
                 </Select>
+                {fieldErrors.traffic_type && <FieldError />}
                 {formData.traffic_type === "Other" && (
-                  <Input
-                    value={formData.custom_traffic_type || ""}
-                    onChange={(e) => setFormData({ ...formData, custom_traffic_type: e.target.value })}
-                    placeholder="Enter custom traffic type"
-                    className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white placeholder:text-zinc-500 mt-2"
-                  />
+                  <>
+                    <Input
+                      value={formData.custom_traffic_type || ""}
+                      onChange={(e) => {
+                        setFormData({ ...formData, custom_traffic_type: e.target.value });
+                        setFieldErrors(prev => ({ ...prev, custom_traffic_type: false }));
+                      }}
+                      placeholder="Enter custom traffic type"
+                      className={`bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white placeholder:text-zinc-500 mt-2 ${fieldErrors.custom_traffic_type ? "border-red-500 focus-visible:ring-red-500" : ""}`}
+                    />
+                    {fieldErrors.custom_traffic_type && <FieldError />}
+                  </>
                 )}
               </div>
             </div>
-            
+
             <div className="space-y-2">
-              <Label htmlFor="destination" className="text-gray-900 dark:text-white">Destination *</Label>
+              <Label htmlFor="destination" className="text-gray-900 dark:text-white">Destination <RequiredAsterisk /></Label>
               <Input
                 id="destination"
                 value={formData.destination}
-                onChange={(e) => setFormData({ ...formData, destination: e.target.value })}
+                onChange={(e) => {
+                  setFormData({ ...formData, destination: e.target.value });
+                  setFieldErrors(prev => ({ ...prev, destination: false }));
+                }}
                 placeholder="Country - Network (e.g., USA - Verizon, UK - Vodafone)"
-                className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white placeholder:text-zinc-500"
+                className={`bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white placeholder:text-zinc-500 ${fieldErrors.destination ? "border-red-500 focus-visible:ring-red-500" : ""}`}
               />
+              {fieldErrors.destination && <FieldError />}
             </div>
 
             {/* Vendor Selection */}
             <div className="space-y-2">
-              <Label className="text-gray-900 dark:text-white">Select Vendor Trunks *</Label>
+              <Label className="text-gray-900 dark:text-white">Select Vendor Trunks <RequiredAsterisk /></Label>
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-zinc-500" />
                 <Input
@@ -1555,8 +1592,8 @@ export default function ReferencesPage() {
                   className="pl-10 bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white placeholder:text-zinc-500"
                 />
               </div>
-              
-              <div className="border border-gray-200 dark:border-zinc-700 rounded-md max-h-48 overflow-y-auto mt-2 bg-white dark:bg-zinc-900">
+
+              <div className={`border rounded-md max-h-48 overflow-y-auto mt-2 bg-white dark:bg-zinc-900 ${fieldErrors.vendor_entries ? "border-red-500" : "border-gray-200 dark:border-zinc-700"}`}>
                 {filteredVendorTrunks.length === 0 ? (
                   <div className="p-4 text-center text-zinc-500">
                     No vendor trunks available
@@ -1588,6 +1625,7 @@ export default function ReferencesPage() {
                   {formData.vendor_entries.length} vendor(s) selected
                 </p>
               )}
+              {fieldErrors.vendor_entries && <FieldError>At least one vendor trunk must be selected</FieldError>}
             </div>
 
             {/* Selected Vendors with Cost and Custom Field */}

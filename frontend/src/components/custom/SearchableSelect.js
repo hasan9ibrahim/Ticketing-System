@@ -27,6 +27,7 @@ export const SearchableSelect = ({
   placeholder = "Select...",
   isRequired = false,
   isDisabled = false,
+  hasError = false,
   className = ""
 }) => {
   const { theme } = useTheme();
@@ -35,9 +36,9 @@ export const SearchableSelect = ({
     control: (base, state) => ({
       ...base,
       backgroundColor: colors.surface,
-      borderColor: state.isFocused ? '#10b981' : colors.border,
+      borderColor: state.isFocused ? '#10b981' : hasError ? '#ef4444' : colors.border,
       minHeight: '40px',
-      boxShadow: state.isFocused ? '0 0 0 1px #10b981' : 'none',
+      boxShadow: state.isFocused ? '0 0 0 1px #10b981' : hasError ? '0 0 0 1px #ef4444' : 'none',
       '&:hover': {
         borderColor: '#10b981'
       }

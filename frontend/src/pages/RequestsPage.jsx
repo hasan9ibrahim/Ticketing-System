@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
+import { FieldError, RequiredAsterisk } from "@/components/ui/field-error";
 import SearchableSelect from "@/components/custom/SearchableSelect";
 import IssueTypeSelect, { SMS_ISSUE_TYPES, VOICE_ISSUE_TYPES } from "@/components/custom/IssueTypeSelect";
 import { Plus, Search, Filter, Clock, CheckCircle, XCircle, AlertCircle, Edit, Trash2, Copy, X } from "lucide-react";
@@ -258,7 +259,9 @@ export default function RequestsPage() {
   // Separate state for Direction and With LCR to ensure updates work correctly
   const [trunkDirection, setTrunkDirection] = useState("");
   const [trunkWithLcr, setTrunkWithLcr] = useState(true);
-  
+  // Tracks which mandatory fields in the request dialog are empty after a failed submit attempt
+  const [fieldErrors, setFieldErrors] = useState({});
+
   // Initialize trunk states from formData when it changes (for editing)
   useEffect(() => {
     if (formData.request_type === "trunk_request_sms" || formData.request_type === "trunk_request_voice") {
@@ -526,6 +529,7 @@ export default function RequestsPage() {
   }, []);
 
   const handleRequestTypeChange = (type) => {
+    setFieldErrors({});
     setFormData({
       ...formData,
       request_type: type,
@@ -1021,23 +1025,43 @@ export default function RequestsPage() {
   const handleSubmit = async () => {
     // Validate before submitting
     if (!canSubmit()) {
-      // Check for percentage validation errors
+      // Highlight every empty mandatory field so the user can see exactly what's missing
+      setFieldErrors(getRequestFieldErrors());
+      // Check for percentage validation errors in the routing plan(s)
       if (formData.request_type === "rating_routing") {
-        const positions = formData.rating_vendor_trunks || {};
-        for (const [position, vendors] of Object.entries(positions)) {
-          const vendorsWithTrunk = (vendors || []).filter(v => v.trunk);
-          if (vendorsWithTrunk.length > 1) {
-            const percentageSum = vendorsWithTrunk.reduce((sum, v) => sum + (parseFloat(v.percentage) || 0), 0);
-            if (percentageSum !== 100) {
-              toast({ 
-                title: "Validation Error", 
-                description: `Position ${position}: Percentages must add up to 100% (currently ${percentageSum}%)`, 
-                variant: "destructive" 
-              });
-              return;
-            }
+        const routeRuleGroups = [
+          ...(formData.customer_trunk_configs || []).flatMap(config => config.routing?.route_rules || []),
+          ...(formData.use_common_routing ? (formData.common_route_rules || []) : []),
+        ];
+        let percentageErrorShown = false;
+        for (const rule of routeRuleGroups) {
+          const vendorsWithTrunk = (rule.vendors || []).filter(v => v.trunk);
+          if (vendorsWithTrunk.length <= 1) continue;
+          const zeroOrInvalidVendor = vendorsWithTrunk.find(v => {
+            const pct = parseFloat(v.percentage);
+            return isNaN(pct) || pct <= 0;
+          });
+          if (zeroOrInvalidVendor) {
+            toast({
+              title: "Validation Error",
+              description: `Vendor ${zeroOrInvalidVendor.trunk} has a 0% (or missing) percentage, which isn't accepted — every vendor in a routing plan must have a percentage greater than 0`,
+              variant: "destructive"
+            });
+            percentageErrorShown = true;
+            break;
+          }
+          const percentageSum = vendorsWithTrunk.reduce((sum, v) => sum + (parseFloat(v.percentage) || 0), 0);
+          if (percentageSum !== 100) {
+            toast({
+              title: "Validation Error",
+              description: `Percentages must add up to 100% (currently ${percentageSum}%)`,
+              variant: "destructive"
+            });
+            percentageErrorShown = true;
+            break;
           }
         }
+        if (percentageErrorShown) return;
       }
       // Validate destination format for investigation requests
       if (formData.request_type === "investigation" && formData.investigation_destination) {
@@ -1108,10 +1132,12 @@ export default function RequestsPage() {
       toast({ title: "Please fill all required fields", variant: "destructive" });
       return;
     }
-    
+
+    setFieldErrors({});
+
     try {
       const token = localStorage.getItem("token");
-      
+
       const requestData = {
         request_type: formData.request_type,
         request_type_label: formData.request_type_label,
@@ -1206,6 +1232,7 @@ export default function RequestsPage() {
   const handleEditRequest = (request) => {
     setIsEditMode(true);
     setEditingRequest(request);
+    setFieldErrors({});
     // Populate formData with the request data
     setFormData({
       request_type: request.request_type,
@@ -1291,6 +1318,7 @@ export default function RequestsPage() {
   const handleCloneRequest = (request) => {
     setIsEditMode(false);
     setEditingRequest(null);
+    setFieldErrors({});
     // Populate formData with the request data for cloning
     setFormData({
       request_type: request.request_type,
@@ -1380,6 +1408,7 @@ export default function RequestsPage() {
   const handleCreateLcrFromTesting = (request) => {
     setIsEditMode(false);
     setEditingRequest(null);
+    setFieldErrors({});
     // Populate formData with LCR request type, pre-filling common fields from Testing request
     setFormData({
       request_type: "lcr",
@@ -1641,6 +1670,20 @@ export default function RequestsPage() {
     ? (isSmsDepartment ? "sms" : isVoiceDepartment ? "voice" : userDepartment) 
     : activeTab;
 
+  // A route rule's vendors are valid only if every vendor with a trunk selected has a
+  // percentage greater than 0 (a 0% vendor would never receive traffic and must be rejected),
+  // and, when there is more than one vendor, the percentages sum to exactly 100.
+  const isRouteRuleVendorSplitValid = (vendors) => {
+    const vendorsWithTrunk = (vendors || []).filter(v => v.trunk);
+    if (vendorsWithTrunk.length <= 1) return true;
+    for (const vendor of vendorsWithTrunk) {
+      const pct = parseFloat(vendor.percentage);
+      if (isNaN(pct) || pct <= 0) return false;
+    }
+    const percentageSum = vendorsWithTrunk.reduce((sum, v) => sum + (parseFloat(v.percentage) || 0), 0);
+    return percentageSum === 100;
+  };
+
   // Validation for Rating/Routing - requires customer_trunk_configs with trunk and destination, and either rate or vendor trunk(s)
   const isRatingRoutingValid = () => {
     if (formData.request_type !== "rating_routing") return true;
@@ -1692,19 +1735,25 @@ export default function RequestsPage() {
       }
     }
     
-    // Validate percentages: if a rule has more than 1 vendor, percentages must add up to 100%
+    // Validate percentages: every vendor must have a percentage greater than 0, and if a rule
+    // has more than 1 vendor, percentages must add up to 100%
     for (const config of configs) {
       for (const rule of (config.routing?.route_rules || [])) {
-        const vendorsWithTrunk = (rule.vendors || []).filter(v => v.trunk);
-        if (vendorsWithTrunk.length > 1) {
-          const percentageSum = vendorsWithTrunk.reduce((sum, v) => sum + (parseFloat(v.percentage) || 0), 0);
-          if (percentageSum !== 100) {
-            return false;
-          }
+        if (!isRouteRuleVendorSplitValid(rule.vendors)) {
+          return false;
         }
       }
     }
-    
+
+    // Validate the common routing plan the same way, when it's in use
+    if (formData.use_common_routing) {
+      for (const rule of (formData.common_route_rules || [])) {
+        if (!isRouteRuleVendorSplitValid(rule.vendors)) {
+          return false;
+        }
+      }
+    }
+
     return true;
   };
 
@@ -1770,6 +1819,85 @@ export default function RequestsPage() {
     return formData.customer;
   };
 
+  // Mirrors canSubmit()'s per-type rules but at field granularity, so the dialog can
+  // highlight exactly which mandatory field(s) are empty after a failed submit attempt.
+  const getRequestFieldErrors = () => {
+    const errors = {};
+    const rt = formData.request_type;
+    if (!rt) {
+      errors.request_type = true;
+      return errors;
+    }
+
+    const requiresCustomer = rt !== "testing" && rt !== "investigation" && rt !== "translation" && rt !== "lcr" && rt !== "trunk_request_sms" && rt !== "trunk_request_voice" && rt !== "open_tt";
+    if (requiresCustomer) {
+      if (rt === "rating_routing") {
+        if (!formData.customer_ids || formData.customer_ids.length === 0) errors.customer_ids = true;
+      } else if (!formData.customer || !formData.customer.trim()) {
+        errors.customer = true;
+      }
+    }
+
+    if (rt === "rating_routing") {
+      const configs = formData.customer_trunk_configs || [];
+      const hasValidConfig = configs.some(config => config.trunk && (config.rating_pairs || []).some(p => p.destination));
+      if (!hasValidConfig) errors.customer_trunk_configs = true;
+    }
+
+    if (rt === "testing") {
+      if (!formData.destination || !formData.destination.trim()) errors.destination = true;
+      if (!formData.vendor_trunks.some(t => t.trunk)) errors.vendor_trunks = true;
+      if (displayTab === "voice" && !formData.test_type) errors.test_type = true;
+      if (displayTab === "sms" && !formData.vendor_trunks.some(t => (t.sid_content_pairs || []).some(p => p.sid && p.sid.trim() && p.content && p.content.trim()))) {
+        errors.sid_content_pairs = true;
+      }
+    }
+
+    if (rt === "translation") {
+      if (!formData.customer_id) errors.customer_id = true;
+      if (!formData.translation_type) errors.translation_type = true;
+      if (!formData.trunk_type) errors.trunk_type = true;
+      if (!formData.trunk_name) errors.trunk_name = true;
+      if (formData.translation_type === "sid_change" || formData.translation_type === "content_change") {
+        if (!formData.old_value) errors.old_value = true;
+        if (!formData.new_value) errors.new_value = true;
+      }
+      if (formData.translation_type === "sid_content_change") {
+        if (!formData.old_sid) errors.old_sid = true;
+        if (!formData.new_sid) errors.new_sid = true;
+        if (!formData.old_value) errors.old_value = true;
+        if (!formData.new_value) errors.new_value = true;
+      }
+      if (formData.translation_type === "remove" && !formData.word_to_remove) errors.word_to_remove = true;
+    }
+
+    if (rt === "investigation") {
+      if (!formData.customer_id) errors.customer_id = true;
+      if (!formData.customer_trunk) errors.customer_trunk = true;
+    }
+
+    if (rt === "lcr") {
+      if (!formData.destination) errors.destination = true;
+      if (!formData.lcr_type) errors.lcr_type = true;
+      if (!formData.lcr_change) errors.lcr_change = true;
+      if (!formData.vendor_trunks.some(t => t.trunk)) errors.vendor_trunks = true;
+    }
+
+    if (rt === "trunk_request_sms" || rt === "trunk_request_voice") {
+      if (!formData.customer_ids || formData.customer_ids.length === 0) errors.customer_ids = true;
+      if (!formData.trunk_type) errors.trunk_type = true;
+      if (!trunkDirection) errors.trunk_direction = true;
+    }
+
+    if (rt === "open_tt") {
+      if (!formData.destination) errors.destination = true;
+      if (!formData.vendor_trunks.some(t => t.trunk)) errors.vendor_trunks = true;
+      if (!formData.open_by) errors.open_by = true;
+    }
+
+    return errors;
+  };
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex justify-between items-center">
@@ -1784,6 +1912,7 @@ export default function RequestsPage() {
             setTrunkWithLcr(true);
             setIsEditMode(false);
             setEditingRequest(null);
+            setFieldErrors({});
             setDialogOpen(true);
           }} className="bg-amber-500 text-black hover:bg-amber-400">
             <Plus className="h-4 w-4 mr-2" />
@@ -2322,9 +2451,9 @@ export default function RequestsPage() {
           <div className="space-y-4">
             {/* Request Type */}
             <div>
-              <Label className="text-gray-500 dark:text-zinc-400">Request Type</Label>
+              <Label className="text-gray-500 dark:text-zinc-400">Request Type <RequiredAsterisk /></Label>
               <Select value={formData.request_type} onValueChange={handleRequestTypeChange}>
-                <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white">
+                <SelectTrigger className={`bg-gray-100 dark:bg-zinc-800 text-gray-900 dark:text-white ${fieldErrors.request_type ? "border-red-500 focus:ring-red-500" : "border-gray-200 dark:border-zinc-700"}`}>
                   <SelectValue placeholder="Select request type" />
                 </SelectTrigger>
                 <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
@@ -2351,6 +2480,7 @@ export default function RequestsPage() {
                   ))}
                 </SelectContent>
               </Select>
+              {fieldErrors.request_type && <FieldError>Please select a request type</FieldError>}
             </div>
 
             {/* Priority - Show only when request type is selected */}
@@ -2390,7 +2520,7 @@ export default function RequestsPage() {
             {formData.request_type && formData.request_type !== "testing" && formData.request_type !== "investigation" && formData.request_type !== "translation" && formData.request_type !== "lcr" && formData.request_type !== "trunk_request_sms" && formData.request_type !== "trunk_request_voice" && formData.request_type !== "open_tt" && (
               <div>
                 <Label className="text-gray-500 dark:text-zinc-400">
-                  {formData.request_type === "translation" || formData.request_type === "rating_routing" ? "Customer(s)" : "Customer"}
+                  {formData.request_type === "translation" || formData.request_type === "rating_routing" ? "Customer(s)" : "Customer"} <RequiredAsterisk />
                 </Label>
                 {formData.request_type === "rating_routing" ? (
                   <MultiSelect
@@ -2406,18 +2536,24 @@ export default function RequestsPage() {
                         customer: newIds.map(id => enterprises.find(e => e.id === id)?.name).filter(Boolean).join(", "),
                         customer_trunks: newIds.length > 0 ? formData.customer_trunks : { "": [{ destination: "", rate: "" }] }
                       });
+                      setFieldErrors(prev => ({ ...prev, customer_ids: false }));
                     }}
                     placeholder="Select enterprises..."
                     searchPlaceholder="Search enterprises..."
+                    hasError={!!fieldErrors.customer_ids}
                   />
                 ) : (
                   <Input
                     value={formData.customer}
-                    onChange={(e) => setFormData({ ...formData, customer: e.target.value })}
+                    onChange={(e) => {
+                      setFormData({ ...formData, customer: e.target.value });
+                      setFieldErrors(prev => ({ ...prev, customer: false }));
+                    }}
                     placeholder={formData.request_type === "translation" ? "Customer name" : "Customer name"}
-                    className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700"
+                    className={`bg-gray-100 dark:bg-zinc-800 ${fieldErrors.customer ? "border-red-500 focus-visible:ring-red-500" : "border-gray-200 dark:border-zinc-700"}`}
                   />
                 )}
+                {(fieldErrors.customer || fieldErrors.customer_ids) && <FieldError />}
               </div>
             )}
 
@@ -2570,20 +2706,26 @@ export default function RequestsPage() {
                                     </div>
                                     
                                     {/* Percentage - Only show when multiple vendors */}
-                                    {hasMultipleVendors && (
-                                      <div className="flex items-center gap-2 mt-2">
-                                        <span className="text-zinc-500 text-xs w-16">Percentage:</span>
-                                        <div className="flex items-center gap-1 flex-1">
-                                          <Input
-                                            value={vendor.percentage || ""}
-                                            onChange={(e) => updateVendorInCommonRule(ruleIndex, vendorIndex, "percentage", e.target.value)}
-                                            placeholder="0"
-                                            className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7 w-14"
-                                          />
-                                          <span className="text-zinc-500 text-xs">%</span>
+                                    {hasMultipleVendors && (() => {
+                                      const pctInvalid = vendor.trunk && (vendor.percentage === "" || vendor.percentage === undefined || isNaN(parseFloat(vendor.percentage)) || parseFloat(vendor.percentage) <= 0);
+                                      return (
+                                        <div className="flex items-center gap-2 mt-2">
+                                          <span className="text-zinc-500 text-xs w-16">Percentage: <RequiredAsterisk /></span>
+                                          <div className="flex flex-col flex-1">
+                                            <div className="flex items-center gap-1">
+                                              <Input
+                                                value={vendor.percentage || ""}
+                                                onChange={(e) => updateVendorInCommonRule(ruleIndex, vendorIndex, "percentage", e.target.value)}
+                                                placeholder="0"
+                                                className={`bg-white dark:bg-zinc-900 text-gray-900 dark:text-white text-xs h-7 w-14 ${pctInvalid ? "border-red-500 focus-visible:ring-red-500" : "border-gray-200 dark:border-zinc-700"}`}
+                                              />
+                                              <span className="text-zinc-500 text-xs">%</span>
+                                            </div>
+                                            {pctInvalid && <FieldError>A 0% vendor isn't accepted — enter a percentage greater than 0</FieldError>}
+                                          </div>
                                         </div>
-                                      </div>
-                                    )}
+                                      );
+                                    })()}
                                   </div>
                                 ))}
                                 
@@ -2744,16 +2886,20 @@ export default function RequestsPage() {
                         </div>
                         
                         {/* Customer Trunk Selection */}
-                        <Select 
-                          value={config.trunk || ""} 
-                          onValueChange={(value) => updateCustomerTrunkConfig(configIndex, "trunk", value)}
+                        <Label className="text-gray-500 dark:text-zinc-400 text-xs">Customer Trunk <RequiredAsterisk /></Label>
+                        <Select
+                          value={config.trunk || ""}
+                          onValueChange={(value) => {
+                            updateCustomerTrunkConfig(configIndex, "trunk", value);
+                            setFieldErrors(prev => ({ ...prev, customer_trunk_configs: false }));
+                          }}
                           required
                         >
-                          <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white mb-4">
+                          <SelectTrigger className={`bg-gray-100 dark:bg-zinc-800 text-gray-900 dark:text-white mb-1 ${fieldErrors.customer_trunk_configs && !config.trunk ? "border-red-500 focus:ring-red-500" : "border-gray-200 dark:border-zinc-700"}`}>
                             <SelectValue placeholder="Select customer trunk" />
                           </SelectTrigger>
                           <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
-                            {(formData.customer_ids || []).flatMap(customerId => 
+                            {(formData.customer_ids || []).flatMap(customerId =>
                               (enterprises.find(e => e.id === customerId)?.customer_trunks || []).map((tName) => (
                                 <SelectItem key={`${customerId}-${tName}`} value={tName} className="text-gray-900 dark:text-white">
                                   {enterprises.find(e => e.id === customerId)?.name} - {tName}
@@ -2762,7 +2908,8 @@ export default function RequestsPage() {
                             )}
                           </SelectContent>
                         </Select>
-                        
+                        {fieldErrors.customer_trunk_configs && !config.trunk && <FieldError />}
+
                         {/* Two-column layout: Rating Plan | Routing Plan */}
                         <div className="grid grid-cols-2 gap-4">
                           {/* Rating Plan Section - Compact with multiple destination-rate pairs */}
@@ -2772,6 +2919,7 @@ export default function RequestsPage() {
                               <span className="text-amber-300 font-medium text-sm">Rating Plan</span>
                             </div>
                             <div className="space-y-2">
+                              <Label className="text-gray-500 dark:text-zinc-400 text-xs">Destination <RequiredAsterisk /></Label>
                               {/* Destination-Rate pairs */}
                               {(destRates || []).map((pair, pairIndex) => (
                                 <div key={pairIndex} className="flex items-center gap-2">
@@ -2781,9 +2929,10 @@ export default function RequestsPage() {
                                       const newPairs = [...(config.rating_pairs || [{ destination: "", rate: "" }])];
                                       newPairs[pairIndex] = { ...newPairs[pairIndex], destination: e.target.value };
                                       updateCustomerTrunkConfig(configIndex, "rating_pairs", newPairs);
+                                      setFieldErrors(prev => ({ ...prev, customer_trunk_configs: false }));
                                     }}
                                     placeholder="Destination"
-                                    className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-8 flex-1"
+                                    className={`bg-white dark:bg-zinc-900 text-gray-900 dark:text-white text-xs h-8 flex-1 ${fieldErrors.customer_trunk_configs && !destRates.some(p => p.destination && p.destination.trim()) ? "border-red-500 focus-visible:ring-red-500" : "border-gray-200 dark:border-zinc-700"}`}
                                   />
                                   <Input
                                     value={pair.rate || ""}
@@ -2811,6 +2960,7 @@ export default function RequestsPage() {
                                   )}
                                 </div>
                               ))}
+                              {fieldErrors.customer_trunk_configs && !destRates.some(p => p.destination && p.destination.trim()) && <FieldError />}
                               {/* Add Destination-Rate button */}
                               <Button
                                 variant="ghost"
@@ -2954,20 +3104,26 @@ export default function RequestsPage() {
                                           </div>
                                           
                                           {/* Percentage - Only show when multiple vendors */}
-                                          {hasMultipleVendors && (
-                                            <div className="flex items-center gap-2 mt-2">
-                                              <span className="text-zinc-500 text-xs w-16">Percentage:</span>
-                                              <div className="flex items-center gap-1 flex-1">
-                                                <Input
-                                                  value={vendor.percentage || ""}
-                                                  onChange={(e) => updateVendorInRule(configIndex, ruleIndex, vendorIndex, "percentage", e.target.value)}
-                                                  placeholder="0"
-                                                  className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7 w-14"
-                                                />
-                                                <span className="text-zinc-500 text-xs">%</span>
+                                          {hasMultipleVendors && (() => {
+                                            const pctInvalid = vendor.trunk && (vendor.percentage === "" || vendor.percentage === undefined || isNaN(parseFloat(vendor.percentage)) || parseFloat(vendor.percentage) <= 0);
+                                            return (
+                                              <div className="flex items-center gap-2 mt-2">
+                                                <span className="text-zinc-500 text-xs w-16">Percentage: <RequiredAsterisk /></span>
+                                                <div className="flex flex-col flex-1">
+                                                  <div className="flex items-center gap-1">
+                                                    <Input
+                                                      value={vendor.percentage || ""}
+                                                      onChange={(e) => updateVendorInRule(configIndex, ruleIndex, vendorIndex, "percentage", e.target.value)}
+                                                      placeholder="0"
+                                                      className={`bg-white dark:bg-zinc-900 text-gray-900 dark:text-white text-xs h-7 w-14 ${pctInvalid ? "border-red-500 focus-visible:ring-red-500" : "border-gray-200 dark:border-zinc-700"}`}
+                                                    />
+                                                    <span className="text-zinc-500 text-xs">%</span>
+                                                  </div>
+                                                  {pctInvalid && <FieldError>A 0% vendor isn't accepted — enter a percentage greater than 0</FieldError>}
+                                                </div>
                                               </div>
-                                            </div>
-                                          )}
+                                            );
+                                          })()}
                                         </div>
                                       ))}
                                       
@@ -3132,9 +3288,9 @@ export default function RequestsPage() {
                 {/* Test Type - Only show for Voice */}
                 {displayTab === "voice" && (
                   <div>
-                    <Label className="text-gray-500 dark:text-zinc-400">Test Type</Label>
-                    <Select value={formData.test_type || ""} onValueChange={(v) => setFormData({ ...formData, test_type: v })}>
-                      <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white">
+                    <Label className="text-gray-500 dark:text-zinc-400">Test Type <RequiredAsterisk /></Label>
+                    <Select value={formData.test_type || ""} onValueChange={(v) => { setFormData({ ...formData, test_type: v }); setFieldErrors(prev => ({ ...prev, test_type: false })); }}>
+                      <SelectTrigger className={`bg-gray-100 dark:bg-zinc-800 text-gray-900 dark:text-white ${fieldErrors.test_type ? "border-red-500 focus:ring-red-500" : "border-gray-200 dark:border-zinc-700"}`}>
                         <SelectValue placeholder="Select test type" />
                       </SelectTrigger>
                       <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
@@ -3142,6 +3298,7 @@ export default function RequestsPage() {
                         <SelectItem value="manual_test" className="text-gray-900 dark:text-white">Manual Test</SelectItem>
                       </SelectContent>
                     </Select>
+                    {fieldErrors.test_type && <FieldError>Please select a test type</FieldError>}
                   </div>
                 )}
                 {/* Test Description - Only show for Voice (optional) */}
@@ -3158,16 +3315,17 @@ export default function RequestsPage() {
                   </div>
                 )}
                 <div>
-                  <Label className="text-gray-500 dark:text-zinc-400">Destination(s) (e.g., Country - Network)</Label>
+                  <Label className="text-gray-500 dark:text-zinc-400">Destination(s) (e.g., Country - Network) <RequiredAsterisk /></Label>
                   <Input
                     value={formData.destination}
-                    onChange={(e) => setFormData({ ...formData, destination: e.target.value })}
+                    onChange={(e) => { setFormData({ ...formData, destination: e.target.value }); setFieldErrors(prev => ({ ...prev, destination: false })); }}
                     placeholder="Destinations (e.g., Country - Network) (comma separated for multiple)"
-                    className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700"
+                    className={`bg-gray-100 dark:bg-zinc-800 ${fieldErrors.destination ? "border-red-500 focus-visible:ring-red-500" : "border-gray-200 dark:border-zinc-700"}`}
                   />
+                  {fieldErrors.destination && <FieldError />}
                 </div>
                 <div>
-                  <Label className="text-gray-500 dark:text-zinc-400">Vendor Trunk(s) to Test</Label>
+                  <Label className="text-gray-500 dark:text-zinc-400">Vendor Trunk(s) to Test <RequiredAsterisk /></Label>
                   <p className="text-xs text-zinc-500 mb-2">At least one vendor trunk is required</p>
                   {formData.vendor_trunks.map((trunk, index) => (
                     <div key={index} className="mb-4 p-3 bg-gray-100/50 dark:bg-zinc-800/50 rounded-lg border border-gray-200 dark:border-zinc-700">
@@ -3175,21 +3333,22 @@ export default function RequestsPage() {
                         <SearchableSelect
                           options={vendorTrunkOptions.map(vt => ({ value: vt, label: vt }))}
                           value={trunk.trunk}
-                          onChange={(value) => handleVendorTrunkChange(index, "trunk", value)}
+                          onChange={(value) => { handleVendorTrunkChange(index, "trunk", value); setFieldErrors(prev => ({ ...prev, vendor_trunks: false })); }}
                           placeholder="Select vendor trunk"
                           isRequired={true}
+                          hasError={!!fieldErrors.vendor_trunks && !trunk.trunk}
                           className="flex-1"
                         />
                         {formData.vendor_trunks.length > 1 && (
                           <Button variant="destructive" size="sm" onClick={() => removeVendorTrunk(index)}>X</Button>
                         )}
                       </div>
-                      
+
                       {/* SMS: SID/Content Pairs - Voice: ANI/A-Numbers */}
                       {displayTab === "sms" ? (
                         /* SID/Content Pairs for SMS */
                         <div className="ml-4 space-y-2">
-                          <Label className="text-zinc-500 text-xs">SID/Content Pairs</Label>
+                          <Label className="text-zinc-500 text-xs">SID/Content Pairs <RequiredAsterisk /></Label>
                           {(trunk.sid_content_pairs || []).map((pair, pairIndex) => (
                             <div key={pairIndex} className="flex gap-2">
                               <Input
@@ -3261,6 +3420,8 @@ export default function RequestsPage() {
                       )}
                     </div>
                   ))}
+                  {fieldErrors.vendor_trunks && <FieldError>At least one vendor trunk must be selected</FieldError>}
+                  {fieldErrors.sid_content_pairs && <FieldError>At least one SID/Content pair must be filled in</FieldError>}
                   <Button variant="outline" size="sm" onClick={addVendorTrunk} className="mt-2">
                     <Plus className="h-4 w-4 mr-1" /> Add Vendor Trunk
                   </Button>
@@ -3272,26 +3433,29 @@ export default function RequestsPage() {
             {formData.request_type === "translation" && (
               <>
                 <div>
-                  <Label className="text-gray-500 dark:text-zinc-400">Enterprise</Label>
-                  <SearchableSelect 
-                    options={enterprises.filter(e => e.enterprise_type === displayTab || e.enterprise_type === "all").map(e => ({ value: e.id, label: e.name }))} 
-                    value={formData.customer_id} 
+                  <Label className="text-gray-500 dark:text-zinc-400">Enterprise <RequiredAsterisk /></Label>
+                  <SearchableSelect
+                    options={enterprises.filter(e => e.enterprise_type === displayTab || e.enterprise_type === "all").map(e => ({ value: e.id, label: e.name }))}
+                    value={formData.customer_id}
                     onChange={(value) => {
-                      setFormData({ 
-                        ...formData, 
+                      setFormData({
+                        ...formData,
                         customer_id: value,
                         customer: enterprises.find(e => e.id === value)?.name || "",
                         trunk_name: ""
                       });
-                    }} 
-                    placeholder="Search enterprise..." 
+                      setFieldErrors(prev => ({ ...prev, customer_id: false }));
+                    }}
+                    placeholder="Search enterprise..."
                     isRequired={true}
+                    hasError={!!fieldErrors.customer_id}
                   />
+                  {fieldErrors.customer_id && <FieldError>Please select an enterprise</FieldError>}
                 </div>
                 <div>
-                  <Label className="text-gray-500 dark:text-zinc-400">Translation Type</Label>
-                  <Select value={formData.translation_type} onValueChange={(v) => setFormData({ ...formData, translation_type: v })}>
-                    <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
+                  <Label className="text-gray-500 dark:text-zinc-400">Translation Type <RequiredAsterisk /></Label>
+                  <Select value={formData.translation_type} onValueChange={(v) => { setFormData({ ...formData, translation_type: v }); setFieldErrors(prev => ({ ...prev, translation_type: false })); }}>
+                    <SelectTrigger className={`bg-gray-100 dark:bg-zinc-800 ${fieldErrors.translation_type ? "border-red-500 focus:ring-red-500" : "border-gray-200 dark:border-zinc-700"}`}>
                       <SelectValue placeholder="Select type" />
                     </SelectTrigger>
                     <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
@@ -3301,11 +3465,12 @@ export default function RequestsPage() {
                       <SelectItem value="remove">Remove from Content</SelectItem>
                     </SelectContent>
                   </Select>
+                  {fieldErrors.translation_type && <FieldError>Please select a translation type</FieldError>}
                 </div>
                 <div>
-                  <Label className="text-gray-500 dark:text-zinc-400">Trunk Type</Label>
-                  <Select value={formData.trunk_type} onValueChange={(v) => setFormData({ ...formData, trunk_type: v, trunk_name: "" })}>
-                    <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
+                  <Label className="text-gray-500 dark:text-zinc-400">Trunk Type <RequiredAsterisk /></Label>
+                  <Select value={formData.trunk_type} onValueChange={(v) => { setFormData({ ...formData, trunk_type: v, trunk_name: "" }); setFieldErrors(prev => ({ ...prev, trunk_type: false })); }}>
+                    <SelectTrigger className={`bg-gray-100 dark:bg-zinc-800 ${fieldErrors.trunk_type ? "border-red-500 focus:ring-red-500" : "border-gray-200 dark:border-zinc-700"}`}>
                       <SelectValue placeholder="Select trunk type" />
                     </SelectTrigger>
                     <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
@@ -3313,15 +3478,16 @@ export default function RequestsPage() {
                       <SelectItem value="vendor">Vendor Trunk</SelectItem>
                     </SelectContent>
                   </Select>
+                  {fieldErrors.trunk_type && <FieldError>Please select a trunk type</FieldError>}
                 </div>
                 <div>
-                  <Label className="text-gray-500 dark:text-zinc-400">Trunk Name *</Label>
-                  <Select value={formData.trunk_name || ""} onValueChange={(v) => setFormData({ ...formData, trunk_name: v })} required disabled={!formData.customer_id || !formData.trunk_type}>
-                    <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white">
+                  <Label className="text-gray-500 dark:text-zinc-400">Trunk Name <RequiredAsterisk /></Label>
+                  <Select value={formData.trunk_name || ""} onValueChange={(v) => { setFormData({ ...formData, trunk_name: v }); setFieldErrors(prev => ({ ...prev, trunk_name: false })); }} required disabled={!formData.customer_id || !formData.trunk_type}>
+                    <SelectTrigger className={`bg-gray-100 dark:bg-zinc-800 text-gray-900 dark:text-white ${fieldErrors.trunk_name ? "border-red-500 focus:ring-red-500" : "border-gray-200 dark:border-zinc-700"}`}>
                       <SelectValue placeholder={formData.trunk_type ? "Select trunk" : "Select trunk type first"} />
                     </SelectTrigger>
                     <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
-                      {(formData.trunk_type === "customer" 
+                      {(formData.trunk_type === "customer"
                         ? enterprises.find(e => e.id === formData.customer_id)?.customer_trunks || []
                         : formData.trunk_type === "vendor"
                           ? vendorTrunkOptions.filter(vt => {
@@ -3335,48 +3501,53 @@ export default function RequestsPage() {
                       ))}
                     </SelectContent>
                   </Select>
+                  {fieldErrors.trunk_name && <FieldError>Please select a trunk</FieldError>}
                 </div>
                 {formData.translation_type === "sid_change" && (
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <Label className="text-gray-500 dark:text-zinc-400">Old SID</Label>
+                      <Label className="text-gray-500 dark:text-zinc-400">Old SID <RequiredAsterisk /></Label>
                       <Input
                         value={formData.old_value}
-                        onChange={(e) => setFormData({ ...formData, old_value: e.target.value })}
+                        onChange={(e) => { setFormData({ ...formData, old_value: e.target.value }); setFieldErrors(prev => ({ ...prev, old_value: false })); }}
                         placeholder="Current SID"
-                        className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700"
+                        className={`bg-gray-100 dark:bg-zinc-800 ${fieldErrors.old_value ? "border-red-500 focus-visible:ring-red-500" : "border-gray-200 dark:border-zinc-700"}`}
                       />
+                      {fieldErrors.old_value && <FieldError />}
                     </div>
                     <div>
-                      <Label className="text-gray-500 dark:text-zinc-400">New SID</Label>
+                      <Label className="text-gray-500 dark:text-zinc-400">New SID <RequiredAsterisk /></Label>
                       <Input
                         value={formData.new_value}
-                        onChange={(e) => setFormData({ ...formData, new_value: e.target.value })}
+                        onChange={(e) => { setFormData({ ...formData, new_value: e.target.value }); setFieldErrors(prev => ({ ...prev, new_value: false })); }}
                         placeholder="New SID"
-                        className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700"
+                        className={`bg-gray-100 dark:bg-zinc-800 ${fieldErrors.new_value ? "border-red-500 focus-visible:ring-red-500" : "border-gray-200 dark:border-zinc-700"}`}
                       />
+                      {fieldErrors.new_value && <FieldError />}
                     </div>
                   </div>
                 )}
                 {formData.translation_type === "content_change" && (
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <Label className="text-gray-500 dark:text-zinc-400">Old Content</Label>
+                      <Label className="text-gray-500 dark:text-zinc-400">Old Content <RequiredAsterisk /></Label>
                       <Input
                         value={formData.old_value}
-                        onChange={(e) => setFormData({ ...formData, old_value: e.target.value })}
+                        onChange={(e) => { setFormData({ ...formData, old_value: e.target.value }); setFieldErrors(prev => ({ ...prev, old_value: false })); }}
                         placeholder="Current Content"
-                        className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700"
+                        className={`bg-gray-100 dark:bg-zinc-800 ${fieldErrors.old_value ? "border-red-500 focus-visible:ring-red-500" : "border-gray-200 dark:border-zinc-700"}`}
                       />
+                      {fieldErrors.old_value && <FieldError />}
                     </div>
                     <div>
-                      <Label className="text-gray-500 dark:text-zinc-400">New Content</Label>
+                      <Label className="text-gray-500 dark:text-zinc-400">New Content <RequiredAsterisk /></Label>
                       <Input
                         value={formData.new_value}
-                        onChange={(e) => setFormData({ ...formData, new_value: e.target.value })}
+                        onChange={(e) => { setFormData({ ...formData, new_value: e.target.value }); setFieldErrors(prev => ({ ...prev, new_value: false })); }}
                         placeholder="New Content"
-                        className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700"
+                        className={`bg-gray-100 dark:bg-zinc-800 ${fieldErrors.new_value ? "border-red-500 focus-visible:ring-red-500" : "border-gray-200 dark:border-zinc-700"}`}
                       />
+                      {fieldErrors.new_value && <FieldError />}
                     </div>
                   </div>
                 )}
@@ -3384,55 +3555,60 @@ export default function RequestsPage() {
                   <>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <Label className="text-gray-500 dark:text-zinc-400">Old SID</Label>
+                        <Label className="text-gray-500 dark:text-zinc-400">Old SID <RequiredAsterisk /></Label>
                         <Input
                           value={formData.old_sid}
-                          onChange={(e) => setFormData({ ...formData, old_sid: e.target.value })}
+                          onChange={(e) => { setFormData({ ...formData, old_sid: e.target.value }); setFieldErrors(prev => ({ ...prev, old_sid: false })); }}
                           placeholder="Current SID"
-                          className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700"
+                          className={`bg-gray-100 dark:bg-zinc-800 ${fieldErrors.old_sid ? "border-red-500 focus-visible:ring-red-500" : "border-gray-200 dark:border-zinc-700"}`}
                         />
+                        {fieldErrors.old_sid && <FieldError />}
                       </div>
                       <div>
-                        <Label className="text-gray-500 dark:text-zinc-400">New SID</Label>
+                        <Label className="text-gray-500 dark:text-zinc-400">New SID <RequiredAsterisk /></Label>
                         <Input
                           value={formData.new_sid}
-                          onChange={(e) => setFormData({ ...formData, new_sid: e.target.value })}
+                          onChange={(e) => { setFormData({ ...formData, new_sid: e.target.value }); setFieldErrors(prev => ({ ...prev, new_sid: false })); }}
                           placeholder="New SID"
-                          className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700"
+                          className={`bg-gray-100 dark:bg-zinc-800 ${fieldErrors.new_sid ? "border-red-500 focus-visible:ring-red-500" : "border-gray-200 dark:border-zinc-700"}`}
                         />
+                        {fieldErrors.new_sid && <FieldError />}
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-4 mt-4">
                       <div>
-                        <Label className="text-gray-500 dark:text-zinc-400">Old Content</Label>
+                        <Label className="text-gray-500 dark:text-zinc-400">Old Content <RequiredAsterisk /></Label>
                         <Input
                           value={formData.old_value}
-                          onChange={(e) => setFormData({ ...formData, old_value: e.target.value })}
+                          onChange={(e) => { setFormData({ ...formData, old_value: e.target.value }); setFieldErrors(prev => ({ ...prev, old_value: false })); }}
                           placeholder="Current Content"
-                          className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700"
+                          className={`bg-gray-100 dark:bg-zinc-800 ${fieldErrors.old_value ? "border-red-500 focus-visible:ring-red-500" : "border-gray-200 dark:border-zinc-700"}`}
                         />
+                        {fieldErrors.old_value && <FieldError />}
                       </div>
                       <div>
-                        <Label className="text-gray-500 dark:text-zinc-400">New Content</Label>
+                        <Label className="text-gray-500 dark:text-zinc-400">New Content <RequiredAsterisk /></Label>
                         <Input
                           value={formData.new_value}
-                          onChange={(e) => setFormData({ ...formData, new_value: e.target.value })}
+                          onChange={(e) => { setFormData({ ...formData, new_value: e.target.value }); setFieldErrors(prev => ({ ...prev, new_value: false })); }}
                           placeholder="New Content"
-                          className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700"
+                          className={`bg-gray-100 dark:bg-zinc-800 ${fieldErrors.new_value ? "border-red-500 focus-visible:ring-red-500" : "border-gray-200 dark:border-zinc-700"}`}
                         />
+                        {fieldErrors.new_value && <FieldError />}
                       </div>
                     </div>
                   </>
                 )}
                 {formData.translation_type === "remove" && (
                   <div>
-                    <Label className="text-gray-500 dark:text-zinc-400">Word to Remove</Label>
+                    <Label className="text-gray-500 dark:text-zinc-400">Word to Remove <RequiredAsterisk /></Label>
                     <Input
                       value={formData.word_to_remove}
-                      onChange={(e) => setFormData({ ...formData, word_to_remove: e.target.value })}
+                      onChange={(e) => { setFormData({ ...formData, word_to_remove: e.target.value }); setFieldErrors(prev => ({ ...prev, word_to_remove: false })); }}
                       placeholder="Word/phrase to remove from content"
-                      className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700"
+                      className={`bg-gray-100 dark:bg-zinc-800 ${fieldErrors.word_to_remove ? "border-red-500 focus-visible:ring-red-500" : "border-gray-200 dark:border-zinc-700"}`}
                     />
+                    {fieldErrors.word_to_remove && <FieldError />}
                   </div>
                 )}
                 <div>
@@ -3451,21 +3627,24 @@ export default function RequestsPage() {
             {formData.request_type === "investigation" && (
               <>
                 <div>
-                  <Label className="text-gray-500 dark:text-zinc-400">Enterprise</Label>
-                  <SearchableSelect 
-                    options={enterprises.filter(e => e.enterprise_type === displayTab || e.enterprise_type === "all").map(e => ({ value: e.id, label: e.name }))} 
-                    value={formData.customer_id} 
+                  <Label className="text-gray-500 dark:text-zinc-400">Enterprise <RequiredAsterisk /></Label>
+                  <SearchableSelect
+                    options={enterprises.filter(e => e.enterprise_type === displayTab || e.enterprise_type === "all").map(e => ({ value: e.id, label: e.name }))}
+                    value={formData.customer_id}
                     onChange={(value) => {
-                      setFormData({ 
-                        ...formData, 
+                      setFormData({
+                        ...formData,
                         customer_id: value,
                         customer: enterprises.find(e => e.id === value)?.name || "",
                         customer_trunk: ""
                       });
-                    }} 
-                    placeholder="Search enterprise..." 
+                      setFieldErrors(prev => ({ ...prev, customer_id: false }));
+                    }}
+                    placeholder="Search enterprise..."
                     isRequired={true}
+                    hasError={!!fieldErrors.customer_id}
                   />
+                  {fieldErrors.customer_id && <FieldError>Please select an enterprise</FieldError>}
                 </div>
                 <div>
                   <IssueTypeSelect
@@ -3478,13 +3657,13 @@ export default function RequestsPage() {
                   />
                 </div>
                 <div>
-                  <Label className="text-gray-500 dark:text-zinc-400">Customer Trunk *</Label>
-                  <Select value={formData.customer_trunk || ""} onValueChange={(value) => setFormData({ ...formData, customer_trunk: value })} required disabled={!formData.customer_id}>
-                    <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white">
+                  <Label className="text-gray-500 dark:text-zinc-400">Customer Trunk <RequiredAsterisk /></Label>
+                  <Select value={formData.customer_trunk || ""} onValueChange={(value) => { setFormData({ ...formData, customer_trunk: value }); setFieldErrors(prev => ({ ...prev, customer_trunk: false })); }} required disabled={!formData.customer_id}>
+                    <SelectTrigger className={`bg-gray-100 dark:bg-zinc-800 text-gray-900 dark:text-white ${fieldErrors.customer_trunk ? "border-red-500 focus:ring-red-500" : "border-gray-200 dark:border-zinc-700"}`}>
                       <SelectValue placeholder={formData.customer_id ? "Select customer trunk" : "Select customer first"} />
                     </SelectTrigger>
                     <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
-                      {(formData.customer_id 
+                      {(formData.customer_id
                         ? enterprises.find(e => e.id === formData.customer_id)?.customer_trunks || []
                         : []
                       ).map((trunk) => (
@@ -3492,6 +3671,7 @@ export default function RequestsPage() {
                       ))}
                     </SelectContent>
                   </Select>
+                  {fieldErrors.customer_trunk && <FieldError>Please select a customer trunk</FieldError>}
                 </div>
                 <div>
                   <Label className="text-gray-500 dark:text-zinc-400">Destination (e.g., Country - Network)</Label>
@@ -3519,18 +3699,19 @@ export default function RequestsPage() {
             {formData.request_type === "lcr" && (
               <>
                 <div>
-                  <Label className="text-gray-500 dark:text-zinc-400">Destination (e.g., Country - Network)</Label>
+                  <Label className="text-gray-500 dark:text-zinc-400">Destination (e.g., Country - Network) <RequiredAsterisk /></Label>
                   <Input
                     value={formData.destination}
-                    onChange={(e) => setFormData({ ...formData, destination: e.target.value })}
+                    onChange={(e) => { setFormData({ ...formData, destination: e.target.value }); setFieldErrors(prev => ({ ...prev, destination: false })); }}
                     placeholder="e.g., Ghana - MTN, Nigeria - All Networks"
-                    className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700"
+                    className={`bg-gray-100 dark:bg-zinc-800 ${fieldErrors.destination ? "border-red-500 focus-visible:ring-red-500" : "border-gray-200 dark:border-zinc-700"}`}
                   />
+                  {fieldErrors.destination && <FieldError />}
                 </div>
                 <div>
-                  <Label className="text-gray-500 dark:text-zinc-400">Which LCR (PRM, STD or CC)</Label>
-                  <Select value={formData.lcr_type} onValueChange={(v) => setFormData({ ...formData, lcr_type: v })}>
-                    <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white">
+                  <Label className="text-gray-500 dark:text-zinc-400">Which LCR (PRM, STD or CC) <RequiredAsterisk /></Label>
+                  <Select value={formData.lcr_type} onValueChange={(v) => { setFormData({ ...formData, lcr_type: v }); setFieldErrors(prev => ({ ...prev, lcr_type: false })); }}>
+                    <SelectTrigger className={`bg-gray-100 dark:bg-zinc-800 text-gray-900 dark:text-white ${fieldErrors.lcr_type ? "border-red-500 focus:ring-red-500" : "border-gray-200 dark:border-zinc-700"}`}>
                       <SelectValue placeholder="Select LCR type" />
                     </SelectTrigger>
                     <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
@@ -3539,11 +3720,12 @@ export default function RequestsPage() {
                       <SelectItem value="CC" className="text-gray-900 dark:text-white">CC</SelectItem>
                     </SelectContent>
                   </Select>
+                  {fieldErrors.lcr_type && <FieldError>Please select an LCR type</FieldError>}
                 </div>
                 <div>
-                  <Label className="text-gray-500 dark:text-zinc-400">Change</Label>
-                  <Select value={formData.lcr_change} onValueChange={(v) => setFormData({ ...formData, lcr_change: v })}>
-                    <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white">
+                  <Label className="text-gray-500 dark:text-zinc-400">Change <RequiredAsterisk /></Label>
+                  <Select value={formData.lcr_change} onValueChange={(v) => { setFormData({ ...formData, lcr_change: v }); setFieldErrors(prev => ({ ...prev, lcr_change: false })); }}>
+                    <SelectTrigger className={`bg-gray-100 dark:bg-zinc-800 text-gray-900 dark:text-white ${fieldErrors.lcr_change ? "border-red-500 focus:ring-red-500" : "border-gray-200 dark:border-zinc-700"}`}>
                       <SelectValue placeholder="Select change type" />
                     </SelectTrigger>
                     <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
@@ -3551,18 +3733,20 @@ export default function RequestsPage() {
                       <SelectItem value="drop" className="text-gray-900 dark:text-white">Drop</SelectItem>
                     </SelectContent>
                   </Select>
+                  {fieldErrors.lcr_change && <FieldError>Please select a change type</FieldError>}
                 </div>
                 <div>
-                  <Label className="text-gray-500 dark:text-zinc-400">Vendor Trunk(s) *</Label>
+                  <Label className="text-gray-500 dark:text-zinc-400">Vendor Trunk(s) <RequiredAsterisk /></Label>
                   <p className="text-xs text-zinc-500 mb-2">At least one vendor trunk is required</p>
                   {formData.vendor_trunks.map((trunk, index) => (
                     <div key={index} className="flex gap-2 mb-2">
                       <SearchableSelect
                         options={vendorTrunkOptions.map(vt => ({ value: vt, label: vt }))}
                         value={trunk.trunk}
-                        onChange={(value) => handleVendorTrunkChange(index, "trunk", value)}
+                        onChange={(value) => { handleVendorTrunkChange(index, "trunk", value); setFieldErrors(prev => ({ ...prev, vendor_trunks: false })); }}
                         placeholder="Select vendor trunk"
                         isRequired={true}
+                        hasError={!!fieldErrors.vendor_trunks && !trunk.trunk}
                         className="flex-1"
                       />
                       {formData.vendor_trunks.length > 1 && (
@@ -3570,6 +3754,7 @@ export default function RequestsPage() {
                       )}
                     </div>
                   ))}
+                  {fieldErrors.vendor_trunks && <FieldError>At least one vendor trunk must be selected</FieldError>}
                   <Button variant="outline" size="sm" onClick={addVendorTrunk} className="mt-2">
                     <Plus className="h-4 w-4 mr-1" /> Add Vendor Trunk
                   </Button>
@@ -3581,7 +3766,7 @@ export default function RequestsPage() {
             {(formData.request_type === "trunk_request_sms" || formData.request_type === "trunk_request_voice") && (
               <>
                 <div>
-                  <Label className="text-gray-500 dark:text-zinc-400">Customer(s)</Label>
+                  <Label className="text-gray-500 dark:text-zinc-400">Customer(s) <RequiredAsterisk /></Label>
                   <MultiSelect
                     options={enterprises
                       .filter(e => e.enterprise_type === displayTab || e.enterprise_type === "all")
@@ -3594,15 +3779,18 @@ export default function RequestsPage() {
                         customer_ids: newIds,
                         customer: newIds.map(id => enterprises.find(e => e.id === id)?.name).filter(Boolean).join(", ")
                       });
+                      setFieldErrors(prev => ({ ...prev, customer_ids: false }));
                     }}
                     placeholder="Select enterprises..."
                     searchPlaceholder="Search enterprises..."
+                    hasError={!!fieldErrors.customer_ids}
                   />
+                  {fieldErrors.customer_ids && <FieldError>At least one customer must be selected</FieldError>}
                 </div>
                 <div>
-                  <Label className="text-gray-500 dark:text-zinc-400">Trunk Type</Label>
-                  <Select value={formData.trunk_type} onValueChange={(v) => setFormData({ ...formData, trunk_type: v })}>
-                    <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white">
+                  <Label className="text-gray-500 dark:text-zinc-400">Trunk Type <RequiredAsterisk /></Label>
+                  <Select value={formData.trunk_type} onValueChange={(v) => { setFormData({ ...formData, trunk_type: v }); setFieldErrors(prev => ({ ...prev, trunk_type: false })); }}>
+                    <SelectTrigger className={`bg-gray-100 dark:bg-zinc-800 text-gray-900 dark:text-white ${fieldErrors.trunk_type ? "border-red-500 focus:ring-red-500" : "border-gray-200 dark:border-zinc-700"}`}>
                       <SelectValue placeholder="Select trunk type" />
                     </SelectTrigger>
                     <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
@@ -3628,14 +3816,15 @@ export default function RequestsPage() {
                       )}
                     </SelectContent>
                   </Select>
+                  {fieldErrors.trunk_type && <FieldError>Please select a trunk type</FieldError>}
                 </div>
                 <div>
-                  <Label className="text-gray-500 dark:text-zinc-400">Direction *</Label>
-                  <Select 
-                    value={trunkDirection} 
-                    onValueChange={(v) => setTrunkDirection(v)}
+                  <Label className="text-gray-500 dark:text-zinc-400">Direction <RequiredAsterisk /></Label>
+                  <Select
+                    value={trunkDirection}
+                    onValueChange={(v) => { setTrunkDirection(v); setFieldErrors(prev => ({ ...prev, trunk_direction: false })); }}
                   >
-                    <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white">
+                    <SelectTrigger className={`bg-gray-100 dark:bg-zinc-800 text-gray-900 dark:text-white ${fieldErrors.trunk_direction ? "border-red-500 focus:ring-red-500" : "border-gray-200 dark:border-zinc-700"}`}>
                       <SelectValue placeholder="Select direction" />
                     </SelectTrigger>
                     <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
@@ -3644,6 +3833,7 @@ export default function RequestsPage() {
                       <SelectItem value="Both" className="text-gray-900 dark:text-white">Both</SelectItem>
                     </SelectContent>
                   </Select>
+                  {fieldErrors.trunk_direction && <FieldError>Please select a direction</FieldError>}
                 </div>
                 <div className="flex items-center gap-2">
                   <input
@@ -3653,7 +3843,7 @@ export default function RequestsPage() {
                     onChange={(e) => setTrunkWithLcr(e.target.checked)}
                     className="w-4 h-4 accent-blue-500"
                   />
-                  <label htmlFor="with_lcr" className="text-gray-900 dark:text-white text-sm cursor-pointer">With LCR *</label>
+                  <label htmlFor="with_lcr" className="text-gray-900 dark:text-white text-sm cursor-pointer">With LCR</label>
                 </div>
               </>
             )}
@@ -3662,16 +3852,17 @@ export default function RequestsPage() {
             {formData.request_type === "open_tt" && (
               <>
                 <div>
-                  <Label className="text-gray-500 dark:text-zinc-400">Destination *</Label>
+                  <Label className="text-gray-500 dark:text-zinc-400">Destination <RequiredAsterisk /></Label>
                   <Input
                     value={formData.destination}
-                    onChange={(e) => setFormData({ ...formData, destination: e.target.value })}
+                    onChange={(e) => { setFormData({ ...formData, destination: e.target.value }); setFieldErrors(prev => ({ ...prev, destination: false })); }}
                     placeholder="e.g., Ghana - MTN, Nigeria - All Networks"
-                    className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white"
+                    className={`bg-gray-100 dark:bg-zinc-800 text-gray-900 dark:text-white ${fieldErrors.destination ? "border-red-500 focus-visible:ring-red-500" : "border-gray-200 dark:border-zinc-700"}`}
                   />
+                  {fieldErrors.destination && <FieldError />}
                 </div>
                 <div>
-                  <Label className="text-gray-500 dark:text-zinc-400">Vendor Trunk(s) *</Label>
+                  <Label className="text-gray-500 dark:text-zinc-400">Vendor Trunk(s) <RequiredAsterisk /></Label>
                   <p className="text-xs text-zinc-500 mb-2">Select vendor trunk(s)</p>
                   {formData.vendor_trunks.map((trunk, index) => (
                     <div key={index} className="mb-3 p-3 bg-gray-100/50 dark:bg-zinc-800/50 rounded-lg border border-gray-200 dark:border-zinc-700">
@@ -3679,9 +3870,10 @@ export default function RequestsPage() {
                         <SearchableSelect
                           options={vendorTrunkOptions.map(vt => ({ value: vt, label: vt }))}
                           value={trunk.trunk}
-                          onChange={(value) => handleVendorTrunkChange(index, "trunk", value)}
+                          onChange={(value) => { handleVendorTrunkChange(index, "trunk", value); setFieldErrors(prev => ({ ...prev, vendor_trunks: false })); }}
                           placeholder="Select vendor trunk"
                           isRequired={true}
+                          hasError={!!fieldErrors.vendor_trunks && !trunk.trunk}
                           className="flex-1"
                         />
                         {formData.vendor_trunks.length > 1 && (
@@ -3690,14 +3882,15 @@ export default function RequestsPage() {
                       </div>
                     </div>
                   ))}
+                  {fieldErrors.vendor_trunks && <FieldError>At least one vendor trunk must be selected</FieldError>}
                   <Button variant="outline" size="sm" onClick={addVendorTrunk} className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white hover:bg-gray-200 dark:hover:bg-zinc-700 mt-2">
                     <Plus className="h-4 w-4 mr-1" /> Add Vendor Trunk
                   </Button>
                 </div>
                 <div>
-                  <Label className="text-gray-500 dark:text-zinc-400">Open By *</Label>
-                  <Select value={formData.open_by} onValueChange={(v) => setFormData({ ...formData, open_by: v })}>
-                    <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white">
+                  <Label className="text-gray-500 dark:text-zinc-400">Open By <RequiredAsterisk /></Label>
+                  <Select value={formData.open_by} onValueChange={(v) => { setFormData({ ...formData, open_by: v }); setFieldErrors(prev => ({ ...prev, open_by: false })); }}>
+                    <SelectTrigger className={`bg-gray-100 dark:bg-zinc-800 text-gray-900 dark:text-white ${fieldErrors.open_by ? "border-red-500 focus:ring-red-500" : "border-gray-200 dark:border-zinc-700"}`}>
                       <SelectValue placeholder="Select how to open" />
                     </SelectTrigger>
                     <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
@@ -3705,6 +3898,7 @@ export default function RequestsPage() {
                       <SelectItem value="Email" className="text-gray-900 dark:text-white">Email</SelectItem>
                     </SelectContent>
                   </Select>
+                  {fieldErrors.open_by && <FieldError>Please select how to open</FieldError>}
                 </div>
                 <div>
                   <Label className="text-gray-500 dark:text-zinc-400">Notes (Optional)</Label>
