@@ -17,6 +17,7 @@ import { toast } from "sonner";
 import { playNotificationSound } from "@/lib/notificationSound";
 import { requestNotificationPermission, showNativeNotification } from "@/lib/nativeNotification";
 import { useChatSocket } from "@/hooks/useChatSocket";
+import { useIsMobile } from "@/hooks/useIsMobile";
 
 // A large curated set (not a full emoji library/dependency), organized into
 // browsable categories rather than one flat list - shared by both the
@@ -292,6 +293,9 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
   const [initialLoading, setInitialLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [minimized, setMinimized] = useState(true);
+  // Floating windows use fixed pixel widths/offsets on desktop; on mobile they
+  // instead take over the full viewport so a DM is never cut off half-visible.
+  const isMobile = useIsMobile();
   const [typingUsers, setTypingUsers] = useState({});
   const [newGroupOpen, setNewGroupOpen] = useState(false);
   // Full-screen "pop out" mode - a Teams-style conversation list + single
@@ -461,9 +465,12 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
       }
       ensureMessagesLoaded(conv.id);
       markAsRead(conv.id);
+      // On mobile the opened window takes over the full screen, so tuck the
+      // conversation list (main widget) away instead of leaving both visible.
+      if (isMobile) setMinimized(true);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [openChats, setOpenChats, setActiveChat, markAsRead]
+    [openChats, setOpenChats, setActiveChat, markAsRead, isMobile]
   );
 
   // Selects a conversation in the full-screen pane (the Teams-like layout's
@@ -1225,12 +1232,29 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
             const chatsAfter = openChats.slice(index + 1);
             const offsetAfter = chatsAfter.reduce((sum, c) => sum + (c.minimized ? 158 : 388), 0);
             const rightPos = 16 + mainTabWidth + 4 + offsetAfter;
+            // On mobile an open (non-minimized) window takes over the whole
+            // screen instead of the fixed 380px desktop box, which otherwise
+            // overflows the viewport and shows only half the window. Minimized
+            // tabs stay small but their right offset is clamped so they never
+            // get pushed off-screen on a narrow phone.
+            const isChatFullScreen = isMobile && !chat.minimized;
+            const clampedRight = isMobile
+              ? Math.min(rightPos, Math.max(8, window.innerWidth - (chat.minimized ? 150 : 380) - 8))
+              : rightPos;
 
             return (
               <div
                 key={chat.conversation_id}
-                className="fixed z-40 flex flex-col bg-white dark:bg-black border border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white transition-all duration-300 bottom-2"
-                style={{ right: `${rightPos}px`, width: chat.minimized ? "150px" : "380px", height: chat.minimized ? "50px" : "500px" }}
+                className={
+                  isChatFullScreen
+                    ? "fixed inset-0 z-50 flex flex-col bg-white dark:bg-black text-gray-900 dark:text-white"
+                    : "fixed z-40 flex flex-col bg-white dark:bg-black border border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white transition-all duration-300 bottom-2"
+                }
+                style={
+                  isChatFullScreen
+                    ? undefined
+                    : { right: `${clampedRight}px`, width: chat.minimized ? "150px" : "380px", height: chat.minimized ? "50px" : "500px" }
+                }
               >
                 {chat.minimized && (
                   <div
@@ -1270,12 +1294,18 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
             );
           })}
 
-          {/* Main Chat Widget */}
+          {/* Main Chat Widget - full screen on mobile when expanded, same reasoning
+              as the per-conversation windows above (a fixed 380px box otherwise
+              overflows a phone's viewport). */}
           <div
-            className={`fixed bottom-0 right-4 z-50 flex flex-col bg-white dark:bg-black border border-gray-200 dark:border-zinc-800 ${
-              minimized ? "h-12" : "h-[500px]"
-            } transition-all duration-300 text-gray-900 dark:text-white`}
-            style={{ width: minimized ? "60px" : "380px" }}
+            className={
+              isMobile && !minimized
+                ? "fixed inset-0 z-50 flex flex-col bg-white dark:bg-black text-gray-900 dark:text-white"
+                : `fixed bottom-0 right-4 z-50 flex flex-col bg-white dark:bg-black border border-gray-200 dark:border-zinc-800 ${
+                    minimized ? "h-12" : "h-[500px]"
+                  } transition-all duration-300 text-gray-900 dark:text-white`
+            }
+            style={isMobile && !minimized ? undefined : { width: minimized ? "60px" : "380px" }}
           >
             <div
               className="flex items-center justify-between px-3 py-2 bg-white dark:bg-zinc-900 border-b border-black/10 dark:border-white/10 rounded-t-lg cursor-pointer hover:bg-gray-100 dark:hover:bg-zinc-800"
@@ -1887,6 +1917,22 @@ function ChatWindowView({
   // Which message's quick-reaction popover is open, if any - a single
   // shared value rather than one open-state per message row.
   const [reactionPickerFor, setReactionPickerFor] = useState(null);
+  // Swipe-down-to-minimize on mobile, where this window fills the screen and
+  // there's no room for a desktop-style title bar full of small icon buttons.
+  const isMobile = useIsMobile();
+  const swipeStartYRef = useRef(null);
+  const handleHeaderTouchStart = (e) => {
+    if (!isMobile) return;
+    swipeStartYRef.current = e.touches[0].clientY;
+  };
+  const handleHeaderTouchEnd = (e) => {
+    if (!isMobile || swipeStartYRef.current == null) return;
+    const deltaY = e.changedTouches[0].clientY - swipeStartYRef.current;
+    swipeStartYRef.current = null;
+    if (deltaY > 70) {
+      (onMinimize || onClose)?.();
+    }
+  };
   // @mention autocomplete: mentionQuery is null when no "@..." is currently
   // being typed; mentionStart is the index of the triggering "@" within
   // whichever text field (message or editingText) is currently active.
@@ -2251,7 +2297,11 @@ function ChatWindowView({
             </span>
           </div>
         )}
-        <div className="flex items-center justify-between gap-2 px-2 py-1 border-b border-black/10 dark:border-white/10 bg-white dark:bg-zinc-900">
+        <div
+          className="flex items-center justify-between gap-2 px-2 py-1 border-b border-black/10 dark:border-white/10 bg-white dark:bg-zinc-900"
+          onTouchStart={handleHeaderTouchStart}
+          onTouchEnd={handleHeaderTouchEnd}
+        >
           <div className="flex items-center gap-2 min-w-0">
             <div className="relative flex-shrink-0">
               <Avatar className="w-8 h-8">
