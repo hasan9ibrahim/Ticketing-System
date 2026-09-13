@@ -47,7 +47,26 @@ import { useTheme } from "@/contexts/ThemeContext";
 
 export default function DashboardLayout({ user, setUser }) {
   const { theme, toggleTheme } = useTheme();
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  // Below the `lg` breakpoint the sidebar is an overlay drawer (closed by
+  // default so it doesn't push/cover the whole screen on a phone); at `lg`
+  // and up it's the existing inline push/collapse sidebar (open by default).
+  const [sidebarOpen, setSidebarOpen] = useState(
+    () => typeof window === "undefined" || window.innerWidth >= 1024
+  );
+  const sidebarTouchStartXRef = useRef(null);
+  const handleSidebarTouchStart = (e) => {
+    sidebarTouchStartXRef.current = e.touches[0].clientX;
+  };
+  const handleSidebarTouchEnd = (e) => {
+    if (sidebarTouchStartXRef.current == null) return;
+    const deltaX = e.changedTouches[0].clientX - sidebarTouchStartXRef.current;
+    sidebarTouchStartXRef.current = null;
+    // Swipe left to dismiss the mobile overlay drawer, mirroring the
+    // backdrop tap - only below `lg`, where the sidebar overlays content.
+    if (deltaX < -60 && window.innerWidth < 1024) {
+      setSidebarOpen(false);
+    }
+  };
   const [alerts, setAlerts] = useState([]);
   const [ticketModificationNotifications, setTicketModificationNotifications] = useState([]);
   const [assignedReminders, setAssignedReminders] = useState([]);
@@ -1066,11 +1085,24 @@ export default function DashboardLayout({ user, setUser }) {
         </div>
       )}
 
-      {/* Sidebar */}
+      {/* Mobile sidebar backdrop - below `lg` the sidebar overlays the page instead of
+          pushing it, so tapping outside it (like clicking away from a dropdown) closes it */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/50 lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+          data-testid="sidebar-backdrop"
+        />
+      )}
+
+      {/* Sidebar - overlay drawer below `lg` (fixed, slides in/out via transform,
+          swipeable closed), inline push/collapse sidebar at `lg` and up (unchanged) */}
       <aside
-        className={`${
-          sidebarOpen ? "w-64" : "w-0 lg:w-20"
+        className={`fixed inset-y-0 left-0 z-50 lg:relative lg:z-auto w-64 ${
+          sidebarOpen ? "translate-x-0 lg:w-64" : "-translate-x-full lg:translate-x-0 lg:w-20"
         } bg-white dark:bg-zinc-900 border-r border-black/5 dark:border-white/5 transition-all duration-300 flex-shrink-0`}
+        onTouchStart={handleSidebarTouchStart}
+        onTouchEnd={handleSidebarTouchEnd}
         data-testid="sidebar"
       >
         <div className="flex flex-col h-full">
@@ -1115,6 +1147,9 @@ export default function DashboardLayout({ user, setUser }) {
                         setChatExpanded(false);
                         navigate(item.path);
                       }
+                      // Auto-close the mobile overlay drawer after picking a
+                      // destination, so it doesn't sit on top of the new page.
+                      if (window.innerWidth < 1024) setSidebarOpen(false);
                     }}
                     className={`w-full justify-start h-11 ${
                       isActive
