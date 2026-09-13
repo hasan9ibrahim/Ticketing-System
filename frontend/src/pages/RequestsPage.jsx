@@ -118,7 +118,18 @@ export default function RequestsPage() {
   const user = JSON.parse(localStorage.getItem("user") || "{}");
   const userRole = user?.role || "";
   const userDepartment = user?.department?.name?.toLowerCase() || "";
-  
+
+  // For AMs, only show their department
+  // Use flexible matching to handle different department name formats
+  const isSmsDepartment = userDepartment?.startsWith("sms") || userDepartment === "sms";
+  const isVoiceDepartment = userDepartment?.startsWith("voice") || userDepartment === "voice";
+  const displayTab = userRole === "am"
+    ? (isSmsDepartment ? "sms" : isVoiceDepartment ? "voice" : userDepartment)
+    : activeTab;
+
+  // Default route rule priority differs by department: SMS defaults high (98), Voice defaults to top priority (0)
+  const getDefaultRoutePriority = () => (displayTab === "voice" ? 0 : 98);
+
   // Compute pending request counts by priority for badge display (only for NOC/Admin)
   const getPendingByPriority = useCallback((ticketType) => {
     if (userRole !== "noc" && userRole !== "admin") return {};
@@ -263,6 +274,9 @@ export default function RequestsPage() {
   // Separate state for Direction and With LCR to ensure updates work correctly
   const [trunkDirection, setTrunkDirection] = useState("");
   const [trunkWithLcr, setTrunkWithLcr] = useState(true);
+  // Tracks which pane (Rating or Routing) is currently focused per customer trunk config,
+  // so that pane can expand while the other shrinks to give it more room to fill in
+  const [activeConfigPane, setActiveConfigPane] = useState({});
   
   // Initialize trunk states from formData when it changes (for editing)
   useEffect(() => {
@@ -722,7 +736,7 @@ export default function RequestsPage() {
           rating_pairs: [{ destination: "", rate: "" }],
           routing: {
             route_rules: [{
-              priority: 1,
+              priority: getDefaultRoutePriority(),
               vendors: [{ trunk: "", percentage: "", cost_type: "fixed", cost_min: "", cost_max: "", note: "" }],
               by_loss: false,
               enable_mnp_hlr: false,
@@ -772,7 +786,7 @@ export default function RequestsPage() {
   // Common Route Rules functions
   const addCommonRouteRule = () => {
     const currentRules = formData.common_route_rules || [];
-    const newPriority = currentRules.length > 0 ? Math.max(...currentRules.map(r => r.priority || 0)) + 1 : 1;
+    const newPriority = getDefaultRoutePriority();
     setFormData({
       ...formData,
       common_route_rules: [
@@ -793,7 +807,7 @@ export default function RequestsPage() {
   const cloneCommonRouteRule = (ruleIndex) => {
     const currentRules = formData.common_route_rules || [];
     const sourceRule = currentRules[ruleIndex];
-    const newPriority = currentRules.length > 0 ? Math.max(...currentRules.map(r => r.priority || 0)) + 1 : 1;
+    const newPriority = getDefaultRoutePriority();
     // Deep clone the source rule and update priority
     const clonedRule = JSON.parse(JSON.stringify(sourceRule));
     clonedRule.priority = newPriority;
@@ -845,7 +859,7 @@ export default function RequestsPage() {
   const addRouteRule = (configIndex) => {
     const newConfigs = [...formData.customer_trunk_configs];
     const currentRules = newConfigs[configIndex].routing.route_rules || [];
-    const newPriority = currentRules.length + 1;
+    const newPriority = getDefaultRoutePriority();
     newConfigs[configIndex] = {
       ...newConfigs[configIndex],
       routing: {
@@ -871,7 +885,7 @@ export default function RequestsPage() {
     const newConfigs = [...formData.customer_trunk_configs];
     const currentRules = newConfigs[configIndex].routing.route_rules || [];
     const sourceRule = currentRules[ruleIndex];
-    const newPriority = currentRules.length + 1;
+    const newPriority = getDefaultRoutePriority();
     // Deep clone the source rule and update priority
     const clonedRule = JSON.parse(JSON.stringify(sourceRule));
     clonedRule.priority = newPriority;
@@ -1646,14 +1660,6 @@ export default function RequestsPage() {
     }
     return sorted;
   }, [filteredRequests, requestSubTab]);
-
-  // For AMs, only show their department
-  // Use flexible matching to handle different department name formats
-  const isSmsDepartment = userDepartment?.startsWith("sms") || userDepartment === "sms";
-  const isVoiceDepartment = userDepartment?.startsWith("voice") || userDepartment === "voice";
-  const displayTab = userRole === "am"
-    ? (isSmsDepartment ? "sms" : isVoiceDepartment ? "voice" : userDepartment)
-    : activeTab;
 
   // Request types selectable in the New/Edit Request dialog, filtered by department
   const visibleRequestTypes = useMemo(() => {
@@ -2518,10 +2524,20 @@ export default function RequestsPage() {
                           </SelectContent>
                         </Select>
                         
-                        {/* Two-column layout: Rating Plan | Routing Plan - stacked on mobile */}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        {/* Two-column layout: Rating Plan | Routing Plan - stacked on mobile.
+                            Whichever pane is currently focused expands to give it more room to fill in;
+                            the other shrinks and shifts behind it. */}
+                        <div className="flex flex-col sm:flex-row gap-4">
                           {/* Rating Plan Section - Compact with multiple destination-rate pairs */}
-                          <div className="bg-gray-100/40 dark:bg-zinc-800/40 rounded-lg p-3">
+                          <div
+                            onFocus={() => setActiveConfigPane(prev => ({ ...prev, [configIndex]: "rating" }))}
+                            style={{
+                              flex: activeConfigPane[configIndex] === "rating" ? "3 1 0%" : activeConfigPane[configIndex] === "routing" ? "1 1 0%" : "1 1 0%",
+                              transition: "flex 0.2s ease",
+                              order: activeConfigPane[configIndex] === "routing" ? 2 : 1
+                            }}
+                            className="bg-gray-100/40 dark:bg-zinc-800/40 rounded-lg p-3 min-w-0"
+                          >
                             <div className="flex items-center gap-2 mb-3">
                               <div className="w-1 h-4 bg-amber-500 rounded"></div>
                               <span className="text-amber-300 font-medium text-sm">Rating Plan</span>
@@ -2583,7 +2599,15 @@ export default function RequestsPage() {
                           
                           {/* Routing Plan Section - With Route Rules - Hidden when using Common Routing */}
                           {showRouting && (
-                            <div className="bg-gray-100/40 dark:bg-zinc-800/40 rounded-lg p-3">
+                            <div
+                              onFocus={() => setActiveConfigPane(prev => ({ ...prev, [configIndex]: "routing" }))}
+                              style={{
+                                flex: activeConfigPane[configIndex] === "routing" ? "3 1 0%" : activeConfigPane[configIndex] === "rating" ? "1 1 0%" : "1 1 0%",
+                                transition: "flex 0.2s ease",
+                                order: activeConfigPane[configIndex] === "routing" ? 1 : 2
+                              }}
+                              className="bg-gray-100/40 dark:bg-zinc-800/40 rounded-lg p-3 min-w-0"
+                            >
                             <div className="flex items-center gap-2 mb-3">
                               <div className="w-1 h-4 bg-blue-500 rounded"></div>
                               <span className="text-blue-300 font-medium text-sm">Routing Plan</span>
@@ -2620,10 +2644,10 @@ export default function RequestsPage() {
                                           <span className="text-gray-500 dark:text-zinc-400 text-xs whitespace-nowrap">Priority:</span>
                                           <Input
                                             type="number"
-                                            value={rule.priority || 1}
-                                            onChange={(e) => updateRouteRule(configIndex, ruleIndex, "priority", parseInt(e.target.value) || 1)}
-                                            className="bg-gray-100 dark:bg-zinc-800 border-gray-300 dark:border-zinc-600 text-gray-900 dark:text-white text-xs h-7 w-14"
-                                            min={1}
+                                            value={rule.priority ?? getDefaultRoutePriority()}
+                                            onChange={(e) => updateRouteRule(configIndex, ruleIndex, "priority", e.target.value === "" ? "" : parseInt(e.target.value))}
+                                            className="bg-gray-100 dark:bg-zinc-800 border-gray-300 dark:border-zinc-600 text-gray-900 dark:text-white text-xs h-7 w-20"
+                                            min={0}
                                           />
                                         </div>
                                         <div className="flex items-center gap-2 min-w-0">
@@ -2936,10 +2960,10 @@ export default function RequestsPage() {
                                     <span className="text-gray-500 dark:text-zinc-400 text-xs whitespace-nowrap">Priority:</span>
                                     <Input
                                       type="number"
-                                      value={rule.priority || 1}
-                                      onChange={(e) => updateCommonRouteRule(ruleIndex, "priority", parseInt(e.target.value) || 1)}
-                                      className="bg-gray-100 dark:bg-zinc-800 border-gray-300 dark:border-zinc-600 text-gray-900 dark:text-white text-xs h-7 w-14"
-                                      min={1}
+                                      value={rule.priority ?? getDefaultRoutePriority()}
+                                      onChange={(e) => updateCommonRouteRule(ruleIndex, "priority", e.target.value === "" ? "" : parseInt(e.target.value))}
+                                      className="bg-gray-100 dark:bg-zinc-800 border-gray-300 dark:border-zinc-600 text-gray-900 dark:text-white text-xs h-7 w-20"
+                                      min={0}
                                     />
                                   </div>
                                   <div className="flex items-center gap-2 min-w-0">
