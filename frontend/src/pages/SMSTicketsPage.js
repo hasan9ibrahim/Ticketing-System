@@ -1009,34 +1009,45 @@ export default function SMSTicketsPage() {
     }
   };
 
-  // Handle informing AM about a ticket
+  // Resolve the AM assigned to the selected ticket's enterprise, and build the
+  // "requires your attention" message shared by both Inform AM options.
+  const getInformAMDetails = () => {
+    if (!selectedTicket) return null;
+
+    const enterprise = enterprises.find(e => e.id === selectedTicket.customer_id);
+    if (!enterprise) {
+      toast.error("Customer not found for this ticket");
+      return null;
+    }
+
+    const amId = enterprise.assigned_am_id;
+    if (!amId) {
+      toast.error("No Account Manager assigned to this enterprise");
+      return null;
+    }
+
+    // Get AM details from users (use allUsers since users only contains NOC)
+    const amUser = allUsers.find(u => u.id === amId);
+    if (!amUser) {
+      toast.error("Account Manager user not found");
+      return null;
+    }
+
+    const ticketUrl = `${window.location.origin}/sms-tickets?ticket=${selectedTicket.id}`;
+    const messageContent = `Dear ${amUser.name || amUser.username}, Kindly note that the ticket with ticket number: ${selectedTicket.ticket_number} requires your attention. Please check it at your own convenience: ${ticketUrl}`;
+
+    return { amId, amUser, messageContent };
+  };
+
+  // Option 1: send the message directly to the AM in chat
   const handleInformAM = async () => {
-    if (!selectedTicket) return;
+    const details = getInformAMDetails();
+    if (!details) return;
+    const { amId, amUser, messageContent } = details;
 
     try {
       const token = localStorage.getItem("token");
       const headers = { Authorization: `Bearer ${token}` };
-
-      // Get the enterprise for this ticket
-      const enterprise = enterprises.find(e => e.id === selectedTicket.customer_id);
-      if (!enterprise) {
-        toast.error("Customer not found for this ticket");
-        return;
-      }
-
-      // Get the AM assigned to this enterprise
-      const amId = enterprise.assigned_am_id;
-      if (!amId) {
-        toast.error("No Account Manager assigned to this enterprise");
-        return;
-      }
-
-      // Get AM details from users (use allUsers since users only contains NOC)
-      const amUser = allUsers.find(u => u.id === amId);
-      if (!amUser) {
-        toast.error("Account Manager user not found");
-        return;
-      }
 
       // Create a conversation with the AM
       const conversationResponse = await axios.post(
@@ -1046,12 +1057,6 @@ export default function SMSTicketsPage() {
       );
 
       const conversation = conversationResponse.data;
-
-      // Build the ticket details URL
-      const ticketUrl = `${window.location.origin}/sms-tickets?ticket=${selectedTicket.id}`;
-
-      // Create the message
-      const messageContent = `Dear ${amUser.name || amUser.username}, Kindly note that the ticket with ticket number: ${selectedTicket.ticket_number} requires your attention. Please check it at your own convenience: ${ticketUrl}`;
 
       // Send the message
       await axios.post(
@@ -1068,6 +1073,19 @@ export default function SMSTicketsPage() {
     } catch (error) {
       console.error("Error informing AM:", error);
       toast.error(error.response?.data?.detail || "Failed to inform Account Manager");
+    }
+  };
+
+  // Option 2: copy the same message to the clipboard so it can be pasted elsewhere
+  const handleCopyInformAMTemplate = async () => {
+    const details = getInformAMDetails();
+    if (!details) return;
+
+    try {
+      await navigator.clipboard.writeText(details.messageContent);
+      toast.success("Inform AM template copied to clipboard!");
+    } catch (error) {
+      toast.error("Failed to copy template");
     }
   };
 
@@ -2146,14 +2164,35 @@ export default function SMSTicketsPage() {
           {/* Send Alert Button - Only show for NOC and Admin, not for AMs */}
           {currentUser?.role !== "am" && (
             <div className="flex justify-end gap-2">
-              <Button
-                size="sm"
-                onClick={handleInformAM}
-                className="bg-blue-500 text-gray-900 dark:text-white hover:bg-blue-600"
-              >
-                <User className="h-4 w-4 mr-2" />
-                Inform AM
-              </Button>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    size="sm"
+                    className="bg-blue-500 text-gray-900 dark:text-white hover:bg-blue-600"
+                  >
+                    <User className="h-4 w-4 mr-2" />
+                    Inform AM
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-56 bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
+                  <div className="space-y-1">
+                    <button
+                      onClick={handleCopyInformAMTemplate}
+                      className="w-full text-left text-sm text-gray-900 dark:text-white hover:bg-gray-200 dark:hover:bg-zinc-700 p-2 rounded flex items-center gap-2"
+                    >
+                      <Copy className="h-4 w-4" />
+                      Copy Template
+                    </button>
+                    <button
+                      onClick={handleInformAM}
+                      className="w-full text-left text-sm text-gray-900 dark:text-white hover:bg-gray-200 dark:hover:bg-zinc-700 p-2 rounded flex items-center gap-2"
+                    >
+                      <MessageSquare className="h-4 w-4" />
+                      Send Message to AM
+                    </button>
+                  </div>
+                </PopoverContent>
+              </Popover>
               <Button
                 size="sm"
                 disabled={sendingAlert}

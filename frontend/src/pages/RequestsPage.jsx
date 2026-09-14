@@ -275,19 +275,13 @@ export default function RequestsPage() {
   const prevUrlRef = React.useRef(window.location.href);
   const [urlKey, setUrlKey] = useState(0);
   
-  // Track if initial load is complete
-  const initialLoadComplete = useRef(false);
-  
   useEffect(() => {
-    // Don't clear requests here - let the new data replace old data directly
-    // This prevents showing empty state briefly while fetching
-    
-    // Only show loading on first load, not on tab/filter changes
-    const showLoading = !initialLoadComplete.current;
-    if (!initialLoadComplete.current) {
-      initialLoadComplete.current = true;
-    }
-    fetchRequests(null, showLoading);
+    // Show the loading state on every user-driven tab/filter change, not just
+    // the first load. The requests already in state belong to the previous
+    // tab/sub-tab (e.g. "active"), so until the new fetch resolves they get
+    // filtered out client-side by requestSubTab - without a loading indicator
+    // that looked like the Archive tab wasn't loading anything.
+    fetchRequests(null, true);
   }, [activeTab, statusFilter, requestSubTab]);
 
   // Handle URL parameters for pre-filling form (e.g., from ticket pages)
@@ -1432,6 +1426,62 @@ export default function RequestsPage() {
     setDialogOpen(true);
   };
 
+  // Create Open TT Request from completed Testing Request for AM
+  const handleCreateOpenTTFromTesting = (request) => {
+    setIsEditMode(false);
+    setEditingRequest(null);
+    // Populate formData with Open TT request type, pre-filling common fields from Testing request
+    setFormData({
+      request_type: "open_tt",
+      request_type_label: "Open TT",
+      priority: request.priority || "Medium",
+      customer: request.customer || "",
+      customer_id: request.customer_id || "",
+      customer_ids: request.customer_ids || (request.customer_id ? [request.customer_id] : []),
+      // Pre-fill common fields from Testing request
+      ticket_id: request.ticket_id || "",
+      destination: request.destination || "",
+      vendor_trunks: request.vendor_trunks?.length > 0 ? request.vendor_trunks : [{ trunk: "", sid_content_pairs: [{sid: "", content: ""}] }],
+      // Open TT-specific fields (will be filled by AM)
+      open_by: "",
+      open_tt_notes: "",
+      // Clear other fields not needed for Open TT
+      rating: "",
+      routing: "",
+      customer_trunk: "",
+      customer_trunks: { "": [{ destination: "", rate: "" }] },
+      by_loss: false,
+      enable_mnp_hlr: false,
+      mnp_hlr_type: "",
+      enable_threshold: false,
+      threshold_count: "",
+      via_vendor: "",
+      enable_whitelisting: false,
+      rating_vendor_trunks: { "1": [{ trunk: "", percentage: "", cost_type: "fixed", cost_min: "", cost_max: "" }] },
+      lcr_type: "",
+      lcr_change: "",
+      translation_type: "",
+      trunk_type: "",
+      trunk_name: "",
+      old_value: "",
+      new_value: "",
+      old_sid: "",
+      new_sid: "",
+      word_to_remove: "",
+      translation_destination: "",
+      enterprise_id: request.enterprise_id || request.customer_id || "",
+      test_type: "",
+      test_description: "",
+      issue_types: [],
+      issue_other: "",
+      investigation_destination: "",
+      issue_description: "",
+      with_lcr: false,
+      direction: null
+    });
+    setDialogOpen(true);
+  };
+
   const handleDeleteRequest = async (requestId) => {
     setRequestToDelete(requestId);
     setDeleteDialogOpen(true);
@@ -2204,13 +2254,27 @@ export default function RequestsPage() {
                   {/* Create LCR Request button for AMs - only for completed Testing requests in Voice */}
                   {userRole === "am" && request.created_by === user.id && request.status === "completed" && request.department === "voice" && (request.request_type === "testing" || request.request_type_label?.includes("Testing")) && (
                     <div className="flex gap-2 mt-3 pt-3 border-t border-gray-200 dark:border-zinc-800">
-                      <Button 
-                        variant="outline" 
-                        size="sm" 
+                      <Button
+                        variant="outline"
+                        size="sm"
                         onClick={() => handleCreateLcrFromTesting(request)}
                         className="border-gray-300 dark:border-zinc-600 text-amber-400 hover:bg-amber-900/20 hover:text-amber-300"
                       >
                         <Plus className="h-4 w-4 mr-1" /> Create LCR Request
+                      </Button>
+                    </div>
+                  )}
+
+                  {/* Open TT button for AMs - once a Testing request is completed */}
+                  {userRole === "am" && request.created_by === user.id && request.status === "completed" && (request.request_type === "testing" || request.request_type_label?.includes("Testing")) && (
+                    <div className="flex gap-2 mt-3 pt-3 border-t border-gray-200 dark:border-zinc-800">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleCreateOpenTTFromTesting(request)}
+                        className="border-gray-300 dark:border-zinc-600 text-blue-400 hover:bg-blue-900/20 hover:text-blue-300"
+                      >
+                        <Plus className="h-4 w-4 mr-1" /> Open TT
                       </Button>
                     </div>
                   )}

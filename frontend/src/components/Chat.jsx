@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { MessageSquare, X, Send, Paperclip, Image as ImageIcon, Smile } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import axios from "axios";
@@ -1080,6 +1081,8 @@ function ChatWindowView({
     if (!message.trim()) return;
     onSendMessage(message);
     setMessage("");
+    // Reset the textarea back to its single-line height after sending
+    requestAnimationFrame(() => autoGrowInput(inputRef.current));
   };
 
   const handleKeyPress = (e) => {
@@ -1092,6 +1095,14 @@ function ChatWindowView({
       onTyping();
       window.typingTimeout = setTimeout(() => {}, 500);
     }
+  };
+
+  // Auto-grow the message textarea as the user types/pastes multi-line text,
+  // capped so it doesn't take over the chat window.
+  const autoGrowInput = (el) => {
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 96)}px`;
   };
 
   const handleScroll = async () => {
@@ -1307,7 +1318,7 @@ function ChatWindowView({
 
                 {/* Text content - detect links */}
                 {msg.content && (
-                  <div className="break-words">
+                  <div className="break-words whitespace-pre-wrap">
                     {msg.content.split(/(https?:\/\/[^\s]+)/g).map((part, i) =>
                       part.match(/https?:\/\/[^\s]+/) ? (
                         <a
@@ -1377,14 +1388,18 @@ function ChatWindowView({
         >
           <ImageIcon className="w-4 h-4 text-zinc-500" />
         </Button>
-        <Input
+        <Textarea
           ref={inputRef}
           placeholder="Type a message..."
           value={message}
-          onChange={(e) => setMessage(e.target.value)}
-          onKeyPress={handleKeyPress}
+          onChange={(e) => {
+            setMessage(e.target.value);
+            autoGrowInput(e.target);
+          }}
+          onKeyDown={handleKeyPress}
           onPaste={handlePaste}
-          className="flex-1 h-8 text-sm bg-gray-200 dark:bg-zinc-700 border-gray-300 dark:border-zinc-600 text-gray-900 dark:text-white placeholder:text-gray-500 dark:placeholder:text-zinc-400"
+          rows={1}
+          className="flex-1 min-h-8 h-8 max-h-24 py-1.5 text-sm leading-5 resize-none bg-gray-200 dark:bg-zinc-700 border-gray-300 dark:border-zinc-600 text-gray-900 dark:text-white placeholder:text-gray-500 dark:placeholder:text-zinc-400"
         />
         <Button
           variant="ghost"
