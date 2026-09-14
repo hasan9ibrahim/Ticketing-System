@@ -1109,13 +1109,13 @@ export default function DashboardLayout({ user, setUser }) {
           {/* Logo */}
           <div className="h-16 flex items-center justify-between px-4 border-b border-black/5 dark:border-white/5">
             {sidebarOpen && (
-              <div className="flex items-center gap-3">
-  <img
-    src="/Logo.png"
-    alt="Wii Telecom"
-    className="h-9 w-auto object-contain"
-  />
-                <span className="font-bold text-gray-900 dark:text-white text-lg">Wii NOC</span>
+              <div className="flex items-center gap-2.5 min-w-0">
+                <img
+                  src="/logo-mark.png"
+                  alt="Wii Telecom"
+                  className="h-8 w-auto object-contain flex-shrink-0"
+                />
+                <span className="font-bold text-gray-900 dark:text-white text-lg truncate">Wii Telecom</span>
               </div>
             )}
             <Button
