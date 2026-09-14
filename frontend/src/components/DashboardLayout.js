@@ -1254,28 +1254,32 @@ export default function DashboardLayout({ user, setUser }) {
 
       {/* Main Content */}
       <main className="relative flex-1 flex flex-col overflow-auto">
-        {/* Ambient page background - a much-quieter echo of the login page's
-            glow/grid look, sitting behind the (opaque) cards, tables and
-            buttons so it only reads as soft texture in the space around
-            them. Absolutely positioned against this non-scrolling `main`
-            box (not the scrolling content div below), so it stays put as
-            the page content scrolls over it, same as on the login page. */}
+        {/* Ambient page background - a soft tinted wash plus blurred glow
+            blobs, echoing the login page's look, sitting behind the
+            (opaque) cards, tables and buttons so it only reads as
+            atmosphere in the space around them. A grid overlay (like the
+            login page's) was tried here too, but thin repeating lines
+            across a whole content page read as graph paper rather than
+            texture, so it's left out. Absolutely positioned against this
+            non-scrolling `main` box (not the scrolling content div below),
+            so it stays in place - covering the visible viewport - as the
+            page content scrolls over it, same as on the login page. */}
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          {/* Soft base wash so there's always a hint of tone even far from
+              the glow blobs, not just an otherwise-flat fill. */}
+          <div className="absolute inset-0 bg-gradient-to-br from-emerald-50/70 via-white to-white dark:from-emerald-950/30 dark:via-zinc-950 dark:to-zinc-950" />
+
           <div
-            className="absolute -left-32 -top-32 w-[32rem] h-[32rem] bg-emerald-500/[0.025] dark:bg-emerald-500/[0.05] rounded-full blur-3xl animate-pulse"
-            style={{ animationDuration: "10s" }}
+            className="absolute -left-24 -top-24 w-[36rem] h-[36rem] bg-emerald-500/[0.10] dark:bg-emerald-500/[0.16] rounded-full blur-3xl animate-pulse"
+            style={{ animationDuration: "9s" }}
           />
           <div
-            className="absolute -right-32 bottom-0 w-[28rem] h-[28rem] bg-emerald-400/[0.02] dark:bg-emerald-400/[0.04] rounded-full blur-3xl animate-pulse"
-            style={{ animationDuration: "12s", animationDelay: "2s" }}
+            className="absolute -right-24 top-1/3 w-[30rem] h-[30rem] bg-teal-400/[0.08] dark:bg-teal-400/[0.14] rounded-full blur-3xl animate-pulse"
+            style={{ animationDuration: "11s", animationDelay: "1s" }}
           />
           <div
-            className="absolute inset-0 opacity-[0.015] dark:opacity-[0.03]"
-            style={{
-              backgroundImage:
-                "linear-gradient(rgba(16, 185, 129, 0.6) 1px, transparent 1px), linear-gradient(90deg, rgba(16, 185, 129, 0.6) 1px, transparent 1px)",
-              backgroundSize: "56px 56px",
-            }}
+            className="absolute left-1/3 bottom-0 w-[32rem] h-[32rem] bg-emerald-400/[0.07] dark:bg-emerald-400/[0.12] rounded-full blur-3xl animate-pulse"
+            style={{ animationDuration: "13s", animationDelay: "2.5s" }}
           />
         </div>
 
