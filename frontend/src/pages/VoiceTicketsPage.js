@@ -4,7 +4,7 @@ import { useSearchParams, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { Plus, Search, Phone, Calendar, Trash2, MessageSquare, X, ListChecks, Pencil, Bell, User, Copy } from "lucide-react";
+import { Plus, Search, Phone, Calendar, Trash2, MessageSquare, X, ListChecks, Pencil, Bell, User, Copy, History } from "lucide-react";
 import { toast } from "sonner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -22,16 +22,29 @@ import { Checkbox } from "@/components/ui/checkbox";
 import StatusBadge from "@/components/custom/StatusBadge";
 import PriorityIndicator from "@/components/custom/PriorityIndicator";
 import SearchableSelect from "@/components/custom/SearchableSelect";
+import { FieldError, RequiredAsterisk } from "@/components/ui/field-error";
 import { DateRangePickerWithRange } from "@/components/custom/DateRangePickerWithRange";
 import IssueTypeSelect, { VOICE_ISSUE_TYPES } from "@/components/custom/IssueTypeSelect";
 import OpenedViaSelect from "@/components/custom/OpenedViaSelect";
 import MultiFilter from "@/components/custom/MultiFilter";
-import { startOfWeek, endOfWeek } from "date-fns";
+import { addDays } from "date-fns";
 import { useDebounce } from "@/hooks/useDebounce";
 import { fetchCached } from "@/lib/dataCache";
 
 const BACKEND_URL = process.env.REACT_APP_API_URL;
 const API = `${BACKEND_URL}/api`;
+
+// Remember the AM view-mode/trunk-filter choice per user so it survives navigating away and
+// back to this page, instead of resetting to the default every time it remounts.
+const getStoredAmPref = (key, fallback) => {
+  try {
+    const user = JSON.parse(localStorage.getItem("user") || "{}");
+    const stored = localStorage.getItem(`voice_${key}_${user?.id || "anon"}`);
+    return stored !== null ? stored : fallback;
+  } catch {
+    return fallback;
+  }
+};
 
 export default function VoiceTicketsPage() {
   const [tickets, setTickets] = useState([]);
@@ -49,10 +62,7 @@ export default function VoiceTicketsPage() {
   const [assignedToFilter, setAssignedToFilter] = useState("all");
   const [dateRange, setDateRange] = useState(() => {
     const today = new Date();
-    return { 
-      from: startOfWeek(today, { weekStartsOn: 1 }), 
-      to: endOfWeek(today, { weekStartsOn: 1 }) 
-    };
+    return { from: addDays(today, -7), to: today };
   });
   const [multiFilters, setMultiFilters] = useState([]);
 
@@ -70,12 +80,35 @@ export default function VoiceTicketsPage() {
   const [loadingMore, setLoadingMore] = useState(false);
 
   // AM view mode state
-  const [amViewMode, setAmViewMode] = useState("all"); // "all" or "assigned"
-  const [amTrunkFilter, setAmTrunkFilter] = useState(""); // "" or "customer_trunk" or "vendor_trunk"
+  // Voice AM view mode keeps its existing default (all enterprises, no trunk filter);
+  // falls back to the AM's last-configured choice if set.
+  const [amViewMode, setAmViewMode] = useState(() => getStoredAmPref("am_view_mode", "all")); // "all" or "assigned"
+  const [amTrunkFilter, setAmTrunkFilter] = useState(() => getStoredAmPref("am_trunk_filter", "")); // "" or "customer_trunk" or "vendor_trunk"
   const [activeTab, setActiveTab] = useState("unassigned");
+  // Swipe left/right anywhere in the tabs area to move between statuses,
+  // matching the tab bar order - a natural mobile gesture for switching tabs.
+  const tabSwipeStartXRef = useRef(null);
+  const handleTabsTouchStart = (e) => {
+    tabSwipeStartXRef.current = e.touches[0].clientX;
+  };
+  const handleTabsTouchEnd = (e) => {
+    if (tabSwipeStartXRef.current == null) return;
+    const deltaX = e.changedTouches[0].clientX - tabSwipeStartXRef.current;
+    tabSwipeStartXRef.current = null;
+    if (Math.abs(deltaX) < 60) return;
+    const order = ["unassigned", "assigned", "pending", "resolved"];
+    const currentIndex = order.indexOf(activeTab);
+    if (currentIndex === -1) return;
+    if (deltaX < 0 && currentIndex < order.length - 1) {
+      setActiveTab(order[currentIndex + 1]);
+    } else if (deltaX > 0 && currentIndex > 0) {
+      setActiveTab(order[currentIndex - 1]);
+    }
+  };
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editingTicket, setEditingTicket] = useState(null);
   const [formData, setFormData] = useState({});
+  const [fieldErrors, setFieldErrors] = useState({});
   const [currentUser, setCurrentUser] = useState(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [ticketToDelete, setTicketToDelete] = useState(null);
@@ -110,12 +143,20 @@ export default function VoiceTicketsPage() {
     filterAndSortTickets();
   }, [debouncedSearchTerm, priorityFilter, statusFilter, enterpriseFilter, issueTypeFilter, debouncedDestinationFilter, assignedToFilter, dateRange, activeTab, tickets, multiFilters]);
 
-  // Re-fetch tickets when AM view mode or trunk filter changes
+  // Re-fetch tickets when AM view mode or trunk filter changes, and remember the choice
+  // (keyed per user) so it's kept as last-configured instead of resetting on next visit
   useEffect(() => {
     if (currentUser?.role === "am") {
       fetchData();
     }
-  }, [amViewMode, amTrunkFilter]);
+    try {
+      const userId = currentUser?.id || "anon";
+      localStorage.setItem(`voice_am_view_mode_${userId}`, amViewMode);
+      localStorage.setItem(`voice_am_trunk_filter_${userId}`, amTrunkFilter);
+    } catch {
+      // localStorage unavailable - not critical, just skip persisting
+    }
+  }, [amViewMode, amTrunkFilter, currentUser]);
 
   // Ref to track the last processed URL params to prevent reopening on state changes
   const lastProcessedParamsRef = useRef(null);
@@ -279,6 +320,20 @@ export default function VoiceTicketsPage() {
       return openedVia.join(", ");
     }
     return openedVia || "";
+  };
+
+  const getVendorTrunkDisplayText = (ticket) => {
+    const trunks = (ticket.vendor_trunks || []).map((v) => v.trunk).filter(Boolean);
+    if (trunks.length > 0) return trunks.join(", ");
+    return ticket.vendor_trunk || "";
+  };
+
+  const getVendorCostDisplayText = (ticket) => {
+    const costs = (ticket.vendor_trunks || [])
+      .map((v) => v.cost || (v.min_cost || v.max_cost ? `${v.min_cost || "0"}-${v.max_cost || "0"}` : null))
+      .filter(Boolean);
+    if (costs.length > 0) return costs.join(", ");
+    return ticket.cost || "";
   };
 
     // Check for same-day identical tickets (Enterprise, Trunk, Destination, Issue)
@@ -618,6 +673,27 @@ export default function VoiceTicketsPage() {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
+    // Compute inline (red border / FieldError) state for all mandatory fields
+    // up front, so every missing field is highlighted at once. The individual
+    // toast-driven checks below are left as-is and still gate the API call.
+    const hasIssueTypeValue = (formData.issue_types && formData.issue_types.length > 0) || (formData.issue_other && formData.issue_other.trim().length > 0);
+    const mandatoryErrors = {
+      priority: !formData.priority,
+      status: !formData.status,
+      volume: !formData.volume,
+      customer_id: !formData.customer_id,
+      customer_trunk: !formData.customer_trunk,
+      destination: !formData.destination,
+      issue_type: !hasIssueTypeValue,
+      opened_via: !formData.opened_via || formData.opened_via.length === 0,
+      assigned_to: formData.status === "Assigned" && !formData.assigned_to,
+    };
+    if (Object.values(mandatoryErrors).some(Boolean)) {
+      setFieldErrors(mandatoryErrors);
+    } else {
+      setFieldErrors({});
+    }
+
     // ✅ Priority required
     if (!formData.priority) {
       toast.error("Priority is required");
@@ -897,7 +973,7 @@ export default function VoiceTicketsPage() {
   };
 
   // Resolve the AM assigned to the selected ticket's enterprise, and build the
-  // "requires your attention" message shared by both Inform AM options.
+  // "requires your attention" message sent directly to the AM in chat.
   const getInformAMDetails = () => {
     if (!selectedTicket) return null;
 
@@ -963,16 +1039,42 @@ export default function VoiceTicketsPage() {
     }
   };
 
-  // Option 2: copy the same message to the clipboard so it can be pasted elsewhere
+  // Option 2: copy a filled-in ticket summary template to the clipboard
   const handleCopyInformAMTemplate = async () => {
-    const details = getInformAMDetails();
-    if (!details) return;
+    if (!selectedTicket) return;
+
+    const lcrText = selectedTicket.is_lcr === "yes" ? "Yes" : selectedTicket.is_lcr === "no" ? "No" : "";
+
+    const template = `Volume: ${selectedTicket.volume || ""}
+
+Customer Trunk: ${selectedTicket.customer_trunk || ""}
+
+Destination: ${selectedTicket.destination || ""}
+
+ANI: ${selectedTicket.ani || ""}
+
+Issue: ${getIssueDisplayText(selectedTicket)}
+
+Rate: ${selectedTicket.rate || ""}
+
+Vendor(s): ${getVendorTrunkDisplayText(selectedTicket)}
+
+Cost: ${getVendorCostDisplayText(selectedTicket)}
+
+LCR: ${lcrText}
+
+Root cause: ${selectedTicket.root_cause || ""}
+
+Alternative route:
+
+
+${selectedTicket.ticket_number}`;
 
     try {
-      await navigator.clipboard.writeText(details.messageContent);
+      await navigator.clipboard.writeText(template);
       toast.success("Inform AM template copied to clipboard!");
-    } catch (error) {
-      toast.error("Failed to copy template");
+    } catch (err) {
+      toast.error("Failed to copy to clipboard");
     }
   };
 
@@ -998,7 +1100,7 @@ export default function VoiceTicketsPage() {
       </div>
 
       <div className="flex flex-wrap gap-2 items-start">
-        <div className="w-[280px] flex-shrink-0">
+        <div className="w-full sm:w-[280px] flex-shrink-0">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-zinc-500" />
             <Input placeholder="Search tickets..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-10 bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white placeholder:text-zinc-500 w-full" />
@@ -1026,7 +1128,7 @@ export default function VoiceTicketsPage() {
 
       {/* AM View Mode Toggle */}
       {isVoiceAM && (
-        <div className="flex items-center gap-4 p-3 bg-white/50 dark:bg-zinc-900/50 rounded-lg border border-gray-200 dark:border-zinc-700">
+        <div className="flex flex-wrap items-center gap-4 p-3 bg-white/50 dark:bg-zinc-900/50 rounded-lg border border-gray-200 dark:border-zinc-700">
           <div className="flex items-center gap-2">
             <Switch
               id="am-view-mode"
@@ -1122,26 +1224,37 @@ export default function VoiceTicketsPage() {
               setDestinationFilter("");
               setAssignedToFilter("all");
               const today = new Date();
-              setDateRange({ from: startOfWeek(today, { weekStartsOn: 1 }), to: endOfWeek(today, { weekStartsOn: 1 }) });
+              setDateRange({ from: addDays(today, -7), to: today });
             }}
             className="border-gray-200 dark:border-zinc-700 text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-zinc-800 h-7 px-2 text-xs"
           >
-            Reset to This Week
+            Reset to Last 7 Days
           </Button>
         </div>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full max-w-lg grid-cols-4 bg-white dark:bg-zinc-900 border border-black/10 dark:border-white/10">
-          <TabsTrigger value="unassigned" className="data-[state=active]:bg-emerald-500 data-[state=active]:text-black">Unassigned ({unassignedCount})</TabsTrigger>
-          <TabsTrigger value="assigned" className="data-[state=active]:bg-emerald-500 data-[state=active]:text-black">Assigned ({assignedCount})</TabsTrigger>
-          <TabsTrigger value="pending" className="data-[state=active]:bg-emerald-500 data-[state=active]:text-black">Pending ({pendingCount})</TabsTrigger>
-          <TabsTrigger value="resolved" className="data-[state=active]:bg-emerald-500 data-[state=active]:text-black">Resolved ({resolvedCount})</TabsTrigger>
+        {/* Swipe handlers are on the tab bar itself, not the whole Tabs
+            wrapper, so they don't fight with horizontally scrolling the
+            table below (e.g. to reach the last column). */}
+        <TabsList
+          className="grid h-auto w-full max-w-lg grid-cols-4 gap-1 bg-white dark:bg-zinc-900 border border-black/10 dark:border-white/10 p-1"
+          onTouchStart={handleTabsTouchStart}
+          onTouchEnd={handleTabsTouchEnd}
+        >
+          <TabsTrigger value="unassigned" className="whitespace-normal text-center leading-tight py-1.5 data-[state=active]:bg-emerald-500 data-[state=active]:text-black">Unassigned ({unassignedCount})</TabsTrigger>
+          <TabsTrigger value="assigned" className="whitespace-normal text-center leading-tight py-1.5 data-[state=active]:bg-emerald-500 data-[state=active]:text-black">Assigned ({assignedCount})</TabsTrigger>
+          <TabsTrigger value="pending" className="whitespace-normal text-center leading-tight py-1.5 data-[state=active]:bg-emerald-500 data-[state=active]:text-black">Pending ({pendingCount})</TabsTrigger>
+          <TabsTrigger value="resolved" className="whitespace-normal text-center leading-tight py-1.5 data-[state=active]:bg-emerald-500 data-[state=active]:text-black">Resolved ({resolvedCount})</TabsTrigger>
         </TabsList>
 
         <TabsContent value={activeTab} className="mt-4">
           <div className="bg-white/50 dark:bg-zinc-900/50 border border-black/10 dark:border-white/10 rounded-lg overflow-hidden">
-            <Table>
+            {/* min-w forces the table to keep every column at a readable width instead of
+                crushing them to fit a phone screen - Table's own wrapper (ui/table.jsx) is
+                already a horizontal scroll container, so this makes it actually scroll
+                (including via touch swipe) rather than silently wrapping cell text. */}
+            <Table className="min-w-[1450px]">
               <TableBody>
                   {filteredTickets.length > 0 ? (() => {
                   const { entries: sortedEntries } = groupTicketsByDate();
@@ -1166,6 +1279,7 @@ export default function VoiceTicketsPage() {
                       <TableHead className="text-gray-500 dark:text-zinc-400">Destination</TableHead>
                       <TableHead className="text-gray-500 dark:text-zinc-400">ANI/Origination</TableHead>
                       <TableHead className="text-gray-500 dark:text-zinc-400">Issue</TableHead>
+                      <TableHead className="text-gray-500 dark:text-zinc-400">Vendor Trunk</TableHead>
                       <TableHead className="text-gray-500 dark:text-zinc-400">Opened Via</TableHead>
                       <TableHead className="text-gray-500 dark:text-zinc-400">Status</TableHead>
                       <TableHead className="text-gray-500 dark:text-zinc-400">Assigned To</TableHead>
@@ -1193,6 +1307,7 @@ export default function VoiceTicketsPage() {
                           <TableCell className="text-gray-700 dark:text-zinc-300">{ticket.destination || "-"}</TableCell>
                           <TableCell className="text-gray-700 dark:text-zinc-300">{ticket.ani ? ticket.ani : "Any"}</TableCell>
                           <TableCell className="text-gray-700 dark:text-zinc-300">{getIssueDisplayText(ticket)}</TableCell>
+                          <TableCell className="text-gray-700 dark:text-zinc-300">{getVendorTrunkDisplayText(ticket) || "-"}</TableCell>
                           <TableCell className="text-gray-700 dark:text-zinc-300">{getOpenedViaDisplayText(ticket) || "-"}</TableCell>
                           <TableCell>
                             {ticket.status === "Resolved" ? (
@@ -1310,9 +1425,9 @@ export default function VoiceTicketsPage() {
           <form onSubmit={handleSubmit} className="space-y-4 mt-6">
             {/* Priority */}
             <div className="space-y-2">
-              <Label>Priority *</Label>
-              <Select value={formData.priority} onValueChange={(value) => setFormData({ ...formData, priority: value })} required disabled={isAM}>
-                <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white"><SelectValue placeholder="Select priority" /></SelectTrigger>
+              <Label>Priority <RequiredAsterisk /></Label>
+              <Select value={formData.priority} onValueChange={(value) => { setFormData({ ...formData, priority: value }); setFieldErrors(prev => ({ ...prev, priority: false })); }} required disabled={isAM}>
+                <SelectTrigger className={`bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white ${fieldErrors.priority ? "border-red-500 focus:ring-red-500" : ""}`}><SelectValue placeholder="Select priority" /></SelectTrigger>
                 <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
                   <SelectItem value="Low" className="text-gray-900 dark:text-white">Low</SelectItem>
                   <SelectItem value="Medium" className="text-gray-900 dark:text-white">Medium</SelectItem>
@@ -1320,40 +1435,45 @@ export default function VoiceTicketsPage() {
                   <SelectItem value="Urgent" className="text-gray-900 dark:text-white">Urgent</SelectItem>
                 </SelectContent>
               </Select>
+              {fieldErrors.priority && <FieldError />}
             </div>
 
             {/* Volume */}
             <div className="space-y-2">
-              <Label>Volume *</Label>
-              <Input value={formData.volume || ""} onChange={(e) => setFormData({ ...formData, volume: e.target.value })} className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white" placeholder="Enter volume" required disabled={isAM} />
+              <Label>Volume <RequiredAsterisk /></Label>
+              <Input value={formData.volume || ""} onChange={(e) => { setFormData({ ...formData, volume: e.target.value }); setFieldErrors(prev => ({ ...prev, volume: false })); }} className={`bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white ${fieldErrors.volume ? "border-red-500 focus-visible:ring-red-500" : ""}`} placeholder="Enter volume" required disabled={isAM} />
+              {fieldErrors.volume && <FieldError />}
             </div>
 
             {/* Customer */}
             <div className="space-y-2">
-              <Label>Customer *</Label>
-              <SearchableSelect 
-                options={enterprises.filter(e => e.enterprise_type === "voice").map(e => ({ value: e.id, label: e.name }))} 
-                value={formData.customer_id} 
+              <Label>Customer <RequiredAsterisk /></Label>
+              <SearchableSelect
+                options={enterprises.filter(e => e.enterprise_type === "voice").map(e => ({ value: e.id, label: e.name }))}
+                value={formData.customer_id}
                 onChange={(value) => {
-                  setFormData({ 
-                    ...formData, 
+                  setFormData({
+                    ...formData,
                     customer_id: value,
                     customer_trunk: "" // Clear trunk when enterprise changes
                   });
-                }} 
-                placeholder="Search customer..." 
-                isRequired={true} 
-                isDisabled={isAM} 
+                  setFieldErrors(prev => ({ ...prev, customer_id: false }));
+                }}
+                placeholder="Search customer..."
+                isRequired={true}
+                isDisabled={isAM}
+                hasError={!!fieldErrors.customer_id}
               />
+              {fieldErrors.customer_id && <FieldError>Please select a customer</FieldError>}
             </div>
 
             {/* Customer Trunk */}
             <div className="space-y-2">
-              <Label>Customer Trunk *</Label>
-              <Select value={formData.customer_trunk || ""} onValueChange={(value) => setFormData({ ...formData, customer_trunk: value })} required disabled={isAM || !formData.customer_id}>
-                <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700"><SelectValue placeholder={formData.customer_id ? "Select customer trunk" : "Select customer first"} /></SelectTrigger>
+              <Label>Customer Trunk <RequiredAsterisk /></Label>
+              <Select value={formData.customer_trunk || ""} onValueChange={(value) => { setFormData({ ...formData, customer_trunk: value }); setFieldErrors(prev => ({ ...prev, customer_trunk: false })); }} required disabled={isAM || !formData.customer_id}>
+                <SelectTrigger className={`bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 ${fieldErrors.customer_trunk ? "border-red-500 focus:ring-red-500" : ""}`}><SelectValue placeholder={formData.customer_id ? "Select customer trunk" : "Select customer first"} /></SelectTrigger>
                 <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
-                  {(formData.customer_id 
+                  {(formData.customer_id
                     ? enterprises.find(e => e.id === formData.customer_id)?.customer_trunks || []
                     : customerTrunkOptions
                   ).map((trunk) => (
@@ -1361,12 +1481,14 @@ export default function VoiceTicketsPage() {
                   ))}
                 </SelectContent>
               </Select>
+              {fieldErrors.customer_trunk && <FieldError>Please select a customer trunk</FieldError>}
             </div>
 
             {/* Destination */}
             <div className="space-y-2">
-              <Label>Destination *</Label>
-              <Input value={formData.destination || ""} onChange={(e) => setFormData({ ...formData, destination: e.target.value })} className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white" placeholder="Country - Network (e.g., USA - Verizon, UK - Vodafone)" required disabled={isAM} />
+              <Label>Destination <RequiredAsterisk /></Label>
+              <Input value={formData.destination || ""} onChange={(e) => { setFormData({ ...formData, destination: e.target.value }); setFieldErrors(prev => ({ ...prev, destination: false })); }} className={`bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white ${fieldErrors.destination ? "border-red-500 focus-visible:ring-red-500" : ""}`} placeholder="Country - Network (e.g., USA - Verizon, UK - Vodafone)" required disabled={isAM} />
+              {fieldErrors.destination && <FieldError />}
             </div>
             <div className="space-y-2">
               <Label>ANI/Origination</Label>
@@ -1378,32 +1500,35 @@ export default function VoiceTicketsPage() {
               selectedTypes={formData.issue_types || []}
               otherText={formData.issue_other || ""}
               fasType={formData.fas_type || ""}
-              onTypesChange={(types) => setFormData({ ...formData, issue_types: types })}
-              onOtherChange={(text) => setFormData({ ...formData, issue_other: text })}
+              onTypesChange={(types) => { setFormData({ ...formData, issue_types: types }); setFieldErrors(prev => ({ ...prev, issue_type: false })); }}
+              onOtherChange={(text) => { setFormData({ ...formData, issue_other: text }); setFieldErrors(prev => ({ ...prev, issue_type: false })); }}
               onFasTypeChange={(text) => setFormData({ ...formData, fas_type: text })}
               disabled={isAM}
               ticketType="voice"
             />
+            {fieldErrors.issue_type && <FieldError>Please select at least one issue type</FieldError>}
 
             {/* Opened Via - Multi-select checklist */}
             <OpenedViaSelect
               selectedOptions={formData.opened_via || []}
-              onChange={(options) => setFormData({ ...formData, opened_via: options })}
+              onChange={(options) => { setFormData({ ...formData, opened_via: options }); setFieldErrors(prev => ({ ...prev, opened_via: false })); }}
               disabled={isAM}
               ticketType="voice"
             />
+            {fieldErrors.opened_via && <FieldError>Please select at least one option</FieldError>}
 
             {/* Assigned To */}
             <div className="space-y-2">
-              <Label>Assigned To</Label>
-              <SearchableSelect options={users.map(u => ({ value: u.id, label: u.username }))} value={formData.assigned_to} onChange={(value) => setFormData({ ...formData, assigned_to: value })} placeholder="Search NOC member..." isDisabled={isAM} />
+              <Label>Assigned To {formData.status === "Assigned" && <RequiredAsterisk />}</Label>
+              <SearchableSelect options={users.map(u => ({ value: u.id, label: u.username }))} value={formData.assigned_to} onChange={(value) => { setFormData({ ...formData, assigned_to: value }); setFieldErrors(prev => ({ ...prev, assigned_to: false })); }} placeholder="Search NOC member..." isDisabled={isAM} hasError={!!fieldErrors.assigned_to} />
+              {fieldErrors.assigned_to && <FieldError>Please assign a NOC member for an "Assigned" status</FieldError>}
             </div>
 
             {/* Status */}
             <div className="space-y-2">
-              <Label className="text-gray-900 dark:text-white">Status *</Label>
-              <Select value={formData.status} onValueChange={(value) => setFormData({ ...formData, status: value, assigned_to: value === "Unassigned" ? "" : formData.assigned_to })} required disabled={isAM}>
-                <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white"><SelectValue /></SelectTrigger>
+              <Label className="text-gray-900 dark:text-white">Status <RequiredAsterisk /></Label>
+              <Select value={formData.status} onValueChange={(value) => { setFormData({ ...formData, status: value, assigned_to: value === "Unassigned" ? "" : formData.assigned_to }); setFieldErrors(prev => ({ ...prev, status: false, assigned_to: value === "Assigned" ? prev.assigned_to : false })); }} required disabled={isAM}>
+                <SelectTrigger className={`bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white ${fieldErrors.status ? "border-red-500 focus:ring-red-500" : ""}`}><SelectValue /></SelectTrigger>
                 <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
                   <SelectItem value="Unassigned" className="text-gray-900 dark:text-white">Unassigned</SelectItem>
                   <SelectItem value="Assigned" className="text-gray-900 dark:text-white">Assigned</SelectItem>
@@ -1414,6 +1539,7 @@ export default function VoiceTicketsPage() {
                   <SelectItem value="Unresolved" className="text-gray-900 dark:text-white">Unresolved</SelectItem>
                 </SelectContent>
               </Select>
+              {fieldErrors.status && <FieldError />}
             </div>
 
             <div className="border-t border-gray-200 dark:border-zinc-700 pt-4 mt-4">
@@ -1889,27 +2015,59 @@ export default function VoiceTicketsPage() {
                           ? `Edited: ${new Date(action.edited_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}`
                           : new Date(action.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                       </span>
-                      {/* Show edit/delete buttons only for Admin */}
-                      {currentUser?.role === "admin" && (
-                        <div className="flex gap-1">
+                      <div className="flex gap-1">
+                        {/* History button - only when this action has previous edited versions */}
+                        {action.edit_history?.length > 0 && (
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                title="View edit history"
+                                className="h-6 w-6 p-0 text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white"
+                              >
+                                <History className="h-3 w-3" />
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent align="end" className="w-80 bg-white dark:bg-zinc-900 border-black/10 dark:border-white/10 text-gray-900 dark:text-white p-3">
+                              <p className="text-xs font-medium text-gray-500 dark:text-zinc-400 mb-2">Edit history</p>
+                              <div className="space-y-2 max-h-64 overflow-y-auto">
+                                {[...action.edit_history].reverse().map((version, idx) => (
+                                  <div key={idx} className="text-xs border-l-2 border-gray-300 dark:border-zinc-700 pl-2">
+                                    <p className="text-zinc-500 mb-0.5">
+                                      {new Date(version.edited_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                    </p>
+                                    <p className="text-gray-700 dark:text-zinc-300 whitespace-pre-wrap">{version.text}</p>
+                                  </div>
+                                ))}
+                              </div>
+                            </PopoverContent>
+                          </Popover>
+                        )}
+                        {/* Edit is only available to the user who added the comment */}
+                        {currentUser?.id === action.created_by && (
                           <Button
                             size="sm"
                             variant="ghost"
                             onClick={() => handleEditAction(action)}
+                            title="Edit"
                             className="h-6 w-6 p-0 text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white"
                           >
                             <Pencil className="h-3 w-3" />
                           </Button>
+                        )}
+                        {currentUser?.role === "admin" && (
                           <Button
                             size="sm"
                             variant="ghost"
                             onClick={() => handleDeleteAction(action.id)}
+                            title="Delete"
                             className="h-6 w-6 p-0 text-gray-500 dark:text-zinc-400 hover:text-red-400"
                           >
                             <Trash2 className="h-3 w-3" />
                           </Button>
-                        </div>
-                      )}
+                        )}
+                      </div>
                     </div>
                   </div>
                   {editingAction === action.id ? (
@@ -1987,8 +2145,10 @@ export default function VoiceTicketsPage() {
 
           <ScrollArea className="max-h-[55vh] pr-2">
             <div className="space-y-2">
-              {/* Main Info - 4 columns compact */}
-              <div className="grid grid-cols-4 gap-2">
+              {/* Main Info - 4 columns compact (2 on narrow screens, so values
+                  like a long customer/trunk name aren't crushed to a few
+                  truncated letters) */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 <div className="bg-gray-100/30 dark:bg-zinc-800/30 p-2 rounded">
                   <span className="text-zinc-500 text-[10px] uppercase">Customer</span>
                   <p className="text-gray-900 dark:text-white text-sm font-medium truncate">{editingTicket?.customer || editingTicket?.enterprise || '-'}</p>
@@ -2008,7 +2168,7 @@ export default function VoiceTicketsPage() {
               </div>
 
               {/* Rate & Advanced Settings */}
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 <div className="bg-gray-100/30 dark:bg-zinc-800/30 p-2 rounded">
                   <span className="text-zinc-500 text-[10px] uppercase">Rate</span>
                   <p className="text-gray-900 dark:text-white text-sm font-medium">{editingTicket?.rate || '-'}</p>

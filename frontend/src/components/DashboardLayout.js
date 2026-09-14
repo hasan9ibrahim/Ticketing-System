@@ -3,6 +3,7 @@ import { Outlet, useNavigate, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import axios from "axios";
 import Chat from "@/components/Chat";
+import SystemNotifications from "@/components/SystemNotifications";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -33,6 +34,7 @@ import {
   Calendar,
   Sun,
   Moon,
+  MessageCircle,
 } from "lucide-react";
 import {
   Popover,
@@ -45,7 +47,26 @@ import { useTheme } from "@/contexts/ThemeContext";
 
 export default function DashboardLayout({ user, setUser }) {
   const { theme, toggleTheme } = useTheme();
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  // Below the `lg` breakpoint the sidebar is an overlay drawer (closed by
+  // default so it doesn't push/cover the whole screen on a phone); at `lg`
+  // and up it's the existing inline push/collapse sidebar (open by default).
+  const [sidebarOpen, setSidebarOpen] = useState(
+    () => typeof window === "undefined" || window.innerWidth >= 1024
+  );
+  const sidebarTouchStartXRef = useRef(null);
+  const handleSidebarTouchStart = (e) => {
+    sidebarTouchStartXRef.current = e.touches[0].clientX;
+  };
+  const handleSidebarTouchEnd = (e) => {
+    if (sidebarTouchStartXRef.current == null) return;
+    const deltaX = e.changedTouches[0].clientX - sidebarTouchStartXRef.current;
+    sidebarTouchStartXRef.current = null;
+    // Swipe left to dismiss the mobile overlay drawer, mirroring the
+    // backdrop tap - only below `lg`, where the sidebar overlays content.
+    if (deltaX < -60 && window.innerWidth < 1024) {
+      setSidebarOpen(false);
+    }
+  };
   const [alerts, setAlerts] = useState([]);
   const [ticketModificationNotifications, setTicketModificationNotifications] = useState([]);
   const [assignedReminders, setAssignedReminders] = useState([]);
@@ -61,6 +82,7 @@ export default function DashboardLayout({ user, setUser }) {
   // Chat state
   const [openChats, setOpenChats] = useState([]);  // Array of open chat conversations
   const [activeChat, setActiveChat] = useState(null);  // Currently active chat
+  const [chatExpanded, setChatExpanded] = useState(false);  // Full-screen "Chat" tab, vs. the floating widget
   // Load read notification IDs from localStorage to persist across login/logout
   const [readNotificationIds, setReadNotificationIds] = useState(() => {
     const saved = localStorage.getItem("readNotificationIds");
@@ -882,6 +904,7 @@ export default function DashboardLayout({ user, setUser }) {
 
   const navItems = [
     { path: "/", label: "Dashboard", icon: LayoutDashboard, roles: ["admin", "am", "noc"] },
+    { path: "__chat__", label: "Chat", icon: MessageCircle, roles: ["admin", "am", "noc"], isChatToggle: true },
     { path: "/sms-tickets", label: "SMS Tickets", icon: MessageSquare, roles: ["admin", "am", "noc"], ticketType: "sms" },
     { path: "/voice-tickets", label: "Voice Tickets", icon: Phone, roles: ["admin", "am", "noc"], ticketType: "voice" },
     { path: "/references", label: "References & Alerts", icon: Database, roles: ["admin", "am", "noc"], badgeCount: alertBadgeCount },
@@ -1062,11 +1085,24 @@ export default function DashboardLayout({ user, setUser }) {
         </div>
       )}
 
-      {/* Sidebar */}
+      {/* Mobile sidebar backdrop - below `lg` the sidebar overlays the page instead of
+          pushing it, so tapping outside it (like clicking away from a dropdown) closes it */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/50 lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+          data-testid="sidebar-backdrop"
+        />
+      )}
+
+      {/* Sidebar - overlay drawer below `lg` (fixed, slides in/out via transform,
+          swipeable closed), inline push/collapse sidebar at `lg` and up (unchanged) */}
       <aside
-        className={`${
-          sidebarOpen ? "w-64" : "w-0 lg:w-20"
+        className={`fixed inset-y-0 left-0 z-50 lg:relative lg:z-auto w-64 ${
+          sidebarOpen ? "translate-x-0 lg:w-64" : "-translate-x-full lg:translate-x-0 lg:w-20"
         } bg-white dark:bg-zinc-900 border-r border-black/5 dark:border-white/5 transition-all duration-300 flex-shrink-0`}
+        onTouchStart={handleSidebarTouchStart}
+        onTouchEnd={handleSidebarTouchEnd}
         data-testid="sidebar"
       >
         <div className="flex flex-col h-full">
@@ -1098,13 +1134,23 @@ export default function DashboardLayout({ user, setUser }) {
             <nav className="space-y-1">
               {filteredNavItems.map((item) => {
                 const Icon = item.icon;
-                const isActive = location.pathname === item.path;
+                const isActive = item.isChatToggle ? chatExpanded : location.pathname === item.path;
                 const navButton = (
                   <Button
                     key={item.path}
                     variant="ghost"
                     data-testid={`nav-${item.label.toLowerCase().replace(' ', '-')}`}
-                    onClick={() => navigate(item.path)}
+                    onClick={() => {
+                      if (item.isChatToggle) {
+                        setChatExpanded(true);
+                      } else {
+                        setChatExpanded(false);
+                        navigate(item.path);
+                      }
+                      // Auto-close the mobile overlay drawer after picking a
+                      // destination, so it doesn't sit on top of the new page.
+                      if (window.innerWidth < 1024) setSidebarOpen(false);
+                    }}
                     className={`w-full justify-start h-11 ${
                       isActive
                         ? "bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20"
@@ -1207,7 +1253,7 @@ export default function DashboardLayout({ user, setUser }) {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col overflow-auto">
+      <main className="relative flex-1 flex flex-col overflow-auto">
         {/* Top Header Bar with Notifications */}
         <header className="h-14 bg-white dark:bg-zinc-900 border-b border-black/5 dark:border-white/5 flex items-center justify-between px-4 gap-4">
           {/* Mobile Sidebar Expand Button - Only shows on mobile when sidebar is collapsed */}
@@ -1472,18 +1518,29 @@ export default function DashboardLayout({ user, setUser }) {
         <div className="flex-1 overflow-auto">
           <Outlet />
         </div>
+
+        {/* Chat Component - mounted inside <main> (not as a sibling of the
+            sidebar) so its full-screen mode, which is positioned absolute
+            within this relatively-positioned <main>, only ever covers the
+            content area and never the sidebar. The floating widget/windows
+            stay `fixed` (viewport-relative) regardless of where this sits
+            in the DOM, so this move doesn't affect their positioning. */}
+        {user && (
+          <Chat
+            user={user}
+            openChats={openChats}
+            setOpenChats={setOpenChats}
+            activeChat={activeChat}
+            setActiveChat={setActiveChat}
+            isExpanded={chatExpanded}
+            setIsExpanded={setChatExpanded}
+          />
+        )}
       </main>
 
-      {/* Chat Component */}
-      {user && (
-        <Chat
-          user={user}
-          openChats={openChats}
-          setOpenChats={setOpenChats}
-          activeChat={activeChat}
-          setActiveChat={setActiveChat}
-        />
-      )}
+      {/* General system notifications (e.g. request completed/rejected) -
+          its own WebSocket, independent of chat */}
+      {user && <SystemNotifications user={user} />}
 
       {/* Notification Detail Dialog */}
       <AlertDialog key={notificationKey} open={!!selectedNotification} onOpenChange={(open) => !open && handleCloseNotificationDetail()}>

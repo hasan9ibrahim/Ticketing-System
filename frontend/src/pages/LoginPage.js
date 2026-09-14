@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
+import { FieldError, RequiredAsterisk } from "@/components/ui/field-error";
 
 const BACKEND_URL =
   process.env.REACT_APP_API_URL ||
@@ -48,10 +49,21 @@ export default function LoginPage({ setUser }) {
   const [resetCode, setResetCode] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
   const navigate = useNavigate();
 
   const handleLogin = async (e) => {
     e.preventDefault();
+
+    const errors = {};
+    if (!identifier.trim()) errors.identifier = true;
+    if (!password) errors.password = true;
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      return;
+    }
+    setFieldErrors({});
+
     setLoading(true);
 
     try {
@@ -105,6 +117,13 @@ export default function LoginPage({ setUser }) {
 
   const handleVerify2FA = async (e) => {
     e.preventDefault();
+
+    if (!twoFactorCode.trim()) {
+      setFieldErrors({ twoFactorCode: true });
+      return;
+    }
+    setFieldErrors({});
+
     setVerifying2FA(true);
 
     try {
@@ -154,6 +173,13 @@ export default function LoginPage({ setUser }) {
 
   const handlePasswordResetRequest = async (e) => {
     e.preventDefault();
+
+    if (!resetIdentifier.trim()) {
+      setFieldErrors({ resetIdentifier: true });
+      return;
+    }
+    setFieldErrors({});
+
     try {
       const response = await axios.post(`${API}/auth/password-reset/request`, {
         identifier: resetIdentifier
@@ -167,6 +193,13 @@ export default function LoginPage({ setUser }) {
 
   const handlePasswordResetVerify = async (e) => {
     e.preventDefault();
+
+    if (!resetCode.trim()) {
+      setFieldErrors({ resetCode: true });
+      return;
+    }
+    setFieldErrors({});
+
     try {
       await axios.post(`${API}/auth/password-reset/verify`, {
         identifier: resetIdentifier,
@@ -181,6 +214,16 @@ export default function LoginPage({ setUser }) {
 
   const handlePasswordResetComplete = async (e) => {
     e.preventDefault();
+
+    const errors = {};
+    if (!newPassword) errors.newPassword = true;
+    if (!confirmPassword) errors.confirmPassword = true;
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      return;
+    }
+    setFieldErrors({});
+
     if (newPassword !== confirmPassword) {
       toast.error("Passwords do not match");
       return;
@@ -301,18 +344,21 @@ export default function LoginPage({ setUser }) {
                 
                 <div className="space-y-2">
                   <Label htmlFor="twoFactorCode" className="text-slate-300 text-sm font-medium">
-                    Verification Code
+                    Verification Code <RequiredAsterisk />
                   </Label>
                   <Input
                     id="twoFactorCode"
                     type="text"
                     placeholder="Enter 6-digit code"
                     value={twoFactorCode}
-                    onChange={(e) => setTwoFactorCode(e.target.value)}
-                    className="bg-slate-900/50 border-slate-600/50 text-gray-900 dark:text-white placeholder:text-slate-500 h-12 text-center text-lg tracking-[0.5em] font-mono"
+                    onChange={(e) => {
+                      setTwoFactorCode(e.target.value);
+                      setFieldErrors((prev) => ({ ...prev, twoFactorCode: false }));
+                    }}
+                    className={`bg-slate-900/50 border-slate-600/50 text-gray-900 dark:text-white placeholder:text-slate-500 h-12 text-center text-lg tracking-[0.5em] font-mono ${fieldErrors.twoFactorCode ? "border-red-500 focus-visible:ring-red-500" : ""}`}
                     maxLength={6}
-                    required
                   />
+                  {fieldErrors.twoFactorCode && <FieldError />}
                 </div>
 
                 <Button
@@ -344,7 +390,7 @@ export default function LoginPage({ setUser }) {
               <form onSubmit={handleLogin} className="space-y-6" data-testid="login-form">
                 <div className="space-y-2">
                   <Label htmlFor="identifier" className="text-slate-300 text-sm font-medium">
-                    Username
+                    Username <RequiredAsterisk />
                   </Label>
                   <div className="relative">
                     <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500">
@@ -357,16 +403,19 @@ export default function LoginPage({ setUser }) {
                       type="text"
                       placeholder="Enter your username"
                       value={identifier}
-                      onChange={(e) => setIdentifier(e.target.value)}
-                      className="bg-slate-900/50 border-slate-600/50 text-gray-900 dark:text-white placeholder:text-slate-500 pl-12 h-12 focus:border-emerald-500/50 focus:ring-emerald-500/20"
-                      required
+                      onChange={(e) => {
+                        setIdentifier(e.target.value);
+                        setFieldErrors((prev) => ({ ...prev, identifier: false }));
+                      }}
+                      className={`bg-slate-900/50 border-slate-600/50 text-gray-900 dark:text-white placeholder:text-slate-500 pl-12 h-12 focus:border-emerald-500/50 focus:ring-emerald-500/20 ${fieldErrors.identifier ? "border-red-500 focus-visible:ring-red-500" : ""}`}
                     />
                   </div>
+                  {fieldErrors.identifier && <FieldError />}
                 </div>
 
                 <div className="space-y-2">
                   <Label htmlFor="password" className="text-slate-300 text-sm font-medium">
-                    Password
+                    Password <RequiredAsterisk />
                   </Label>
                   <div className="relative">
                     <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500">
@@ -379,11 +428,14 @@ export default function LoginPage({ setUser }) {
                       type="password"
                       placeholder="Enter your password"
                       value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      className="bg-slate-900/50 border-slate-600/50 text-gray-900 dark:text-white placeholder:text-slate-500 pl-12 h-12 focus:border-emerald-500/50 focus:ring-emerald-500/20"
-                      required
+                      onChange={(e) => {
+                        setPassword(e.target.value);
+                        setFieldErrors((prev) => ({ ...prev, password: false }));
+                      }}
+                      className={`bg-slate-900/50 border-slate-600/50 text-gray-900 dark:text-white placeholder:text-slate-500 pl-12 h-12 focus:border-emerald-500/50 focus:ring-emerald-500/20 ${fieldErrors.password ? "border-red-500 focus-visible:ring-red-500" : ""}`}
                     />
                   </div>
+                  {fieldErrors.password && <FieldError />}
                 </div>
 
                 <Button
@@ -490,17 +542,20 @@ export default function LoginPage({ setUser }) {
               <form onSubmit={handlePasswordResetRequest} className="space-y-4">
                 <div>
                   <Label htmlFor="resetIdentifier" className="text-slate-300 text-sm font-medium">
-                    Username or Email
+                    Username or Email <RequiredAsterisk />
                   </Label>
                   <Input
                     id="resetIdentifier"
                     type="text"
                     placeholder="Enter your username or email"
                     value={resetIdentifier}
-                    onChange={(e) => setResetIdentifier(e.target.value)}
-                    className="bg-slate-900/50 border-slate-600/50 text-gray-900 dark:text-white placeholder:text-slate-500 mt-1 h-12 focus:border-emerald-500/50 focus:ring-emerald-500/20"
-                    required
+                    onChange={(e) => {
+                      setResetIdentifier(e.target.value);
+                      setFieldErrors((prev) => ({ ...prev, resetIdentifier: false }));
+                    }}
+                    className={`bg-slate-900/50 border-slate-600/50 text-gray-900 dark:text-white placeholder:text-slate-500 mt-1 h-12 focus:border-emerald-500/50 focus:ring-emerald-500/20 ${fieldErrors.resetIdentifier ? "border-red-500 focus-visible:ring-red-500" : ""}`}
                   />
+                  {fieldErrors.resetIdentifier && <FieldError />}
                 </div>
                 <Button
                   type="submit"
@@ -526,18 +581,21 @@ export default function LoginPage({ setUser }) {
                 </p>
                 <div>
                   <Label htmlFor="resetCode" className="text-slate-300 text-sm font-medium">
-                    Verification Code
+                    Verification Code <RequiredAsterisk />
                   </Label>
                   <Input
                     id="resetCode"
                     type="text"
                     placeholder="Enter 6-digit code"
                     value={resetCode}
-                    onChange={(e) => setResetCode(e.target.value)}
-                    className="bg-slate-900/50 border-slate-600/50 text-gray-900 dark:text-white placeholder:text-slate-500 mt-1 h-12 text-center text-lg tracking-[0.5em] font-mono focus:border-emerald-500/50 focus:ring-emerald-500/20"
+                    onChange={(e) => {
+                      setResetCode(e.target.value);
+                      setFieldErrors((prev) => ({ ...prev, resetCode: false }));
+                    }}
+                    className={`bg-slate-900/50 border-slate-600/50 text-gray-900 dark:text-white placeholder:text-slate-500 mt-1 h-12 text-center text-lg tracking-[0.5em] font-mono focus:border-emerald-500/50 focus:ring-emerald-500/20 ${fieldErrors.resetCode ? "border-red-500 focus-visible:ring-red-500" : ""}`}
                     maxLength={6}
-                    required
                   />
+                  {fieldErrors.resetCode && <FieldError />}
                 </div>
                 <Button
                   type="submit"
@@ -560,31 +618,37 @@ export default function LoginPage({ setUser }) {
               <form onSubmit={handlePasswordResetComplete} className="space-y-4">
                 <div>
                   <Label htmlFor="newPassword" className="text-slate-300 text-sm font-medium">
-                    New Password
+                    New Password <RequiredAsterisk />
                   </Label>
                   <Input
                     id="newPassword"
                     type="password"
                     placeholder="Enter new password"
                     value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    className="bg-slate-900/50 border-slate-600/50 text-gray-900 dark:text-white placeholder:text-slate-500 mt-1 h-12 focus:border-emerald-500/50 focus:ring-emerald-500/20"
-                    required
+                    onChange={(e) => {
+                      setNewPassword(e.target.value);
+                      setFieldErrors((prev) => ({ ...prev, newPassword: false }));
+                    }}
+                    className={`bg-slate-900/50 border-slate-600/50 text-gray-900 dark:text-white placeholder:text-slate-500 mt-1 h-12 focus:border-emerald-500/50 focus:ring-emerald-500/20 ${fieldErrors.newPassword ? "border-red-500 focus-visible:ring-red-500" : ""}`}
                   />
+                  {fieldErrors.newPassword && <FieldError />}
                 </div>
                 <div>
                   <Label htmlFor="confirmPassword" className="text-slate-300 text-sm font-medium">
-                    Confirm Password
+                    Confirm Password <RequiredAsterisk />
                   </Label>
                   <Input
                     id="confirmPassword"
                     type="password"
                     placeholder="Confirm new password"
                     value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    className="bg-slate-900/50 border-slate-600/50 text-gray-900 dark:text-white placeholder:text-slate-500 mt-1 h-12 focus:border-emerald-500/50 focus:ring-emerald-500/20"
-                    required
+                    onChange={(e) => {
+                      setConfirmPassword(e.target.value);
+                      setFieldErrors((prev) => ({ ...prev, confirmPassword: false }));
+                    }}
+                    className={`bg-slate-900/50 border-slate-600/50 text-gray-900 dark:text-white placeholder:text-slate-500 mt-1 h-12 focus:border-emerald-500/50 focus:ring-emerald-500/20 ${fieldErrors.confirmPassword ? "border-red-500 focus-visible:ring-red-500" : ""}`}
                   />
+                  {fieldErrors.confirmPassword && <FieldError />}
                 </div>
                 <Button
                   type="submit"

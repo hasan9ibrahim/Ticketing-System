@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
+import { FieldError, RequiredAsterisk } from "@/components/ui/field-error";
 import SearchableSelect from "@/components/custom/SearchableSelect";
 import IssueTypeSelect, { SMS_ISSUE_TYPES, VOICE_ISSUE_TYPES } from "@/components/custom/IssueTypeSelect";
 import { Plus, Search, Filter, Clock, CheckCircle, XCircle, AlertCircle, Edit, Trash2, Copy, X } from "lucide-react";
@@ -78,6 +79,16 @@ const PRIORITIES = [
   { value: "Urgent", color: "bg-red-600", text: "text-gray-900 dark:text-white", description: "To be done in 5 mins (Only in case of Live Traffic)" }
 ];
 
+// Which plan(s) a Rating/Routing request covers
+const RATING_ROUTING_SCOPES = [
+  { value: "rating", label: "Rating", description: "Show only the Rating Plan" },
+  { value: "routing", label: "Routing", description: "Show only the Routing Plan" },
+  { value: "both", label: "Rating and Routing", description: "Show both plans" }
+];
+
+// Currencies available for Rating/Routing requests
+const CURRENCIES = ["EUR", "USD"];
+
 // Trunk Types for SMS and Voice
 const SMS_TRUNK_TYPES = [
   { value: "Direct", label: "Direct" },
@@ -118,7 +129,21 @@ export default function RequestsPage() {
   const user = JSON.parse(localStorage.getItem("user") || "{}");
   const userRole = user?.role || "";
   const userDepartment = user?.department?.name?.toLowerCase() || "";
-  
+
+  // For AMs, only show their department
+  // Use flexible matching to handle different department name formats
+  const isSmsDepartment = userDepartment?.startsWith("sms") || userDepartment === "sms";
+  const isVoiceDepartment = userDepartment?.startsWith("voice") || userDepartment === "voice";
+  const displayTab = userRole === "am"
+    ? (isSmsDepartment ? "sms" : isVoiceDepartment ? "voice" : userDepartment)
+    : activeTab;
+
+  // Default route rule priority differs by department: SMS defaults high (98), Voice defaults to top priority (0)
+  const getDefaultRoutePriority = () => (displayTab === "voice" ? 0 : 98);
+
+  // Default currency for rating/routing rates & costs: EUR for SMS, USD for Voice
+  const defaultCurrency = displayTab === "voice" ? "USD" : "EUR";
+
   // Compute pending request counts by priority for badge display (only for NOC/Admin)
   const getPendingByPriority = useCallback((ticketType) => {
     if (userRole !== "noc" && userRole !== "admin") return {};
@@ -190,6 +215,11 @@ export default function RequestsPage() {
   
   // For customer and vendor trunk selection
   const [enterprises, setEnterprises] = useState([]);
+  // Unfiltered enterprise list (all AMs' customers) - only used for the
+  // Investigation request type, where an AM may need to reference another
+  // AM's customer/customer trunk. For non-AM users this is the same as
+  // `enterprises` above, which is already unfiltered.
+  const [investigationEnterprises, setInvestigationEnterprises] = useState([]);
   const [vendorTrunkOptions, setVendorTrunkOptions] = useState([]);
   const [customerTrunkOptions, setCustomerTrunkOptions] = useState([]);
   const [customerTrunkSearch, setCustomerTrunkSearch] = useState("");
@@ -208,6 +238,10 @@ export default function RequestsPage() {
     rating: "",
     routing: "",
     customer_trunk: "",
+    // Which plan(s) this rating_routing request covers: "rating", "routing", or "both"
+    rating_routing_scope: "both",
+    // Currency for rate/cost fields: defaults to EUR for SMS, USD for Voice
+    currency: defaultCurrency,
     // New compact structure for rating_routing: array of customer trunk configs
     // Each config has: trunk, destination, rate, and routing (vendor trunk + advanced settings)
     customer_trunk_configs: [],
@@ -258,7 +292,12 @@ export default function RequestsPage() {
   // Separate state for Direction and With LCR to ensure updates work correctly
   const [trunkDirection, setTrunkDirection] = useState("");
   const [trunkWithLcr, setTrunkWithLcr] = useState(true);
-  
+  // Tracks which mandatory fields in the request dialog are empty after a failed submit attempt
+  const [fieldErrors, setFieldErrors] = useState({});
+  // Tracks which pane (Rating or Routing) is currently focused per customer trunk config,
+  // so that pane can expand while the other shrinks to give it more room to fill in
+  const [activeConfigPane, setActiveConfigPane] = useState({});
+
   // Initialize trunk states from formData when it changes (for editing)
   useEffect(() => {
     if (formData.request_type === "trunk_request_sms" || formData.request_type === "trunk_request_voice") {
@@ -406,19 +445,28 @@ export default function RequestsPage() {
       const isVoiceDept = userDepartment?.startsWith("voice") || userDepartment === "voice";
       const deptType = isSmsDept ? "sms" : isVoiceDept ? "voice" : activeTab;
       
-      // Fetch all data in parallel for faster loading
-      const [entResponse, vendorTrunkResponse, customerTrunkResponse] = await Promise.all([
+      // Fetch all data in parallel for faster loading. AMs also need the
+      // unrestricted client list for Investigation requests (see
+      // investigationEnterprises above); other roles already get the full
+      // list from /clients, so skip the extra request for them.
+      const [entResponse, vendorTrunkResponse, customerTrunkResponse, allEntResponse] = await Promise.all([
         axios.get(`${API}/clients`, { headers }),
         axios.get(`${API}/references/trunks/${deptType}`, { headers }),
-        axios.get(`${API}/trunks/${deptType}`, { headers })
+        axios.get(`${API}/trunks/${deptType}`, { headers }),
+        userRole === "am" ? axios.get(`${API}/clients?include_all=true&department=${deptType}`, { headers }) : Promise.resolve(null)
       ]);
-      
+
       const entData = entResponse.data || [];
-      const filteredEnterprises = entData.filter(e => 
+      const filteredEnterprises = entData.filter(e =>
         e.enterprise_type === deptType || e.enterprise_type === "all"
       );
       setEnterprises(filteredEnterprises);
-      
+
+      const allEntData = allEntResponse ? (allEntResponse.data || []) : entData;
+      setInvestigationEnterprises(allEntData.filter(e =>
+        e.enterprise_type === deptType || e.enterprise_type === "all"
+      ));
+
       setVendorTrunkOptions(vendorTrunkResponse.data.vendor_trunks || []);
       setCustomerTrunkOptions(customerTrunkResponse.data.customer_trunks || []);
     } catch (error) {
@@ -520,6 +568,7 @@ export default function RequestsPage() {
   }, []);
 
   const handleRequestTypeChange = (type) => {
+    setFieldErrors({});
     setFormData({
       ...formData,
       request_type: type,
@@ -702,7 +751,7 @@ export default function RequestsPage() {
           rating_pairs: [{ destination: "", rate: "" }],
           routing: {
             route_rules: [{
-              priority: 1,
+              priority: getDefaultRoutePriority(),
               vendors: [{ trunk: "", percentage: "", cost_type: "fixed", cost_min: "", cost_max: "", note: "" }],
               by_loss: false,
               enable_mnp_hlr: false,
@@ -752,7 +801,7 @@ export default function RequestsPage() {
   // Common Route Rules functions
   const addCommonRouteRule = () => {
     const currentRules = formData.common_route_rules || [];
-    const newPriority = currentRules.length > 0 ? Math.max(...currentRules.map(r => r.priority || 0)) + 1 : 1;
+    const newPriority = getDefaultRoutePriority();
     setFormData({
       ...formData,
       common_route_rules: [
@@ -773,7 +822,7 @@ export default function RequestsPage() {
   const cloneCommonRouteRule = (ruleIndex) => {
     const currentRules = formData.common_route_rules || [];
     const sourceRule = currentRules[ruleIndex];
-    const newPriority = currentRules.length > 0 ? Math.max(...currentRules.map(r => r.priority || 0)) + 1 : 1;
+    const newPriority = getDefaultRoutePriority();
     // Deep clone the source rule and update priority
     const clonedRule = JSON.parse(JSON.stringify(sourceRule));
     clonedRule.priority = newPriority;
@@ -825,7 +874,7 @@ export default function RequestsPage() {
   const addRouteRule = (configIndex) => {
     const newConfigs = [...formData.customer_trunk_configs];
     const currentRules = newConfigs[configIndex].routing.route_rules || [];
-    const newPriority = currentRules.length + 1;
+    const newPriority = getDefaultRoutePriority();
     newConfigs[configIndex] = {
       ...newConfigs[configIndex],
       routing: {
@@ -851,7 +900,7 @@ export default function RequestsPage() {
     const newConfigs = [...formData.customer_trunk_configs];
     const currentRules = newConfigs[configIndex].routing.route_rules || [];
     const sourceRule = currentRules[ruleIndex];
-    const newPriority = currentRules.length + 1;
+    const newPriority = getDefaultRoutePriority();
     // Deep clone the source rule and update priority
     const clonedRule = JSON.parse(JSON.stringify(sourceRule));
     clonedRule.priority = newPriority;
@@ -1015,23 +1064,43 @@ export default function RequestsPage() {
   const handleSubmit = async () => {
     // Validate before submitting
     if (!canSubmit()) {
-      // Check for percentage validation errors
+      // Highlight every empty mandatory field so the user can see exactly what's missing
+      setFieldErrors(getRequestFieldErrors());
+      // Check for percentage validation errors in the routing plan(s)
       if (formData.request_type === "rating_routing") {
-        const positions = formData.rating_vendor_trunks || {};
-        for (const [position, vendors] of Object.entries(positions)) {
-          const vendorsWithTrunk = (vendors || []).filter(v => v.trunk);
-          if (vendorsWithTrunk.length > 1) {
-            const percentageSum = vendorsWithTrunk.reduce((sum, v) => sum + (parseFloat(v.percentage) || 0), 0);
-            if (percentageSum !== 100) {
-              toast({ 
-                title: "Validation Error", 
-                description: `Position ${position}: Percentages must add up to 100% (currently ${percentageSum}%)`, 
-                variant: "destructive" 
-              });
-              return;
-            }
+        const routeRuleGroups = [
+          ...(formData.customer_trunk_configs || []).flatMap(config => config.routing?.route_rules || []),
+          ...(formData.use_common_routing ? (formData.common_route_rules || []) : []),
+        ];
+        let percentageErrorShown = false;
+        for (const rule of routeRuleGroups) {
+          const vendorsWithTrunk = (rule.vendors || []).filter(v => v.trunk);
+          if (vendorsWithTrunk.length <= 1) continue;
+          const zeroOrInvalidVendor = vendorsWithTrunk.find(v => {
+            const pct = parseFloat(v.percentage);
+            return isNaN(pct) || pct <= 0;
+          });
+          if (zeroOrInvalidVendor) {
+            toast({
+              title: "Validation Error",
+              description: `Vendor ${zeroOrInvalidVendor.trunk} has a 0% (or missing) percentage, which isn't accepted — every vendor in a routing plan must have a percentage greater than 0`,
+              variant: "destructive"
+            });
+            percentageErrorShown = true;
+            break;
+          }
+          const percentageSum = vendorsWithTrunk.reduce((sum, v) => sum + (parseFloat(v.percentage) || 0), 0);
+          if (percentageSum !== 100) {
+            toast({
+              title: "Validation Error",
+              description: `Percentages must add up to 100% (currently ${percentageSum}%)`,
+              variant: "destructive"
+            });
+            percentageErrorShown = true;
+            break;
           }
         }
+        if (percentageErrorShown) return;
       }
       // Validate destination format for investigation requests
       if (formData.request_type === "investigation" && formData.investigation_destination) {
@@ -1102,15 +1171,19 @@ export default function RequestsPage() {
       toast({ title: "Please fill all required fields", variant: "destructive" });
       return;
     }
-    
+
+    setFieldErrors({});
+
     try {
       const token = localStorage.getItem("token");
-      
+
       const requestData = {
         request_type: formData.request_type,
         request_type_label: formData.request_type_label,
         department: displayTab,
         priority: formData.priority,
+        rating_routing_scope: formData.rating_routing_scope || "both",
+        currency: formData.currency || defaultCurrency,
         customer: formData.customer,
         customer_id: formData.customer_id,
         customer_ids: formData.customer_ids || [],
@@ -1200,11 +1273,14 @@ export default function RequestsPage() {
   const handleEditRequest = (request) => {
     setIsEditMode(true);
     setEditingRequest(request);
+    setFieldErrors({});
     // Populate formData with the request data
     setFormData({
       request_type: request.request_type,
       request_type_label: request.request_type_label,
       priority: request.priority || "Medium",
+      rating_routing_scope: request.rating_routing_scope || "both",
+      currency: request.currency || defaultCurrency,
       customer: request.customer || "",
       customer_id: request.customer_id || "",
       customer_ids: request.customer_ids || (request.customer_id ? [request.customer_id] : []),
@@ -1285,11 +1361,14 @@ export default function RequestsPage() {
   const handleCloneRequest = (request) => {
     setIsEditMode(false);
     setEditingRequest(null);
+    setFieldErrors({});
     // Populate formData with the request data for cloning
     setFormData({
       request_type: request.request_type,
       request_type_label: request.request_type_label,
       priority: request.priority || "Medium",
+      rating_routing_scope: request.rating_routing_scope || "both",
+      currency: request.currency || defaultCurrency,
       customer: request.customer || "",
       customer_id: request.customer_id || "",
       customer_ids: request.customer_ids || (request.customer_id ? [request.customer_id] : []),
@@ -1374,6 +1453,7 @@ export default function RequestsPage() {
   const handleCreateLcrFromTesting = (request) => {
     setIsEditMode(false);
     setEditingRequest(null);
+    setFieldErrors({});
     // Populate formData with LCR request type, pre-filling common fields from Testing request
     setFormData({
       request_type: "lcr",
@@ -1683,41 +1763,120 @@ export default function RequestsPage() {
     return sorted;
   }, [filteredRequests, requestSubTab]);
 
-  // For AMs, only show their department
-  // Use flexible matching to handle different department name formats
-  const isSmsDepartment = userDepartment?.startsWith("sms") || userDepartment === "sms";
-  const isVoiceDepartment = userDepartment?.startsWith("voice") || userDepartment === "voice";
-  const displayTab = userRole === "am" 
-    ? (isSmsDepartment ? "sms" : isVoiceDepartment ? "voice" : userDepartment) 
-    : activeTab;
+  // Request types selectable in the New/Edit Request dialog, filtered by department
+  const visibleRequestTypes = useMemo(() => {
+    return Object.entries(REQUEST_TYPES).filter(([key, type]) => {
+      if (type.forDepartment) {
+        if (userRole === "am") {
+          const deptMatch = type.forDepartment === "sms" ? isSmsDepartment : type.forDepartment === "voice" ? isVoiceDepartment : false;
+          if (!deptMatch) return false;
+        } else {
+          if (type.forDepartment !== activeTab) return false;
+        }
+      }
+      return true;
+    });
+  }, [userRole, isSmsDepartment, isVoiceDepartment, activeTab]);
+
+  // Hexagonal "beehive" card layout for the Request Type picker - cards sit next to
+  // each other, and once a row is full the rest wrap onto interlocking rows below.
+  const HEX_CLIP_PATH = "polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)";
+  const renderRequestTypeHive = (cols) => {
+    const rows = [];
+    for (let i = 0; i < visibleRequestTypes.length; i += cols) {
+      rows.push(visibleRequestTypes.slice(i, i + cols));
+    }
+    return (
+      <div className="flex flex-col items-center">
+        {rows.map((row, rowIndex) => (
+          <div
+            key={rowIndex}
+            className={`flex gap-2 ${rowIndex > 0 ? "-mt-9" : ""} ${rowIndex % 2 === 1 ? "ml-16" : ""}`}
+          >
+            {row.map(([key, type]) => {
+              const isSelected = formData.request_type === key;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => handleRequestTypeChange(key)}
+                  title={type.description}
+                  className={`shrink-0 w-32 h-36 p-[3px] transition-transform ${isSelected ? "bg-cyan-400 scale-105" : "bg-gray-300 dark:bg-zinc-600 hover:scale-105"}`}
+                  style={{ clipPath: HEX_CLIP_PATH }}
+                >
+                  <div
+                    className={`w-full h-full flex items-center justify-center px-3 text-center transition-colors ${
+                      isSelected
+                        ? "bg-cyan-600 text-white"
+                        : "bg-gray-100 dark:bg-zinc-800 text-gray-900 dark:text-white"
+                    }`}
+                    style={{ clipPath: HEX_CLIP_PATH }}
+                  >
+                    <span className="text-xs font-medium leading-tight">{type.label}</span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  // A route rule's vendors are valid only if every vendor with a trunk selected has a
+  // percentage greater than 0 (a 0% vendor would never receive traffic and must be rejected),
+  // and, when there is more than one vendor, the percentages sum to exactly 100.
+  const isRouteRuleVendorSplitValid = (vendors) => {
+    const vendorsWithTrunk = (vendors || []).filter(v => v.trunk);
+    if (vendorsWithTrunk.length <= 1) return true;
+    for (const vendor of vendorsWithTrunk) {
+      const pct = parseFloat(vendor.percentage);
+      if (isNaN(pct) || pct <= 0) return false;
+    }
+    const percentageSum = vendorsWithTrunk.reduce((sum, v) => sum + (parseFloat(v.percentage) || 0), 0);
+    return percentageSum === 100;
+  };
 
   // Validation for Rating/Routing - requires customer_trunk_configs with trunk and destination, and either rate or vendor trunk(s)
   const isRatingRoutingValid = () => {
     if (formData.request_type !== "rating_routing") return true;
-    
+
+    const scope = formData.rating_routing_scope || "both";
+    const showRatingPane = scope !== "routing";
+
     // Validate customer trunk configs
     const configs = formData.customer_trunk_configs || [];
-    
-    // At least one customer trunk config with trunk and at least one rating pair with destination is required
+
+    // At least one customer trunk config with a trunk is required; when the Rating Plan
+    // is part of this request it also needs at least one rating pair with a destination
     const hasValidConfig = configs.some(
-      config => config.trunk && (config.rating_pairs || []).some(p => p.destination)
+      config => config.trunk && (!showRatingPane || (config.rating_pairs || []).some(p => p.destination))
     );
     if (!hasValidConfig) return false;
-    
+
     // Check if any config has a rate
-    const hasCustomerRate = configs.some(config => 
+    const hasCustomerRate = configs.some(config =>
       (config.rating_pairs || []).some(p => p.rate && p.rate.trim())
     );
-    // Check if any config has vendor trunks in route rules
-    const hasVendorTrunks = configs.some(config => 
-      (config.routing?.route_rules || []).some(rule => 
+    // Check if any config has vendor trunks in route rules (per-config or common routing)
+    const hasVendorTrunks = configs.some(config =>
+      (config.routing?.route_rules || []).some(rule =>
         (rule.vendors || []).some(v => v.trunk)
       )
-    );
-    
-    // Either customer trunk needs rate OR vendor trunk needs to exist
-    if (!hasCustomerRate && !hasVendorTrunks) return false;
-    
+    ) || (formData.use_common_routing && (formData.common_route_rules || []).some(rule =>
+      (rule.vendors || []).some(v => v.trunk)
+    ));
+
+    // Rating-only requests need a rate; Routing-only requests need a vendor trunk;
+    // requests covering both need at least one of the two
+    if (scope === "rating") {
+      if (!hasCustomerRate) return false;
+    } else if (scope === "routing") {
+      if (!hasVendorTrunks) return false;
+    } else if (!hasCustomerRate && !hasVendorTrunks) {
+      return false;
+    }
+
     // Validate numeric fields
     for (const config of configs) {
       for (const pair of (config.rating_pairs || [])) {
@@ -1741,20 +1900,31 @@ export default function RequestsPage() {
         }
       }
     }
-    
-    // Validate percentages: if a rule has more than 1 vendor, percentages must add up to 100%
+
+    // Validate percentages: every vendor must have a percentage greater than 0, and if a rule
+    // has more than 1 vendor, percentages must add up to 100%
     for (const config of configs) {
       for (const rule of (config.routing?.route_rules || [])) {
-        const vendorsWithTrunk = (rule.vendors || []).filter(v => v.trunk);
-        if (vendorsWithTrunk.length > 1) {
-          const percentageSum = vendorsWithTrunk.reduce((sum, v) => sum + (parseFloat(v.percentage) || 0), 0);
-          if (percentageSum !== 100) {
-            return false;
-          }
+        if (!isRouteRuleVendorSplitValid(rule.vendors)) {
+          return false;
         }
       }
     }
-    
+
+    // Validate the common routing plan the same way, when it's in use
+    if (formData.use_common_routing) {
+      for (const rule of (formData.common_route_rules || [])) {
+        const vendorsWithTrunk = (rule.vendors || []).filter(v => v.trunk);
+        for (const vendor of vendorsWithTrunk) {
+          if (vendor.cost_min && String(vendor.cost_min).trim() && isNaN(parseFloat(vendor.cost_min))) return false;
+          if (vendor.cost_max && String(vendor.cost_max).trim() && isNaN(parseFloat(vendor.cost_max))) return false;
+        }
+        if (!isRouteRuleVendorSplitValid(rule.vendors)) {
+          return false;
+        }
+      }
+    }
+
     return true;
   };
 
@@ -1820,6 +1990,86 @@ export default function RequestsPage() {
     return formData.customer;
   };
 
+  // Mirrors canSubmit()'s per-type rules but at field granularity, so the dialog can
+  // highlight exactly which mandatory field(s) are empty after a failed submit attempt.
+  const getRequestFieldErrors = () => {
+    const errors = {};
+    const rt = formData.request_type;
+    if (!rt) {
+      errors.request_type = true;
+      return errors;
+    }
+
+    const requiresCustomer = rt !== "testing" && rt !== "investigation" && rt !== "translation" && rt !== "lcr" && rt !== "trunk_request_sms" && rt !== "trunk_request_voice" && rt !== "open_tt";
+    if (requiresCustomer) {
+      if (rt === "rating_routing") {
+        if (!formData.customer_ids || formData.customer_ids.length === 0) errors.customer_ids = true;
+      } else if (!formData.customer || !formData.customer.trim()) {
+        errors.customer = true;
+      }
+    }
+
+    if (rt === "rating_routing") {
+      const configs = formData.customer_trunk_configs || [];
+      const showRatingPane = (formData.rating_routing_scope || "both") !== "routing";
+      const hasValidConfig = configs.some(config => config.trunk && (!showRatingPane || (config.rating_pairs || []).some(p => p.destination)));
+      if (!hasValidConfig) errors.customer_trunk_configs = true;
+    }
+
+    if (rt === "testing") {
+      if (!formData.destination || !formData.destination.trim()) errors.destination = true;
+      if (!formData.vendor_trunks.some(t => t.trunk)) errors.vendor_trunks = true;
+      if (displayTab === "voice" && !formData.test_type) errors.test_type = true;
+      if (displayTab === "sms" && !formData.vendor_trunks.some(t => (t.sid_content_pairs || []).some(p => p.sid && p.sid.trim() && p.content && p.content.trim()))) {
+        errors.sid_content_pairs = true;
+      }
+    }
+
+    if (rt === "translation") {
+      if (!formData.customer_id) errors.customer_id = true;
+      if (!formData.translation_type) errors.translation_type = true;
+      if (!formData.trunk_type) errors.trunk_type = true;
+      if (!formData.trunk_name) errors.trunk_name = true;
+      if (formData.translation_type === "sid_change" || formData.translation_type === "content_change") {
+        if (!formData.old_value) errors.old_value = true;
+        if (!formData.new_value) errors.new_value = true;
+      }
+      if (formData.translation_type === "sid_content_change") {
+        if (!formData.old_sid) errors.old_sid = true;
+        if (!formData.new_sid) errors.new_sid = true;
+        if (!formData.old_value) errors.old_value = true;
+        if (!formData.new_value) errors.new_value = true;
+      }
+      if (formData.translation_type === "remove" && !formData.word_to_remove) errors.word_to_remove = true;
+    }
+
+    if (rt === "investigation") {
+      if (!formData.customer_id) errors.customer_id = true;
+      if (!formData.customer_trunk) errors.customer_trunk = true;
+    }
+
+    if (rt === "lcr") {
+      if (!formData.destination) errors.destination = true;
+      if (!formData.lcr_type) errors.lcr_type = true;
+      if (!formData.lcr_change) errors.lcr_change = true;
+      if (!formData.vendor_trunks.some(t => t.trunk)) errors.vendor_trunks = true;
+    }
+
+    if (rt === "trunk_request_sms" || rt === "trunk_request_voice") {
+      if (!formData.customer_ids || formData.customer_ids.length === 0) errors.customer_ids = true;
+      if (!formData.trunk_type) errors.trunk_type = true;
+      if (!trunkDirection) errors.trunk_direction = true;
+    }
+
+    if (rt === "open_tt") {
+      if (!formData.destination) errors.destination = true;
+      if (!formData.vendor_trunks.some(t => t.trunk)) errors.vendor_trunks = true;
+      if (!formData.open_by) errors.open_by = true;
+    }
+
+    return errors;
+  };
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex justify-between items-center">
@@ -1834,6 +2084,7 @@ export default function RequestsPage() {
             setTrunkWithLcr(true);
             setIsEditMode(false);
             setEditingRequest(null);
+            setFieldErrors({});
             setDialogOpen(true);
           }} className="bg-amber-500 text-black hover:bg-amber-400">
             <Plus className="h-4 w-4 mr-2" />
@@ -2154,7 +2405,8 @@ export default function RequestsPage() {
 
                       {request.response && (
                         <div className="mt-3 p-2 bg-gray-100 dark:bg-zinc-800 rounded text-sm text-gray-700 dark:text-zinc-300">
-                          <strong>Response:</strong> {request.response}
+                          <strong>Response:</strong>
+                          <div className="whitespace-pre-wrap">{request.response}</div>
                         </div>
                       )}
                     </div>
@@ -2378,43 +2630,23 @@ export default function RequestsPage() {
           setTrunkWithLcr(true);
         }
       }}>
-        <DialogContent disableOutsideClick className="bg-white dark:bg-zinc-900 border-black/10 dark:border-white/10 text-gray-900 dark:text-white max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent disableOutsideClick className="bg-white dark:bg-zinc-900 border-black/10 dark:border-white/10 text-gray-900 dark:text-white max-w-2xl max-h-[90vh] overflow-y-auto overflow-x-hidden p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle>{isEditMode ? "Edit" : "New"} {displayTab.toUpperCase()} Request</DialogTitle>
           </DialogHeader>
           
           <div className="space-y-4">
-            {/* Request Type */}
+            {/* Request Type - honeycomb card picker */}
             <div>
-              <Label className="text-gray-500 dark:text-zinc-400">Request Type</Label>
-              <Select value={formData.request_type} onValueChange={handleRequestTypeChange}>
-                <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white">
-                  <SelectValue placeholder="Select request type" />
-                </SelectTrigger>
-                <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
-                  {Object.entries(REQUEST_TYPES).filter(([key, type]) => {
-                    // Filter by department - use flexible matching for AMs
-                    if (type.forDepartment) {
-                      if (userRole === "am") {
-                        // For AMs, check against their department
-                        const deptMatch = type.forDepartment === "sms" ? isSmsDepartment : type.forDepartment === "voice" ? isVoiceDepartment : false;
-                        if (!deptMatch) return false;
-                      } else {
-                        // For admins, check against activeTab
-                        if (type.forDepartment !== activeTab) return false;
-                      }
-                    }
-                    return true;
-                  }).map(([key, type]) => (
-                    <SelectItem key={key} value={key} className="text-gray-900 dark:text-white data-[highlighted]:bg-white data-[highlighted]:text-black">
-                      <div className="text-left data-[highlighted]:text-black">
-                        <div className="font-medium text-left">{type.label}</div>
-                        <div className="text-xs text-gray-500 dark:text-zinc-400 text-left data-[highlighted]:text-black">{type.description}</div>
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label className="text-gray-500 dark:text-zinc-400 mb-2 block">Request Type <RequiredAsterisk /></Label>
+              <div className={fieldErrors.request_type ? "rounded-lg ring-1 ring-red-500 p-1" : ""}>
+                <div className="sm:hidden">{renderRequestTypeHive(2)}</div>
+                <div className="hidden sm:flex sm:justify-center">{renderRequestTypeHive(3)}</div>
+              </div>
+              {formData.request_type && (
+                <p className="text-xs text-zinc-500 text-center mt-2">{REQUEST_TYPES[formData.request_type]?.description}</p>
+              )}
+              {fieldErrors.request_type && <FieldError>Please select a request type</FieldError>}
             </div>
 
             {/* Priority - Show only when request type is selected */}
@@ -2430,6 +2662,26 @@ export default function RequestsPage() {
                       <SelectItem key={p.value} value={p.value} className="text-gray-900 dark:text-white">
                         <span>{p.value}</span>
                         <span className="text-gray-500 dark:text-zinc-400 text-xs ml-2">({p.description})</span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {/* Plan Scope - Rating/Routing requests only: choose which plan(s) this request covers */}
+            {formData.request_type === "rating_routing" && (
+              <div>
+                <Label className="text-gray-500 dark:text-zinc-400">Plan</Label>
+                <Select value={formData.rating_routing_scope || "both"} onValueChange={(v) => setFormData({ ...formData, rating_routing_scope: v })}>
+                  <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white">
+                    <SelectValue className="text-gray-900 dark:text-white" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
+                    {RATING_ROUTING_SCOPES.map((s) => (
+                      <SelectItem key={s.value} value={s.value} className="text-gray-900 dark:text-white">
+                        <span>{s.label}</span>
+                        <span className="text-gray-500 dark:text-zinc-400 text-xs ml-2">({s.description})</span>
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -2454,7 +2706,7 @@ export default function RequestsPage() {
             {formData.request_type && formData.request_type !== "testing" && formData.request_type !== "investigation" && formData.request_type !== "translation" && formData.request_type !== "lcr" && formData.request_type !== "trunk_request_sms" && formData.request_type !== "trunk_request_voice" && formData.request_type !== "open_tt" && (
               <div>
                 <Label className="text-gray-500 dark:text-zinc-400">
-                  {formData.request_type === "translation" || formData.request_type === "rating_routing" ? "Customer(s)" : "Customer"}
+                  {formData.request_type === "translation" || formData.request_type === "rating_routing" ? "Customer(s)" : "Customer"} <RequiredAsterisk />
                 </Label>
                 {formData.request_type === "rating_routing" ? (
                   <MultiSelect
@@ -2470,327 +2722,39 @@ export default function RequestsPage() {
                         customer: newIds.map(id => enterprises.find(e => e.id === id)?.name).filter(Boolean).join(", "),
                         customer_trunks: newIds.length > 0 ? formData.customer_trunks : { "": [{ destination: "", rate: "" }] }
                       });
+                      setFieldErrors(prev => ({ ...prev, customer_ids: false }));
                     }}
                     placeholder="Select enterprises..."
                     searchPlaceholder="Search enterprises..."
+                    hasError={!!fieldErrors.customer_ids}
                   />
                 ) : (
                   <Input
                     value={formData.customer}
-                    onChange={(e) => setFormData({ ...formData, customer: e.target.value })}
+                    onChange={(e) => {
+                      setFormData({ ...formData, customer: e.target.value });
+                      setFieldErrors(prev => ({ ...prev, customer: false }));
+                    }}
                     placeholder={formData.request_type === "translation" ? "Customer name" : "Customer name"}
-                    className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700"
+                    className={`bg-gray-100 dark:bg-zinc-800 ${fieldErrors.customer ? "border-red-500 focus-visible:ring-red-500" : "border-gray-200 dark:border-zinc-700"}`}
                   />
                 )}
+                {(fieldErrors.customer || fieldErrors.customer_ids) && <FieldError />}
               </div>
             )}
 
             {/* Rating/Routing Fields - Compact per-customer-trunk design */}
             {formData.request_type === "rating_routing" && (
               <>
-                {/* Common Routing Option */}
-                <div className="mb-4 p-3 bg-gray-100/50 dark:bg-zinc-800/50 rounded-lg border border-gray-200 dark:border-zinc-700">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <span className="text-gray-900 dark:text-white text-sm font-medium">Common Routing</span>
-                      <p className="text-zinc-500 text-xs mt-1">Use a single routing plan for all customer trunks</p>
-                    </div>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={formData.use_common_routing || false}
-                        onChange={(e) => setFormData({ ...formData, use_common_routing: e.target.checked })}
-                        className="sr-only peer"
-                      />
-                      <div className="w-11 h-6 bg-gray-200 dark:bg-zinc-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-black dark:peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-cyan-600"></div>
-                    </label>
-                  </div>
-                  
-                  {/* Common Routing Plan Section - Shown when enabled */}
-                  {formData.use_common_routing && (
-                    <div className="mt-4 pt-4 border-t border-gray-300 dark:border-zinc-600">
-                      <div className="flex items-center gap-2 mb-3">
-                        <div className="w-1 h-4 bg-blue-500 rounded"></div>
-                        <span className="text-blue-300 font-medium text-sm">Common Routing Plan</span>
-                      </div>
-                      
-                      <div className="space-y-3">
-                        {/* Common Route Rules */}
-                        {(formData.common_route_rules || []).map((rule, ruleIndex) => {
-                          const ruleVendors = rule.vendors || [];
-                          const hasMultipleVendors = ruleVendors.filter(v => v.trunk).length > 1;
-                          const percentageSum = ruleVendors.reduce((sum, v) => sum + (parseFloat(v.percentage) || 0), 0);
-                          const isPercentageValid = percentageSum === 100;
-                          
-                          return (
-                            <div key={ruleIndex} className="bg-white/60 dark:bg-zinc-900/60 rounded-lg p-3 border border-blue-600/30">
-                              {/* Route Rule Header */}
-                              <div className="mb-3">
-                                <div className="flex items-center justify-between mb-2">
-                                  <span className="text-blue-300 text-xs font-bold bg-blue-900/40 px-2 py-1 rounded">Route Rule {ruleIndex + 1}</span>
-                                  {(formData.common_route_rules || []).length > 1 && (
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() => removeCommonRouteRule(ruleIndex)}
-                                      className="h-5 w-5 p-0 text-zinc-500 hover:text-red-400"
-                                    >
-                                      <X className="h-3 w-3" />
-                                    </Button>
-                                  )}
-                                </div>
-                                {/* Priority and Destination fields */}
-                                <div className="grid grid-cols-2 gap-2">
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-gray-500 dark:text-zinc-400 text-xs whitespace-nowrap">Priority:</span>
-                                    <Input
-                                      type="number"
-                                      value={rule.priority || 1}
-                                      onChange={(e) => updateCommonRouteRule(ruleIndex, "priority", parseInt(e.target.value) || 1)}
-                                      className="bg-gray-100 dark:bg-zinc-800 border-gray-300 dark:border-zinc-600 text-gray-900 dark:text-white text-xs h-7 w-14"
-                                      min={1}
-                                    />
-                                  </div>
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-gray-500 dark:text-zinc-400 text-xs whitespace-nowrap">Dest:</span>
-                                    <SearchableSelect
-                                      options={[{ value: "All", label: "All" }, { value: "Rest", label: "Rest" }, ...getAllDestinations().map(d => ({ value: d, label: d }))]}
-                                      value={rule.destination || ""}
-                                      onChange={(value) => updateCommonRouteRule(ruleIndex, "destination", value)}
-                                      placeholder="Select"
-                                      className="text-xs flex-1"
-                                    />
-                                  </div>
-                                </div>
-                              </div>
-                              
-                              {/* Vendors in this Route Rule */}
-                              <div className="space-y-2 mb-3">
-                                {ruleVendors.map((vendor, vendorIndex) => (
-                                  <div key={vendorIndex} className="bg-gray-100/60 dark:bg-zinc-800/60 rounded-lg p-2 border border-gray-200/30 dark:border-zinc-700/30">
-                                    <div className="flex items-center justify-between mb-2">
-                                      <span className="text-zinc-500 text-xs">Vendor {vendorIndex + 1}</span>
-                                      {ruleVendors.length > 1 && (
-                                        <Button
-                                          variant="ghost"
-                                          size="sm"
-                                          onClick={() => removeVendorFromCommonRule(ruleIndex, vendorIndex)}
-                                          className="h-4 w-4 p-0 text-zinc-500 hover:text-red-400"
-                                        >
-                                          <X className="h-2 w-2" />
-                                        </Button>
-                                      )}
-                                    </div>
-                                    
-                                    {/* Vendor Trunk Selection */}
-                                    <div className="mb-2">
-                                      <SearchableSelect
-                                        options={vendorTrunkOptions.map(vt => ({ value: vt, label: vt }))}
-                                        value={vendor.trunk || ""}
-                                        onChange={(value) => updateVendorInCommonRule(ruleIndex, vendorIndex, "trunk", value)}
-                                        placeholder="Select vendor trunk"
-                                        className="text-xs"
-                                      />
-                                    </div>
-                                    
-                                    {/* Cost Configuration - Organized Row */}
-                                    <div className="flex items-center gap-2">
-                                      <Select
-                                        value={vendor.cost_type || "fixed"}
-                                        onValueChange={(value) => updateVendorInCommonRule(ruleIndex, vendorIndex, "cost_type", value)}
-                                      >
-                                        <SelectTrigger className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7 w-16">
-                                          <SelectValue />
-                                        </SelectTrigger>
-                                        <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
-                                          <SelectItem value="fixed" className="text-gray-900 dark:text-white text-xs">Fixed</SelectItem>
-                                          <SelectItem value="range" className="text-gray-900 dark:text-white text-xs">Range</SelectItem>
-                                        </SelectContent>
-                                      </Select>
-                                      {vendor.cost_type === "fixed" ? (
-                                        <Input
-                                          value={vendor.cost_min || ""}
-                                          onChange={(e) => updateVendorInCommonRule(ruleIndex, vendorIndex, "cost_min", e.target.value)}
-                                          placeholder="EUR"
-                                          className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7 flex-1"
-                                        />
-                                      ) : (
-                                        <div className="flex items-center gap-1 flex-1">
-                                          <Input
-                                            value={vendor.cost_min || ""}
-                                            onChange={(e) => updateVendorInCommonRule(ruleIndex, vendorIndex, "cost_min", e.target.value)}
-                                            placeholder="Min"
-                                            className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7 w-14"
-                                          />
-                                          <span className="text-zinc-500 text-xs">-</span>
-                                          <Input
-                                            value={vendor.cost_max || ""}
-                                            onChange={(e) => updateVendorInCommonRule(ruleIndex, vendorIndex, "cost_max", e.target.value)}
-                                            placeholder="Max"
-                                            className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7 w-14"
-                                          />
-                                        </div>
-                                      )}
-                                    </div>
-                                    
-                                    {/* Percentage - Only show when multiple vendors */}
-                                    {hasMultipleVendors && (
-                                      <div className="flex items-center gap-2 mt-2">
-                                        <span className="text-zinc-500 text-xs w-16">Percentage:</span>
-                                        <div className="flex items-center gap-1 flex-1">
-                                          <Input
-                                            value={vendor.percentage || ""}
-                                            onChange={(e) => updateVendorInCommonRule(ruleIndex, vendorIndex, "percentage", e.target.value)}
-                                            placeholder="0"
-                                            className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7 w-14"
-                                          />
-                                          <span className="text-zinc-500 text-xs">%</span>
-                                        </div>
-                                      </div>
-                                    )}
-                                  </div>
-                                ))}
-                                
-                                {/* Add Vendor to this Route Rule */}
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => addVendorToCommonRule(ruleIndex)}
-                                  className="text-xs text-blue-400 hover:text-blue-300 w-full"
-                                >
-                                  <Plus className="h-3 w-3 mr-1" /> Add Vendor
-                                </Button>
-                                
-                                {/* Percentage validation */}
-                                {hasMultipleVendors && (
-                                  <div className={`text-xs text-center py-1 rounded ${isPercentageValid ? 'bg-green-900/30 text-green-400' : 'bg-red-900/30 text-red-400'}`}>
-                                    Total: {percentageSum}% {isPercentageValid ? '✓' : '(must equal 100%)'}
-                                  </div>
-                                )}
-                              </div>
-                              
-                              {/* Advanced Settings */}
-                              <div className="border-t border-gray-200/50 dark:border-zinc-700/50 pt-2 mt-2">
-                                <div className="text-xs text-zinc-500 mb-2">Advanced Settings</div>
-                                <div className="flex flex-wrap gap-3">
-                                  <div className="flex items-center gap-1.5">
-                                    <input
-                                      type="checkbox"
-                                      id={`common_loss_${ruleIndex}`}
-                                      checked={rule.by_loss || false}
-                                      onChange={(e) => updateCommonRouteRule(ruleIndex, "by_loss", e.target.checked)}
-                                      className="w-3 h-3 accent-purple-500 rounded"
-                                    />
-                                    <label htmlFor={`common_loss_${ruleIndex}`} className="text-gray-500 dark:text-zinc-400 text-xs cursor-pointer">By Loss</label>
-                                  </div>
-                                  {displayTab === "sms" && (
-                                    <>
-                                      {/* MNP/HLR - Mutually Exclusive Checkboxes */}
-                                      <div className="flex items-center gap-1.5">
-                                        <input
-                                          type="checkbox"
-                                          id={`common_mnp_${ruleIndex}`}
-                                          checked={!!rule.mnp_hlr_type && rule.mnp_hlr_type === "mnp"}
-                                          onChange={() => {
-                                            const newRules = [...(formData.common_route_rules || [])];
-                                            const currentMnpHlrType = newRules[ruleIndex].mnp_hlr_type;
-                                            // If already MNP, uncheck it (toggle off)
-                                            // If something else is checked, switch to MNP
-                                            // If nothing is checked, tick MNP
-                                            const newMnpHlrType = currentMnpHlrType === "mnp" ? "" : "mnp";
-                                            newRules[ruleIndex] = {
-                                              ...newRules[ruleIndex],
-                                              mnp_hlr_type: newMnpHlrType,
-                                              enable_mnp_hlr: newMnpHlrType !== ""
-                                            };
-                                            setFormData({ ...formData, common_route_rules: newRules });
-                                          }}
-                                          className="w-3 h-3 accent-cyan-500 rounded"
-                                        />
-                                        <label htmlFor={`common_mnp_${ruleIndex}`} className="text-gray-500 dark:text-zinc-400 text-xs cursor-pointer">MNP</label>
-                                      </div>
-                                      <div className="flex items-center gap-1.5">
-                                        <input
-                                          type="checkbox"
-                                          id={`common_hlr_${ruleIndex}`}
-                                          checked={!!rule.mnp_hlr_type && rule.mnp_hlr_type === "hlr"}
-                                          onChange={() => {
-                                            const newRules = [...(formData.common_route_rules || [])];
-                                            const currentMnpHlrType = newRules[ruleIndex].mnp_hlr_type;
-                                            // If already HLR, uncheck it (toggle off)
-                                            // If something else is checked, switch to HLR
-                                            // If nothing is checked, tick HLR
-                                            const newMnpHlrType = currentMnpHlrType === "hlr" ? "" : "hlr";
-                                            newRules[ruleIndex] = {
-                                              ...newRules[ruleIndex],
-                                              mnp_hlr_type: newMnpHlrType,
-                                              enable_mnp_hlr: newMnpHlrType !== ""
-                                            };
-                                            setFormData({ ...formData, common_route_rules: newRules });
-                                          }}
-                                          className="w-3 h-3 accent-cyan-500 rounded"
-                                        />
-                                        <label htmlFor={`common_hlr_${ruleIndex}`} className="text-gray-500 dark:text-zinc-400 text-xs cursor-pointer">HLR</label>
-                                      </div>
-                                    </>
-                                  )}
-                                </div>
-                                {/* Note field */}
-                                <div className="mt-2">
-                                  <Input
-                                    value={rule.note || ""}
-                                    onChange={(e) => updateCommonRouteRule(ruleIndex, "note", e.target.value)}
-                                    placeholder="Add note for this route rule (optional)"
-                                    className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7"
-                                  />
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })}
-                        
-                        {/* Add Route Rule dropdown */}
-                        <div className="relative group">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="text-xs w-full border-dashed border-blue-600/50 text-blue-400 hover:text-blue-300 hover:border-blue-500"
-                          >
-                            <Plus className="h-3 w-3 mr-1" /> Add Route Rule
-                          </Button>
-                          <div className="absolute bottom-full left-0 right-0 mb-1 bg-gray-100 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-lg shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-10">
-                            <button
-                              onClick={addCommonRouteRule}
-                              className="w-full px-3 py-2 text-xs text-left text-blue-400 hover:bg-gray-200 dark:hover:bg-zinc-700 rounded-t-lg"
-                            >
-                              New Route Rule
-                            </button>
-                            <button
-                              onClick={() => {
-                                const rules = formData.common_route_rules || [];
-                                if (rules.length > 0) {
-                                  cloneCommonRouteRule(rules.length - 1);
-                                } else {
-                                  addCommonRouteRule();
-                                }
-                              }}
-                              className="w-full px-3 py-2 text-xs text-left text-cyan-400 hover:bg-gray-200 dark:hover:bg-zinc-700 rounded-b-lg"
-                            >
-                              Clone Last Route Rule
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-                
                 {/* Customer Trunk Configurations - Each with Rating Plan and Routing Plan */}
                 <div className="space-y-3">
                   {(formData.customer_trunk_configs || []).map((config, configIndex) => {
                     const routeRules = config.routing?.route_rules || [];
                     const destRates = config.rating_pairs || [{ destination: "", rate: "" }];
-                    const showRouting = !formData.use_common_routing;
+                    const scope = formData.rating_routing_scope || "both";
+                    const showRatingPane = scope !== "routing";
+                    const routingAllowed = scope !== "rating";
+                    const showRouting = routingAllowed && !formData.use_common_routing;
                     
                     return (
                       <div key={configIndex} className="border border-amber-600/30 rounded-lg p-4 bg-white/80 dark:bg-zinc-900/80">
@@ -2808,16 +2772,20 @@ export default function RequestsPage() {
                         </div>
                         
                         {/* Customer Trunk Selection */}
-                        <Select 
-                          value={config.trunk || ""} 
-                          onValueChange={(value) => updateCustomerTrunkConfig(configIndex, "trunk", value)}
+                        <Label className="text-gray-500 dark:text-zinc-400 text-xs">Customer Trunk <RequiredAsterisk /></Label>
+                        <Select
+                          value={config.trunk || ""}
+                          onValueChange={(value) => {
+                            updateCustomerTrunkConfig(configIndex, "trunk", value);
+                            setFieldErrors(prev => ({ ...prev, customer_trunk_configs: false }));
+                          }}
                           required
                         >
-                          <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white mb-4">
+                          <SelectTrigger className={`bg-gray-100 dark:bg-zinc-800 text-gray-900 dark:text-white mb-1 ${fieldErrors.customer_trunk_configs && !config.trunk ? "border-red-500 focus:ring-red-500" : "border-gray-200 dark:border-zinc-700"}`}>
                             <SelectValue placeholder="Select customer trunk" />
                           </SelectTrigger>
                           <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
-                            {(formData.customer_ids || []).flatMap(customerId => 
+                            {(formData.customer_ids || []).flatMap(customerId =>
                               (enterprises.find(e => e.id === customerId)?.customer_trunks || []).map((tName) => (
                                 <SelectItem key={`${customerId}-${tName}`} value={tName} className="text-gray-900 dark:text-white">
                                   {enterprises.find(e => e.id === customerId)?.name} - {tName}
@@ -2826,16 +2794,73 @@ export default function RequestsPage() {
                             )}
                           </SelectContent>
                         </Select>
-                        
-                        {/* Two-column layout: Rating Plan | Routing Plan */}
-                        <div className="grid grid-cols-2 gap-4">
+                        {fieldErrors.customer_trunk_configs && !config.trunk && <FieldError />}
+
+                        {/* Pane switch tabs - lets you jump straight to whichever plan you're filling in,
+                            without hunting for the card that's currently tucked behind the other. */}
+                        {showRatingPane && showRouting && (
+                          <div className="flex gap-2 mb-3">
+                            <button
+                              type="button"
+                              onClick={() => setActiveConfigPane(prev => ({ ...prev, [configIndex]: "rating" }))}
+                              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                                (activeConfigPane[configIndex] || "rating") === "rating"
+                                  ? "bg-amber-500/20 text-amber-300 ring-1 ring-amber-500/50"
+                                  : "bg-gray-200/60 dark:bg-zinc-800/60 text-gray-500 dark:text-zinc-400 hover:text-amber-300"
+                              }`}
+                            >
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span> Rating Plan
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setActiveConfigPane(prev => ({ ...prev, [configIndex]: "routing" }))}
+                              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                                activeConfigPane[configIndex] === "routing"
+                                  ? "bg-blue-500/20 text-blue-300 ring-1 ring-blue-500/50"
+                                  : "bg-gray-200/60 dark:bg-zinc-800/60 text-gray-500 dark:text-zinc-400 hover:text-blue-300"
+                              }`}
+                            >
+                              <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span> Routing Plan
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Card stack: Rating Plan and Routing Plan - stacked in normal document flow on
+                            mobile; on larger screens they overlap like a shuffled deck, with whichever
+                            card you're currently filling sliding to the front and the other easing
+                            behind it. */}
+                        <div className="grid grid-cols-1 gap-3 sm:gap-0">
                           {/* Rating Plan Section - Compact with multiple destination-rate pairs */}
-                          <div className="bg-gray-100/40 dark:bg-zinc-800/40 rounded-lg p-3">
-                            <div className="flex items-center gap-2 mb-3">
-                              <div className="w-1 h-4 bg-amber-500 rounded"></div>
-                              <span className="text-amber-300 font-medium text-sm">Rating Plan</span>
+                          {showRatingPane && (
+                          <div
+                            onFocus={() => setActiveConfigPane(prev => ({ ...prev, [configIndex]: "rating" }))}
+                            onClick={() => setActiveConfigPane(prev => ({ ...prev, [configIndex]: "rating" }))}
+                            className={`rounded-lg p-3 border transition-all duration-300 ease-out sm:[grid-area:1/1] ${
+                              !showRouting
+                                ? "bg-gray-100 dark:bg-zinc-800 border-transparent sm:z-10 sm:scale-100 sm:translate-x-0 sm:translate-y-0"
+                                : (activeConfigPane[configIndex] || "rating") === "rating"
+                                  ? "order-1 bg-white dark:bg-zinc-800 border-amber-500/40 shadow-xl sm:z-20 sm:scale-100 sm:translate-x-0 sm:translate-y-0"
+                                  : "order-2 bg-gray-200 dark:bg-zinc-900 border-transparent shadow-md sm:z-10 sm:scale-[0.92] sm:translate-x-4 sm:translate-y-2"
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-2 mb-3">
+                              <div className="flex items-center gap-2">
+                                <div className="w-1 h-4 bg-amber-500 rounded"></div>
+                                <span className="text-amber-300 font-medium text-sm">Rating Plan</span>
+                              </div>
+                              <Select value={formData.currency || defaultCurrency} onValueChange={(v) => setFormData({ ...formData, currency: v })}>
+                                <SelectTrigger className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-6 w-16 px-2">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
+                                  {CURRENCIES.map((c) => (
+                                    <SelectItem key={c} value={c} className="text-gray-900 dark:text-white text-xs">{c}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
                             </div>
                             <div className="space-y-2">
+                              <Label className="text-gray-500 dark:text-zinc-400 text-xs">Destination <RequiredAsterisk /></Label>
                               {/* Destination-Rate pairs */}
                               {(destRates || []).map((pair, pairIndex) => (
                                 <div key={pairIndex} className="flex items-center gap-2">
@@ -2845,9 +2870,10 @@ export default function RequestsPage() {
                                       const newPairs = [...(config.rating_pairs || [{ destination: "", rate: "" }])];
                                       newPairs[pairIndex] = { ...newPairs[pairIndex], destination: e.target.value };
                                       updateCustomerTrunkConfig(configIndex, "rating_pairs", newPairs);
+                                      setFieldErrors(prev => ({ ...prev, customer_trunk_configs: false }));
                                     }}
-                                    placeholder="Destination"
-                                    className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-8 flex-1"
+                                    placeholder="e.g., Ghana - MTN"
+                                    className={`bg-white dark:bg-zinc-900 text-gray-900 dark:text-white text-xs h-8 flex-1 min-w-0 ${fieldErrors.customer_trunk_configs && !destRates.some(p => p.destination && p.destination.trim()) ? "border-red-500 focus-visible:ring-red-500" : "border-gray-200 dark:border-zinc-700"}`}
                                   />
                                   <Input
                                     value={pair.rate || ""}
@@ -2859,7 +2885,7 @@ export default function RequestsPage() {
                                     placeholder="Rate"
                                     className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-8 w-16"
                                   />
-                                  <span className="text-zinc-500 text-xs">EUR</span>
+                                  <span className="text-zinc-500 text-xs">{formData.currency || defaultCurrency}</span>
                                   {destRates.length > 1 && (
                                     <Button
                                       variant="ghost"
@@ -2875,6 +2901,7 @@ export default function RequestsPage() {
                                   )}
                                 </div>
                               ))}
+                              {fieldErrors.customer_trunk_configs && !destRates.some(p => p.destination && p.destination.trim()) && <FieldError />}
                               {/* Add Destination-Rate button */}
                               <Button
                                 variant="ghost"
@@ -2889,13 +2916,36 @@ export default function RequestsPage() {
                               </Button>
                             </div>
                           </div>
-                          
+                          )}
+
                           {/* Routing Plan Section - With Route Rules - Hidden when using Common Routing */}
                           {showRouting && (
-                            <div className="bg-gray-100/40 dark:bg-zinc-800/40 rounded-lg p-3">
-                            <div className="flex items-center gap-2 mb-3">
-                              <div className="w-1 h-4 bg-blue-500 rounded"></div>
-                              <span className="text-blue-300 font-medium text-sm">Routing Plan</span>
+                            <div
+                              onFocus={() => setActiveConfigPane(prev => ({ ...prev, [configIndex]: "routing" }))}
+                              onClick={() => setActiveConfigPane(prev => ({ ...prev, [configIndex]: "routing" }))}
+                              className={`rounded-lg p-3 border transition-all duration-300 ease-out sm:[grid-area:1/1] ${
+                                !showRatingPane
+                                  ? "bg-gray-100 dark:bg-zinc-800 border-transparent sm:z-10 sm:scale-100 sm:translate-x-0 sm:translate-y-0"
+                                  : activeConfigPane[configIndex] === "routing"
+                                    ? "order-1 bg-white dark:bg-zinc-800 border-blue-500/40 shadow-xl sm:z-20 sm:scale-100 sm:translate-x-0 sm:translate-y-0"
+                                    : "order-2 bg-gray-200 dark:bg-zinc-900 border-transparent shadow-md sm:z-10 sm:scale-[0.92] sm:translate-x-4 sm:translate-y-2"
+                              }`}
+                            >
+                            <div className="flex items-center justify-between gap-2 mb-3">
+                              <div className="flex items-center gap-2">
+                                <div className="w-1 h-4 bg-blue-500 rounded"></div>
+                                <span className="text-blue-300 font-medium text-sm">Routing Plan</span>
+                              </div>
+                              <Select value={formData.currency || defaultCurrency} onValueChange={(v) => setFormData({ ...formData, currency: v })}>
+                                <SelectTrigger className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-6 w-16 px-2">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
+                                  {CURRENCIES.map((c) => (
+                                    <SelectItem key={c} value={c} className="text-gray-900 dark:text-white text-xs">{c}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
                             </div>
                             
                             <div className="space-y-3">
@@ -2923,27 +2973,36 @@ export default function RequestsPage() {
                                           </Button>
                                         )}
                                       </div>
-                                      {/* Priority and Destination fields */}
-                                      <div className="grid grid-cols-2 gap-2">
+                                      {/* Priority and Destination fields - stacked on mobile */}
+                                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                         <div className="flex items-center gap-2">
                                           <span className="text-gray-500 dark:text-zinc-400 text-xs whitespace-nowrap">Priority:</span>
                                           <Input
                                             type="number"
-                                            value={rule.priority || 1}
-                                            onChange={(e) => updateRouteRule(configIndex, ruleIndex, "priority", parseInt(e.target.value) || 1)}
-                                            className="bg-gray-100 dark:bg-zinc-800 border-gray-300 dark:border-zinc-600 text-gray-900 dark:text-white text-xs h-7 w-14"
-                                            min={1}
+                                            value={rule.priority ?? getDefaultRoutePriority()}
+                                            onChange={(e) => updateRouteRule(configIndex, ruleIndex, "priority", e.target.value === "" ? "" : parseInt(e.target.value))}
+                                            className="bg-gray-100 dark:bg-zinc-800 border-gray-300 dark:border-zinc-600 text-gray-900 dark:text-white text-xs h-7 w-20"
+                                            min={0}
                                           />
                                         </div>
-                                        <div className="flex items-center gap-2">
+                                        <div className="flex items-center gap-2 min-w-0">
                                           <span className="text-gray-500 dark:text-zinc-400 text-xs whitespace-nowrap">Dest:</span>
-                                          <SearchableSelect
-                                            options={[{ value: "All", label: "All" }, { value: "Rest", label: "Rest" }, ...(config.rating_pairs || []).filter(p => p.destination).map(p => ({ value: p.destination, label: p.destination }))]}
-                                            value={rule.destination || ""}
-                                            onChange={(value) => updateRouteRule(configIndex, ruleIndex, "destination", value)}
-                                            placeholder="Select"
-                                            className="text-xs flex-1"
-                                          />
+                                          {showRatingPane ? (
+                                            <SearchableSelect
+                                              options={[{ value: "All", label: "All" }, { value: "Rest", label: "Rest" }, ...(config.rating_pairs || []).filter(p => p.destination).map(p => ({ value: p.destination, label: p.destination }))]}
+                                              value={rule.destination || ""}
+                                              onChange={(value) => updateRouteRule(configIndex, ruleIndex, "destination", value)}
+                                              placeholder="Select"
+                                              className="text-xs flex-1 min-w-0"
+                                            />
+                                          ) : (
+                                            <Input
+                                              value={rule.destination || ""}
+                                              onChange={(e) => updateRouteRule(configIndex, ruleIndex, "destination", e.target.value)}
+                                              placeholder="e.g., Ghana - MTN"
+                                              className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7 flex-1 min-w-0"
+                                            />
+                                          )}
                                         </div>
                                       </div>
                                     </div>
@@ -2978,12 +3037,12 @@ export default function RequestsPage() {
                                           </div>
                                           
                                           {/* Cost Configuration - Organized Row */}
-                                          <div className="flex items-center gap-2">
+                                          <div className="flex items-center gap-2 min-w-0">
                                             <Select
                                               value={vendor.cost_type || "fixed"}
                                               onValueChange={(value) => updateVendorInRule(configIndex, ruleIndex, vendorIndex, "cost_type", value)}
                                             >
-                                              <SelectTrigger className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7 w-16">
+                                              <SelectTrigger className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7 w-16 shrink-0">
                                                 <SelectValue />
                                               </SelectTrigger>
                                               <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
@@ -2995,43 +3054,49 @@ export default function RequestsPage() {
                                               <Input
                                                 value={vendor.cost_min || ""}
                                                 onChange={(e) => updateVendorInRule(configIndex, ruleIndex, vendorIndex, "cost_min", e.target.value)}
-                                                placeholder="EUR"
-                                                className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7 flex-1"
+                                                placeholder={formData.currency || defaultCurrency}
+                                                className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7 flex-1 min-w-0"
                                               />
                                             ) : (
-                                              <div className="flex items-center gap-1 flex-1">
+                                              <div className="flex items-center gap-1 flex-1 min-w-0">
                                                 <Input
                                                   value={vendor.cost_min || ""}
                                                   onChange={(e) => updateVendorInRule(configIndex, ruleIndex, vendorIndex, "cost_min", e.target.value)}
                                                   placeholder="Min"
-                                                  className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7 w-14"
+                                                  className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7 w-14 min-w-0"
                                                 />
                                                 <span className="text-zinc-500 text-xs">-</span>
                                                 <Input
                                                   value={vendor.cost_max || ""}
                                                   onChange={(e) => updateVendorInRule(configIndex, ruleIndex, vendorIndex, "cost_max", e.target.value)}
                                                   placeholder="Max"
-                                                  className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7 w-14"
+                                                  className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7 w-14 min-w-0"
                                                 />
                                               </div>
                                             )}
                                           </div>
                                           
                                           {/* Percentage - Only show when multiple vendors */}
-                                          {hasMultipleVendors && (
-                                            <div className="flex items-center gap-2 mt-2">
-                                              <span className="text-zinc-500 text-xs w-16">Percentage:</span>
-                                              <div className="flex items-center gap-1 flex-1">
-                                                <Input
-                                                  value={vendor.percentage || ""}
-                                                  onChange={(e) => updateVendorInRule(configIndex, ruleIndex, vendorIndex, "percentage", e.target.value)}
-                                                  placeholder="0"
-                                                  className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7 w-14"
-                                                />
-                                                <span className="text-zinc-500 text-xs">%</span>
+                                          {hasMultipleVendors && (() => {
+                                            const pctInvalid = vendor.trunk && (vendor.percentage === "" || vendor.percentage === undefined || isNaN(parseFloat(vendor.percentage)) || parseFloat(vendor.percentage) <= 0);
+                                            return (
+                                              <div className="flex items-center gap-2 mt-2">
+                                                <span className="text-zinc-500 text-xs w-16">Percentage: <RequiredAsterisk /></span>
+                                                <div className="flex flex-col flex-1">
+                                                  <div className="flex items-center gap-1">
+                                                    <Input
+                                                      value={vendor.percentage || ""}
+                                                      onChange={(e) => updateVendorInRule(configIndex, ruleIndex, vendorIndex, "percentage", e.target.value)}
+                                                      placeholder="0"
+                                                      className={`bg-white dark:bg-zinc-900 text-gray-900 dark:text-white text-xs h-7 w-14 ${pctInvalid ? "border-red-500 focus-visible:ring-red-500" : "border-gray-200 dark:border-zinc-700"}`}
+                                                    />
+                                                    <span className="text-zinc-500 text-xs">%</span>
+                                                  </div>
+                                                  {pctInvalid && <FieldError>A 0% vendor isn't accepted — enter a percentage greater than 0</FieldError>}
+                                                </div>
                                               </div>
-                                            </div>
-                                          )}
+                                            );
+                                          })()}
                                         </div>
                                       ))}
                                       
@@ -3187,6 +3252,333 @@ export default function RequestsPage() {
                 <Button variant="outline" size="sm" onClick={addCustomerTrunkConfig} className="mt-2">
                   <Plus className="h-4 w-4 mr-1" /> Add Customer Trunk
                 </Button>
+
+                {/* Common Routing Option - Only relevant when this request includes a Routing Plan */}
+                {(formData.rating_routing_scope || "both") !== "rating" && (
+                <div className="mb-4 p-3 bg-gray-100/50 dark:bg-zinc-800/50 rounded-lg border border-gray-200 dark:border-zinc-700">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-gray-900 dark:text-white text-sm font-medium">Common Routing</span>
+                      <p className="text-zinc-500 text-xs mt-1">Use a single routing plan for all customer trunks</p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={formData.use_common_routing || false}
+                        onChange={(e) => setFormData({ ...formData, use_common_routing: e.target.checked })}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-gray-200 dark:bg-zinc-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-black dark:peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-cyan-600"></div>
+                    </label>
+                  </div>
+
+                  {/* Common Routing Plan Section - Shown when enabled */}
+                  {formData.use_common_routing && (
+                    <div className="mt-4 pt-4 border-t border-gray-300 dark:border-zinc-600">
+                      <div className="flex items-center justify-between gap-2 mb-3">
+                        <div className="flex items-center gap-2">
+                          <div className="w-1 h-4 bg-blue-500 rounded"></div>
+                          <span className="text-blue-300 font-medium text-sm">Common Routing Plan</span>
+                        </div>
+                        <Select value={formData.currency || defaultCurrency} onValueChange={(v) => setFormData({ ...formData, currency: v })}>
+                          <SelectTrigger className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-6 w-16 px-2">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
+                            {CURRENCIES.map((c) => (
+                              <SelectItem key={c} value={c} className="text-gray-900 dark:text-white text-xs">{c}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className="space-y-3">
+                        {/* Common Route Rules */}
+                        {(formData.common_route_rules || []).map((rule, ruleIndex) => {
+                          const ruleVendors = rule.vendors || [];
+                          const hasMultipleVendors = ruleVendors.filter(v => v.trunk).length > 1;
+                          const percentageSum = ruleVendors.reduce((sum, v) => sum + (parseFloat(v.percentage) || 0), 0);
+                          const isPercentageValid = percentageSum === 100;
+                          
+                          return (
+                            <div key={ruleIndex} className="bg-white/60 dark:bg-zinc-900/60 rounded-lg p-3 border border-blue-600/30">
+                              {/* Route Rule Header */}
+                              <div className="mb-3">
+                                <div className="flex items-center justify-between mb-2">
+                                  <span className="text-blue-300 text-xs font-bold bg-blue-900/40 px-2 py-1 rounded">Route Rule {ruleIndex + 1}</span>
+                                  {(formData.common_route_rules || []).length > 1 && (
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => removeCommonRouteRule(ruleIndex)}
+                                      className="h-5 w-5 p-0 text-zinc-500 hover:text-red-400"
+                                    >
+                                      <X className="h-3 w-3" />
+                                    </Button>
+                                  )}
+                                </div>
+                                {/* Priority and Destination fields - stacked on mobile */}
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-gray-500 dark:text-zinc-400 text-xs whitespace-nowrap">Priority:</span>
+                                    <Input
+                                      type="number"
+                                      value={rule.priority ?? getDefaultRoutePriority()}
+                                      onChange={(e) => updateCommonRouteRule(ruleIndex, "priority", e.target.value === "" ? "" : parseInt(e.target.value))}
+                                      className="bg-gray-100 dark:bg-zinc-800 border-gray-300 dark:border-zinc-600 text-gray-900 dark:text-white text-xs h-7 w-20"
+                                      min={0}
+                                    />
+                                  </div>
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <span className="text-gray-500 dark:text-zinc-400 text-xs whitespace-nowrap">Dest:</span>
+                                    {(formData.rating_routing_scope || "both") !== "routing" ? (
+                                      <SearchableSelect
+                                        options={[{ value: "All", label: "All" }, { value: "Rest", label: "Rest" }, ...getAllDestinations().map(d => ({ value: d, label: d }))]}
+                                        value={rule.destination || ""}
+                                        onChange={(value) => updateCommonRouteRule(ruleIndex, "destination", value)}
+                                        placeholder="Select"
+                                        className="text-xs flex-1 min-w-0"
+                                      />
+                                    ) : (
+                                      <Input
+                                        value={rule.destination || ""}
+                                        onChange={(e) => updateCommonRouteRule(ruleIndex, "destination", e.target.value)}
+                                        placeholder="e.g., Ghana - MTN"
+                                        className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7 flex-1 min-w-0"
+                                      />
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                              
+                              {/* Vendors in this Route Rule */}
+                              <div className="space-y-2 mb-3">
+                                {ruleVendors.map((vendor, vendorIndex) => (
+                                  <div key={vendorIndex} className="bg-gray-100/60 dark:bg-zinc-800/60 rounded-lg p-2 border border-gray-200/30 dark:border-zinc-700/30">
+                                    <div className="flex items-center justify-between mb-2">
+                                      <span className="text-zinc-500 text-xs">Vendor {vendorIndex + 1}</span>
+                                      {ruleVendors.length > 1 && (
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          onClick={() => removeVendorFromCommonRule(ruleIndex, vendorIndex)}
+                                          className="h-4 w-4 p-0 text-zinc-500 hover:text-red-400"
+                                        >
+                                          <X className="h-2 w-2" />
+                                        </Button>
+                                      )}
+                                    </div>
+                                    
+                                    {/* Vendor Trunk Selection */}
+                                    <div className="mb-2">
+                                      <SearchableSelect
+                                        options={vendorTrunkOptions.map(vt => ({ value: vt, label: vt }))}
+                                        value={vendor.trunk || ""}
+                                        onChange={(value) => updateVendorInCommonRule(ruleIndex, vendorIndex, "trunk", value)}
+                                        placeholder="Select vendor trunk"
+                                        className="text-xs"
+                                      />
+                                    </div>
+                                    
+                                    {/* Cost Configuration - Organized Row */}
+                                    <div className="flex items-center gap-2 min-w-0">
+                                      <Select
+                                        value={vendor.cost_type || "fixed"}
+                                        onValueChange={(value) => updateVendorInCommonRule(ruleIndex, vendorIndex, "cost_type", value)}
+                                      >
+                                        <SelectTrigger className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7 w-16 shrink-0">
+                                          <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
+                                          <SelectItem value="fixed" className="text-gray-900 dark:text-white text-xs">Fixed</SelectItem>
+                                          <SelectItem value="range" className="text-gray-900 dark:text-white text-xs">Range</SelectItem>
+                                        </SelectContent>
+                                      </Select>
+                                      {vendor.cost_type === "fixed" ? (
+                                        <Input
+                                          value={vendor.cost_min || ""}
+                                          onChange={(e) => updateVendorInCommonRule(ruleIndex, vendorIndex, "cost_min", e.target.value)}
+                                          placeholder={formData.currency || defaultCurrency}
+                                          className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7 flex-1 min-w-0"
+                                        />
+                                      ) : (
+                                        <div className="flex items-center gap-1 flex-1 min-w-0">
+                                          <Input
+                                            value={vendor.cost_min || ""}
+                                            onChange={(e) => updateVendorInCommonRule(ruleIndex, vendorIndex, "cost_min", e.target.value)}
+                                            placeholder="Min"
+                                            className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7 w-14 min-w-0"
+                                          />
+                                          <span className="text-zinc-500 text-xs">-</span>
+                                          <Input
+                                            value={vendor.cost_max || ""}
+                                            onChange={(e) => updateVendorInCommonRule(ruleIndex, vendorIndex, "cost_max", e.target.value)}
+                                            placeholder="Max"
+                                            className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7 w-14 min-w-0"
+                                          />
+                                        </div>
+                                      )}
+                                    </div>
+                                    
+                                    {/* Percentage - Only show when multiple vendors */}
+                                    {hasMultipleVendors && (() => {
+                                      const pctInvalid = vendor.trunk && (vendor.percentage === "" || vendor.percentage === undefined || isNaN(parseFloat(vendor.percentage)) || parseFloat(vendor.percentage) <= 0);
+                                      return (
+                                        <div className="flex items-center gap-2 mt-2">
+                                          <span className="text-zinc-500 text-xs w-16">Percentage: <RequiredAsterisk /></span>
+                                          <div className="flex flex-col flex-1">
+                                            <div className="flex items-center gap-1">
+                                              <Input
+                                                value={vendor.percentage || ""}
+                                                onChange={(e) => updateVendorInCommonRule(ruleIndex, vendorIndex, "percentage", e.target.value)}
+                                                placeholder="0"
+                                                className={`bg-white dark:bg-zinc-900 text-gray-900 dark:text-white text-xs h-7 w-14 ${pctInvalid ? "border-red-500 focus-visible:ring-red-500" : "border-gray-200 dark:border-zinc-700"}`}
+                                              />
+                                              <span className="text-zinc-500 text-xs">%</span>
+                                            </div>
+                                            {pctInvalid && <FieldError>A 0% vendor isn't accepted — enter a percentage greater than 0</FieldError>}
+                                          </div>
+                                        </div>
+                                      );
+                                    })()}
+                                  </div>
+                                ))}
+                                
+                                {/* Add Vendor to this Route Rule */}
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => addVendorToCommonRule(ruleIndex)}
+                                  className="text-xs text-blue-400 hover:text-blue-300 w-full"
+                                >
+                                  <Plus className="h-3 w-3 mr-1" /> Add Vendor
+                                </Button>
+                                
+                                {/* Percentage validation */}
+                                {hasMultipleVendors && (
+                                  <div className={`text-xs text-center py-1 rounded ${isPercentageValid ? 'bg-green-900/30 text-green-400' : 'bg-red-900/30 text-red-400'}`}>
+                                    Total: {percentageSum}% {isPercentageValid ? '✓' : '(must equal 100%)'}
+                                  </div>
+                                )}
+                              </div>
+                              
+                              {/* Advanced Settings */}
+                              <div className="border-t border-gray-200/50 dark:border-zinc-700/50 pt-2 mt-2">
+                                <div className="text-xs text-zinc-500 mb-2">Advanced Settings</div>
+                                <div className="flex flex-wrap gap-3">
+                                  <div className="flex items-center gap-1.5">
+                                    <input
+                                      type="checkbox"
+                                      id={`common_loss_${ruleIndex}`}
+                                      checked={rule.by_loss || false}
+                                      onChange={(e) => updateCommonRouteRule(ruleIndex, "by_loss", e.target.checked)}
+                                      className="w-3 h-3 accent-purple-500 rounded"
+                                    />
+                                    <label htmlFor={`common_loss_${ruleIndex}`} className="text-gray-500 dark:text-zinc-400 text-xs cursor-pointer">By Loss</label>
+                                  </div>
+                                  {displayTab === "sms" && (
+                                    <>
+                                      {/* MNP/HLR - Mutually Exclusive Checkboxes */}
+                                      <div className="flex items-center gap-1.5">
+                                        <input
+                                          type="checkbox"
+                                          id={`common_mnp_${ruleIndex}`}
+                                          checked={!!rule.mnp_hlr_type && rule.mnp_hlr_type === "mnp"}
+                                          onChange={() => {
+                                            const newRules = [...(formData.common_route_rules || [])];
+                                            const currentMnpHlrType = newRules[ruleIndex].mnp_hlr_type;
+                                            // If already MNP, uncheck it (toggle off)
+                                            // If something else is checked, switch to MNP
+                                            // If nothing is checked, tick MNP
+                                            const newMnpHlrType = currentMnpHlrType === "mnp" ? "" : "mnp";
+                                            newRules[ruleIndex] = {
+                                              ...newRules[ruleIndex],
+                                              mnp_hlr_type: newMnpHlrType,
+                                              enable_mnp_hlr: newMnpHlrType !== ""
+                                            };
+                                            setFormData({ ...formData, common_route_rules: newRules });
+                                          }}
+                                          className="w-3 h-3 accent-cyan-500 rounded"
+                                        />
+                                        <label htmlFor={`common_mnp_${ruleIndex}`} className="text-gray-500 dark:text-zinc-400 text-xs cursor-pointer">MNP</label>
+                                      </div>
+                                      <div className="flex items-center gap-1.5">
+                                        <input
+                                          type="checkbox"
+                                          id={`common_hlr_${ruleIndex}`}
+                                          checked={!!rule.mnp_hlr_type && rule.mnp_hlr_type === "hlr"}
+                                          onChange={() => {
+                                            const newRules = [...(formData.common_route_rules || [])];
+                                            const currentMnpHlrType = newRules[ruleIndex].mnp_hlr_type;
+                                            // If already HLR, uncheck it (toggle off)
+                                            // If something else is checked, switch to HLR
+                                            // If nothing is checked, tick HLR
+                                            const newMnpHlrType = currentMnpHlrType === "hlr" ? "" : "hlr";
+                                            newRules[ruleIndex] = {
+                                              ...newRules[ruleIndex],
+                                              mnp_hlr_type: newMnpHlrType,
+                                              enable_mnp_hlr: newMnpHlrType !== ""
+                                            };
+                                            setFormData({ ...formData, common_route_rules: newRules });
+                                          }}
+                                          className="w-3 h-3 accent-cyan-500 rounded"
+                                        />
+                                        <label htmlFor={`common_hlr_${ruleIndex}`} className="text-gray-500 dark:text-zinc-400 text-xs cursor-pointer">HLR</label>
+                                      </div>
+                                    </>
+                                  )}
+                                </div>
+                                {/* Note field */}
+                                <div className="mt-2">
+                                  <Input
+                                    value={rule.note || ""}
+                                    onChange={(e) => updateCommonRouteRule(ruleIndex, "note", e.target.value)}
+                                    placeholder="Add note for this route rule (optional)"
+                                    className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white text-xs h-7"
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                        
+                        {/* Add Route Rule dropdown */}
+                        <div className="relative group">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="text-xs w-full border-dashed border-blue-600/50 text-blue-400 hover:text-blue-300 hover:border-blue-500"
+                          >
+                            <Plus className="h-3 w-3 mr-1" /> Add Route Rule
+                          </Button>
+                          <div className="absolute bottom-full left-0 right-0 mb-1 bg-gray-100 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-lg shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-10">
+                            <button
+                              onClick={addCommonRouteRule}
+                              className="w-full px-3 py-2 text-xs text-left text-blue-400 hover:bg-gray-200 dark:hover:bg-zinc-700 rounded-t-lg"
+                            >
+                              New Route Rule
+                            </button>
+                            <button
+                              onClick={() => {
+                                const rules = formData.common_route_rules || [];
+                                if (rules.length > 0) {
+                                  cloneCommonRouteRule(rules.length - 1);
+                                } else {
+                                  addCommonRouteRule();
+                                }
+                              }}
+                              className="w-full px-3 py-2 text-xs text-left text-cyan-400 hover:bg-gray-200 dark:hover:bg-zinc-700 rounded-b-lg"
+                            >
+                              Clone Last Route Rule
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                )}
+
               </>
             )}
 
@@ -3196,9 +3588,9 @@ export default function RequestsPage() {
                 {/* Test Type - Only show for Voice */}
                 {displayTab === "voice" && (
                   <div>
-                    <Label className="text-gray-500 dark:text-zinc-400">Test Type</Label>
-                    <Select value={formData.test_type || ""} onValueChange={(v) => setFormData({ ...formData, test_type: v })}>
-                      <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white">
+                    <Label className="text-gray-500 dark:text-zinc-400">Test Type <RequiredAsterisk /></Label>
+                    <Select value={formData.test_type || ""} onValueChange={(v) => { setFormData({ ...formData, test_type: v }); setFieldErrors(prev => ({ ...prev, test_type: false })); }}>
+                      <SelectTrigger className={`bg-gray-100 dark:bg-zinc-800 text-gray-900 dark:text-white ${fieldErrors.test_type ? "border-red-500 focus:ring-red-500" : "border-gray-200 dark:border-zinc-700"}`}>
                         <SelectValue placeholder="Select test type" />
                       </SelectTrigger>
                       <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
@@ -3206,6 +3598,7 @@ export default function RequestsPage() {
                         <SelectItem value="manual_test" className="text-gray-900 dark:text-white">Manual Test</SelectItem>
                       </SelectContent>
                     </Select>
+                    {fieldErrors.test_type && <FieldError>Please select a test type</FieldError>}
                   </div>
                 )}
                 {/* Test Description - Only show for Voice (optional) */}
@@ -3222,16 +3615,17 @@ export default function RequestsPage() {
                   </div>
                 )}
                 <div>
-                  <Label className="text-gray-500 dark:text-zinc-400">Destination(s) (e.g., Country - Network)</Label>
+                  <Label className="text-gray-500 dark:text-zinc-400">Destination(s) (e.g., Country - Network) <RequiredAsterisk /></Label>
                   <Input
                     value={formData.destination}
-                    onChange={(e) => setFormData({ ...formData, destination: e.target.value })}
+                    onChange={(e) => { setFormData({ ...formData, destination: e.target.value }); setFieldErrors(prev => ({ ...prev, destination: false })); }}
                     placeholder="Destinations (e.g., Country - Network) (comma separated for multiple)"
-                    className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700"
+                    className={`bg-gray-100 dark:bg-zinc-800 ${fieldErrors.destination ? "border-red-500 focus-visible:ring-red-500" : "border-gray-200 dark:border-zinc-700"}`}
                   />
+                  {fieldErrors.destination && <FieldError />}
                 </div>
                 <div>
-                  <Label className="text-gray-500 dark:text-zinc-400">Vendor Trunk(s) to Test</Label>
+                  <Label className="text-gray-500 dark:text-zinc-400">Vendor Trunk(s) to Test <RequiredAsterisk /></Label>
                   <p className="text-xs text-zinc-500 mb-2">At least one vendor trunk is required</p>
                   {formData.vendor_trunks.map((trunk, index) => (
                     <div key={index} className="mb-4 p-3 bg-gray-100/50 dark:bg-zinc-800/50 rounded-lg border border-gray-200 dark:border-zinc-700">
@@ -3239,21 +3633,22 @@ export default function RequestsPage() {
                         <SearchableSelect
                           options={vendorTrunkOptions.map(vt => ({ value: vt, label: vt }))}
                           value={trunk.trunk}
-                          onChange={(value) => handleVendorTrunkChange(index, "trunk", value)}
+                          onChange={(value) => { handleVendorTrunkChange(index, "trunk", value); setFieldErrors(prev => ({ ...prev, vendor_trunks: false })); }}
                           placeholder="Select vendor trunk"
                           isRequired={true}
+                          hasError={!!fieldErrors.vendor_trunks && !trunk.trunk}
                           className="flex-1"
                         />
                         {formData.vendor_trunks.length > 1 && (
                           <Button variant="destructive" size="sm" onClick={() => removeVendorTrunk(index)}>X</Button>
                         )}
                       </div>
-                      
+
                       {/* SMS: SID/Content Pairs - Voice: ANI/A-Numbers */}
                       {displayTab === "sms" ? (
                         /* SID/Content Pairs for SMS */
                         <div className="ml-4 space-y-2">
-                          <Label className="text-zinc-500 text-xs">SID/Content Pairs</Label>
+                          <Label className="text-zinc-500 text-xs">SID/Content Pairs <RequiredAsterisk /></Label>
                           {(trunk.sid_content_pairs || []).map((pair, pairIndex) => (
                             <div key={pairIndex} className="flex gap-2">
                               <Input
@@ -3325,6 +3720,8 @@ export default function RequestsPage() {
                       )}
                     </div>
                   ))}
+                  {fieldErrors.vendor_trunks && <FieldError>At least one vendor trunk must be selected</FieldError>}
+                  {fieldErrors.sid_content_pairs && <FieldError>At least one SID/Content pair must be filled in</FieldError>}
                   <Button variant="outline" size="sm" onClick={addVendorTrunk} className="mt-2">
                     <Plus className="h-4 w-4 mr-1" /> Add Vendor Trunk
                   </Button>
@@ -3336,26 +3733,29 @@ export default function RequestsPage() {
             {formData.request_type === "translation" && (
               <>
                 <div>
-                  <Label className="text-gray-500 dark:text-zinc-400">Enterprise</Label>
-                  <SearchableSelect 
-                    options={enterprises.filter(e => e.enterprise_type === displayTab || e.enterprise_type === "all").map(e => ({ value: e.id, label: e.name }))} 
-                    value={formData.customer_id} 
+                  <Label className="text-gray-500 dark:text-zinc-400">Enterprise <RequiredAsterisk /></Label>
+                  <SearchableSelect
+                    options={enterprises.filter(e => e.enterprise_type === displayTab || e.enterprise_type === "all").map(e => ({ value: e.id, label: e.name }))}
+                    value={formData.customer_id}
                     onChange={(value) => {
-                      setFormData({ 
-                        ...formData, 
+                      setFormData({
+                        ...formData,
                         customer_id: value,
                         customer: enterprises.find(e => e.id === value)?.name || "",
                         trunk_name: ""
                       });
-                    }} 
-                    placeholder="Search enterprise..." 
+                      setFieldErrors(prev => ({ ...prev, customer_id: false }));
+                    }}
+                    placeholder="Search enterprise..."
                     isRequired={true}
+                    hasError={!!fieldErrors.customer_id}
                   />
+                  {fieldErrors.customer_id && <FieldError>Please select an enterprise</FieldError>}
                 </div>
                 <div>
-                  <Label className="text-gray-500 dark:text-zinc-400">Translation Type</Label>
-                  <Select value={formData.translation_type} onValueChange={(v) => setFormData({ ...formData, translation_type: v })}>
-                    <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
+                  <Label className="text-gray-500 dark:text-zinc-400">Translation Type <RequiredAsterisk /></Label>
+                  <Select value={formData.translation_type} onValueChange={(v) => { setFormData({ ...formData, translation_type: v }); setFieldErrors(prev => ({ ...prev, translation_type: false })); }}>
+                    <SelectTrigger className={`bg-gray-100 dark:bg-zinc-800 ${fieldErrors.translation_type ? "border-red-500 focus:ring-red-500" : "border-gray-200 dark:border-zinc-700"}`}>
                       <SelectValue placeholder="Select type" />
                     </SelectTrigger>
                     <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
@@ -3365,11 +3765,12 @@ export default function RequestsPage() {
                       <SelectItem value="remove">Remove from Content</SelectItem>
                     </SelectContent>
                   </Select>
+                  {fieldErrors.translation_type && <FieldError>Please select a translation type</FieldError>}
                 </div>
                 <div>
-                  <Label className="text-gray-500 dark:text-zinc-400">Trunk Type</Label>
-                  <Select value={formData.trunk_type} onValueChange={(v) => setFormData({ ...formData, trunk_type: v, trunk_name: "" })}>
-                    <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
+                  <Label className="text-gray-500 dark:text-zinc-400">Trunk Type <RequiredAsterisk /></Label>
+                  <Select value={formData.trunk_type} onValueChange={(v) => { setFormData({ ...formData, trunk_type: v, trunk_name: "" }); setFieldErrors(prev => ({ ...prev, trunk_type: false })); }}>
+                    <SelectTrigger className={`bg-gray-100 dark:bg-zinc-800 ${fieldErrors.trunk_type ? "border-red-500 focus:ring-red-500" : "border-gray-200 dark:border-zinc-700"}`}>
                       <SelectValue placeholder="Select trunk type" />
                     </SelectTrigger>
                     <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
@@ -3377,15 +3778,16 @@ export default function RequestsPage() {
                       <SelectItem value="vendor">Vendor Trunk</SelectItem>
                     </SelectContent>
                   </Select>
+                  {fieldErrors.trunk_type && <FieldError>Please select a trunk type</FieldError>}
                 </div>
                 <div>
-                  <Label className="text-gray-500 dark:text-zinc-400">Trunk Name *</Label>
-                  <Select value={formData.trunk_name || ""} onValueChange={(v) => setFormData({ ...formData, trunk_name: v })} required disabled={!formData.customer_id || !formData.trunk_type}>
-                    <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white">
+                  <Label className="text-gray-500 dark:text-zinc-400">Trunk Name <RequiredAsterisk /></Label>
+                  <Select value={formData.trunk_name || ""} onValueChange={(v) => { setFormData({ ...formData, trunk_name: v }); setFieldErrors(prev => ({ ...prev, trunk_name: false })); }} required disabled={!formData.customer_id || !formData.trunk_type}>
+                    <SelectTrigger className={`bg-gray-100 dark:bg-zinc-800 text-gray-900 dark:text-white ${fieldErrors.trunk_name ? "border-red-500 focus:ring-red-500" : "border-gray-200 dark:border-zinc-700"}`}>
                       <SelectValue placeholder={formData.trunk_type ? "Select trunk" : "Select trunk type first"} />
                     </SelectTrigger>
                     <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
-                      {(formData.trunk_type === "customer" 
+                      {(formData.trunk_type === "customer"
                         ? enterprises.find(e => e.id === formData.customer_id)?.customer_trunks || []
                         : formData.trunk_type === "vendor"
                           ? vendorTrunkOptions.filter(vt => {
@@ -3399,48 +3801,53 @@ export default function RequestsPage() {
                       ))}
                     </SelectContent>
                   </Select>
+                  {fieldErrors.trunk_name && <FieldError>Please select a trunk</FieldError>}
                 </div>
                 {formData.translation_type === "sid_change" && (
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <Label className="text-gray-500 dark:text-zinc-400">Old SID</Label>
+                      <Label className="text-gray-500 dark:text-zinc-400">Old SID <RequiredAsterisk /></Label>
                       <Input
                         value={formData.old_value}
-                        onChange={(e) => setFormData({ ...formData, old_value: e.target.value })}
+                        onChange={(e) => { setFormData({ ...formData, old_value: e.target.value }); setFieldErrors(prev => ({ ...prev, old_value: false })); }}
                         placeholder="Current SID"
-                        className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700"
+                        className={`bg-gray-100 dark:bg-zinc-800 ${fieldErrors.old_value ? "border-red-500 focus-visible:ring-red-500" : "border-gray-200 dark:border-zinc-700"}`}
                       />
+                      {fieldErrors.old_value && <FieldError />}
                     </div>
                     <div>
-                      <Label className="text-gray-500 dark:text-zinc-400">New SID</Label>
+                      <Label className="text-gray-500 dark:text-zinc-400">New SID <RequiredAsterisk /></Label>
                       <Input
                         value={formData.new_value}
-                        onChange={(e) => setFormData({ ...formData, new_value: e.target.value })}
+                        onChange={(e) => { setFormData({ ...formData, new_value: e.target.value }); setFieldErrors(prev => ({ ...prev, new_value: false })); }}
                         placeholder="New SID"
-                        className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700"
+                        className={`bg-gray-100 dark:bg-zinc-800 ${fieldErrors.new_value ? "border-red-500 focus-visible:ring-red-500" : "border-gray-200 dark:border-zinc-700"}`}
                       />
+                      {fieldErrors.new_value && <FieldError />}
                     </div>
                   </div>
                 )}
                 {formData.translation_type === "content_change" && (
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <Label className="text-gray-500 dark:text-zinc-400">Old Content</Label>
+                      <Label className="text-gray-500 dark:text-zinc-400">Old Content <RequiredAsterisk /></Label>
                       <Input
                         value={formData.old_value}
-                        onChange={(e) => setFormData({ ...formData, old_value: e.target.value })}
+                        onChange={(e) => { setFormData({ ...formData, old_value: e.target.value }); setFieldErrors(prev => ({ ...prev, old_value: false })); }}
                         placeholder="Current Content"
-                        className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700"
+                        className={`bg-gray-100 dark:bg-zinc-800 ${fieldErrors.old_value ? "border-red-500 focus-visible:ring-red-500" : "border-gray-200 dark:border-zinc-700"}`}
                       />
+                      {fieldErrors.old_value && <FieldError />}
                     </div>
                     <div>
-                      <Label className="text-gray-500 dark:text-zinc-400">New Content</Label>
+                      <Label className="text-gray-500 dark:text-zinc-400">New Content <RequiredAsterisk /></Label>
                       <Input
                         value={formData.new_value}
-                        onChange={(e) => setFormData({ ...formData, new_value: e.target.value })}
+                        onChange={(e) => { setFormData({ ...formData, new_value: e.target.value }); setFieldErrors(prev => ({ ...prev, new_value: false })); }}
                         placeholder="New Content"
-                        className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700"
+                        className={`bg-gray-100 dark:bg-zinc-800 ${fieldErrors.new_value ? "border-red-500 focus-visible:ring-red-500" : "border-gray-200 dark:border-zinc-700"}`}
                       />
+                      {fieldErrors.new_value && <FieldError />}
                     </div>
                   </div>
                 )}
@@ -3448,55 +3855,60 @@ export default function RequestsPage() {
                   <>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <Label className="text-gray-500 dark:text-zinc-400">Old SID</Label>
+                        <Label className="text-gray-500 dark:text-zinc-400">Old SID <RequiredAsterisk /></Label>
                         <Input
                           value={formData.old_sid}
-                          onChange={(e) => setFormData({ ...formData, old_sid: e.target.value })}
+                          onChange={(e) => { setFormData({ ...formData, old_sid: e.target.value }); setFieldErrors(prev => ({ ...prev, old_sid: false })); }}
                           placeholder="Current SID"
-                          className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700"
+                          className={`bg-gray-100 dark:bg-zinc-800 ${fieldErrors.old_sid ? "border-red-500 focus-visible:ring-red-500" : "border-gray-200 dark:border-zinc-700"}`}
                         />
+                        {fieldErrors.old_sid && <FieldError />}
                       </div>
                       <div>
-                        <Label className="text-gray-500 dark:text-zinc-400">New SID</Label>
+                        <Label className="text-gray-500 dark:text-zinc-400">New SID <RequiredAsterisk /></Label>
                         <Input
                           value={formData.new_sid}
-                          onChange={(e) => setFormData({ ...formData, new_sid: e.target.value })}
+                          onChange={(e) => { setFormData({ ...formData, new_sid: e.target.value }); setFieldErrors(prev => ({ ...prev, new_sid: false })); }}
                           placeholder="New SID"
-                          className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700"
+                          className={`bg-gray-100 dark:bg-zinc-800 ${fieldErrors.new_sid ? "border-red-500 focus-visible:ring-red-500" : "border-gray-200 dark:border-zinc-700"}`}
                         />
+                        {fieldErrors.new_sid && <FieldError />}
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-4 mt-4">
                       <div>
-                        <Label className="text-gray-500 dark:text-zinc-400">Old Content</Label>
+                        <Label className="text-gray-500 dark:text-zinc-400">Old Content <RequiredAsterisk /></Label>
                         <Input
                           value={formData.old_value}
-                          onChange={(e) => setFormData({ ...formData, old_value: e.target.value })}
+                          onChange={(e) => { setFormData({ ...formData, old_value: e.target.value }); setFieldErrors(prev => ({ ...prev, old_value: false })); }}
                           placeholder="Current Content"
-                          className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700"
+                          className={`bg-gray-100 dark:bg-zinc-800 ${fieldErrors.old_value ? "border-red-500 focus-visible:ring-red-500" : "border-gray-200 dark:border-zinc-700"}`}
                         />
+                        {fieldErrors.old_value && <FieldError />}
                       </div>
                       <div>
-                        <Label className="text-gray-500 dark:text-zinc-400">New Content</Label>
+                        <Label className="text-gray-500 dark:text-zinc-400">New Content <RequiredAsterisk /></Label>
                         <Input
                           value={formData.new_value}
-                          onChange={(e) => setFormData({ ...formData, new_value: e.target.value })}
+                          onChange={(e) => { setFormData({ ...formData, new_value: e.target.value }); setFieldErrors(prev => ({ ...prev, new_value: false })); }}
                           placeholder="New Content"
-                          className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700"
+                          className={`bg-gray-100 dark:bg-zinc-800 ${fieldErrors.new_value ? "border-red-500 focus-visible:ring-red-500" : "border-gray-200 dark:border-zinc-700"}`}
                         />
+                        {fieldErrors.new_value && <FieldError />}
                       </div>
                     </div>
                   </>
                 )}
                 {formData.translation_type === "remove" && (
                   <div>
-                    <Label className="text-gray-500 dark:text-zinc-400">Word to Remove</Label>
+                    <Label className="text-gray-500 dark:text-zinc-400">Word to Remove <RequiredAsterisk /></Label>
                     <Input
                       value={formData.word_to_remove}
-                      onChange={(e) => setFormData({ ...formData, word_to_remove: e.target.value })}
+                      onChange={(e) => { setFormData({ ...formData, word_to_remove: e.target.value }); setFieldErrors(prev => ({ ...prev, word_to_remove: false })); }}
                       placeholder="Word/phrase to remove from content"
-                      className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700"
+                      className={`bg-gray-100 dark:bg-zinc-800 ${fieldErrors.word_to_remove ? "border-red-500 focus-visible:ring-red-500" : "border-gray-200 dark:border-zinc-700"}`}
                     />
+                    {fieldErrors.word_to_remove && <FieldError />}
                   </div>
                 )}
                 <div>
@@ -3515,21 +3927,24 @@ export default function RequestsPage() {
             {formData.request_type === "investigation" && (
               <>
                 <div>
-                  <Label className="text-gray-500 dark:text-zinc-400">Enterprise</Label>
-                  <SearchableSelect 
-                    options={enterprises.filter(e => e.enterprise_type === displayTab || e.enterprise_type === "all").map(e => ({ value: e.id, label: e.name }))} 
-                    value={formData.customer_id} 
+                  <Label className="text-gray-500 dark:text-zinc-400">Enterprise <RequiredAsterisk /></Label>
+                  <SearchableSelect
+                    options={investigationEnterprises.filter(e => e.enterprise_type === displayTab || e.enterprise_type === "all").map(e => ({ value: e.id, label: e.name }))}
+                    value={formData.customer_id}
                     onChange={(value) => {
-                      setFormData({ 
-                        ...formData, 
+                      setFormData({
+                        ...formData,
                         customer_id: value,
-                        customer: enterprises.find(e => e.id === value)?.name || "",
+                        customer: investigationEnterprises.find(e => e.id === value)?.name || "",
                         customer_trunk: ""
                       });
-                    }} 
-                    placeholder="Search enterprise..." 
+                      setFieldErrors(prev => ({ ...prev, customer_id: false }));
+                    }}
+                    placeholder="Search enterprise..."
                     isRequired={true}
+                    hasError={!!fieldErrors.customer_id}
                   />
+                  {fieldErrors.customer_id && <FieldError>Please select an enterprise</FieldError>}
                 </div>
                 <div>
                   <IssueTypeSelect
@@ -3542,20 +3957,21 @@ export default function RequestsPage() {
                   />
                 </div>
                 <div>
-                  <Label className="text-gray-500 dark:text-zinc-400">Customer Trunk *</Label>
-                  <Select value={formData.customer_trunk || ""} onValueChange={(value) => setFormData({ ...formData, customer_trunk: value })} required disabled={!formData.customer_id}>
-                    <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white">
+                  <Label className="text-gray-500 dark:text-zinc-400">Customer Trunk <RequiredAsterisk /></Label>
+                  <Select value={formData.customer_trunk || ""} onValueChange={(value) => { setFormData({ ...formData, customer_trunk: value }); setFieldErrors(prev => ({ ...prev, customer_trunk: false })); }} required disabled={!formData.customer_id}>
+                    <SelectTrigger className={`bg-gray-100 dark:bg-zinc-800 text-gray-900 dark:text-white ${fieldErrors.customer_trunk ? "border-red-500 focus:ring-red-500" : "border-gray-200 dark:border-zinc-700"}`}>
                       <SelectValue placeholder={formData.customer_id ? "Select customer trunk" : "Select customer first"} />
                     </SelectTrigger>
                     <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
-                      {(formData.customer_id 
-                        ? enterprises.find(e => e.id === formData.customer_id)?.customer_trunks || []
+                      {(formData.customer_id
+                        ? investigationEnterprises.find(e => e.id === formData.customer_id)?.customer_trunks || []
                         : []
                       ).map((trunk) => (
                         <SelectItem key={trunk} value={trunk} className="text-gray-900 dark:text-white">{trunk}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
+                  {fieldErrors.customer_trunk && <FieldError>Please select a customer trunk</FieldError>}
                 </div>
                 <div>
                   <Label className="text-gray-500 dark:text-zinc-400">Destination (e.g., Country - Network)</Label>
@@ -3583,18 +3999,19 @@ export default function RequestsPage() {
             {formData.request_type === "lcr" && (
               <>
                 <div>
-                  <Label className="text-gray-500 dark:text-zinc-400">Destination (e.g., Country - Network)</Label>
+                  <Label className="text-gray-500 dark:text-zinc-400">Destination (e.g., Country - Network) <RequiredAsterisk /></Label>
                   <Input
                     value={formData.destination}
-                    onChange={(e) => setFormData({ ...formData, destination: e.target.value })}
+                    onChange={(e) => { setFormData({ ...formData, destination: e.target.value }); setFieldErrors(prev => ({ ...prev, destination: false })); }}
                     placeholder="e.g., Ghana - MTN, Nigeria - All Networks"
-                    className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700"
+                    className={`bg-gray-100 dark:bg-zinc-800 ${fieldErrors.destination ? "border-red-500 focus-visible:ring-red-500" : "border-gray-200 dark:border-zinc-700"}`}
                   />
+                  {fieldErrors.destination && <FieldError />}
                 </div>
                 <div>
-                  <Label className="text-gray-500 dark:text-zinc-400">Which LCR (PRM, STD or CC)</Label>
-                  <Select value={formData.lcr_type} onValueChange={(v) => setFormData({ ...formData, lcr_type: v })}>
-                    <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white">
+                  <Label className="text-gray-500 dark:text-zinc-400">Which LCR (PRM, STD or CC) <RequiredAsterisk /></Label>
+                  <Select value={formData.lcr_type} onValueChange={(v) => { setFormData({ ...formData, lcr_type: v }); setFieldErrors(prev => ({ ...prev, lcr_type: false })); }}>
+                    <SelectTrigger className={`bg-gray-100 dark:bg-zinc-800 text-gray-900 dark:text-white ${fieldErrors.lcr_type ? "border-red-500 focus:ring-red-500" : "border-gray-200 dark:border-zinc-700"}`}>
                       <SelectValue placeholder="Select LCR type" />
                     </SelectTrigger>
                     <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
@@ -3603,11 +4020,12 @@ export default function RequestsPage() {
                       <SelectItem value="CC" className="text-gray-900 dark:text-white">CC</SelectItem>
                     </SelectContent>
                   </Select>
+                  {fieldErrors.lcr_type && <FieldError>Please select an LCR type</FieldError>}
                 </div>
                 <div>
-                  <Label className="text-gray-500 dark:text-zinc-400">Change</Label>
-                  <Select value={formData.lcr_change} onValueChange={(v) => setFormData({ ...formData, lcr_change: v })}>
-                    <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white">
+                  <Label className="text-gray-500 dark:text-zinc-400">Change <RequiredAsterisk /></Label>
+                  <Select value={formData.lcr_change} onValueChange={(v) => { setFormData({ ...formData, lcr_change: v }); setFieldErrors(prev => ({ ...prev, lcr_change: false })); }}>
+                    <SelectTrigger className={`bg-gray-100 dark:bg-zinc-800 text-gray-900 dark:text-white ${fieldErrors.lcr_change ? "border-red-500 focus:ring-red-500" : "border-gray-200 dark:border-zinc-700"}`}>
                       <SelectValue placeholder="Select change type" />
                     </SelectTrigger>
                     <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
@@ -3615,18 +4033,20 @@ export default function RequestsPage() {
                       <SelectItem value="drop" className="text-gray-900 dark:text-white">Drop</SelectItem>
                     </SelectContent>
                   </Select>
+                  {fieldErrors.lcr_change && <FieldError>Please select a change type</FieldError>}
                 </div>
                 <div>
-                  <Label className="text-gray-500 dark:text-zinc-400">Vendor Trunk(s) *</Label>
+                  <Label className="text-gray-500 dark:text-zinc-400">Vendor Trunk(s) <RequiredAsterisk /></Label>
                   <p className="text-xs text-zinc-500 mb-2">At least one vendor trunk is required</p>
                   {formData.vendor_trunks.map((trunk, index) => (
                     <div key={index} className="flex gap-2 mb-2">
                       <SearchableSelect
                         options={vendorTrunkOptions.map(vt => ({ value: vt, label: vt }))}
                         value={trunk.trunk}
-                        onChange={(value) => handleVendorTrunkChange(index, "trunk", value)}
+                        onChange={(value) => { handleVendorTrunkChange(index, "trunk", value); setFieldErrors(prev => ({ ...prev, vendor_trunks: false })); }}
                         placeholder="Select vendor trunk"
                         isRequired={true}
+                        hasError={!!fieldErrors.vendor_trunks && !trunk.trunk}
                         className="flex-1"
                       />
                       {formData.vendor_trunks.length > 1 && (
@@ -3634,6 +4054,7 @@ export default function RequestsPage() {
                       )}
                     </div>
                   ))}
+                  {fieldErrors.vendor_trunks && <FieldError>At least one vendor trunk must be selected</FieldError>}
                   <Button variant="outline" size="sm" onClick={addVendorTrunk} className="mt-2">
                     <Plus className="h-4 w-4 mr-1" /> Add Vendor Trunk
                   </Button>
@@ -3645,7 +4066,7 @@ export default function RequestsPage() {
             {(formData.request_type === "trunk_request_sms" || formData.request_type === "trunk_request_voice") && (
               <>
                 <div>
-                  <Label className="text-gray-500 dark:text-zinc-400">Customer(s)</Label>
+                  <Label className="text-gray-500 dark:text-zinc-400">Customer(s) <RequiredAsterisk /></Label>
                   <MultiSelect
                     options={enterprises
                       .filter(e => e.enterprise_type === displayTab || e.enterprise_type === "all")
@@ -3658,15 +4079,18 @@ export default function RequestsPage() {
                         customer_ids: newIds,
                         customer: newIds.map(id => enterprises.find(e => e.id === id)?.name).filter(Boolean).join(", ")
                       });
+                      setFieldErrors(prev => ({ ...prev, customer_ids: false }));
                     }}
                     placeholder="Select enterprises..."
                     searchPlaceholder="Search enterprises..."
+                    hasError={!!fieldErrors.customer_ids}
                   />
+                  {fieldErrors.customer_ids && <FieldError>At least one customer must be selected</FieldError>}
                 </div>
                 <div>
-                  <Label className="text-gray-500 dark:text-zinc-400">Trunk Type</Label>
-                  <Select value={formData.trunk_type} onValueChange={(v) => setFormData({ ...formData, trunk_type: v })}>
-                    <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white">
+                  <Label className="text-gray-500 dark:text-zinc-400">Trunk Type <RequiredAsterisk /></Label>
+                  <Select value={formData.trunk_type} onValueChange={(v) => { setFormData({ ...formData, trunk_type: v }); setFieldErrors(prev => ({ ...prev, trunk_type: false })); }}>
+                    <SelectTrigger className={`bg-gray-100 dark:bg-zinc-800 text-gray-900 dark:text-white ${fieldErrors.trunk_type ? "border-red-500 focus:ring-red-500" : "border-gray-200 dark:border-zinc-700"}`}>
                       <SelectValue placeholder="Select trunk type" />
                     </SelectTrigger>
                     <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
@@ -3692,14 +4116,15 @@ export default function RequestsPage() {
                       )}
                     </SelectContent>
                   </Select>
+                  {fieldErrors.trunk_type && <FieldError>Please select a trunk type</FieldError>}
                 </div>
                 <div>
-                  <Label className="text-gray-500 dark:text-zinc-400">Direction *</Label>
-                  <Select 
-                    value={trunkDirection} 
-                    onValueChange={(v) => setTrunkDirection(v)}
+                  <Label className="text-gray-500 dark:text-zinc-400">Direction <RequiredAsterisk /></Label>
+                  <Select
+                    value={trunkDirection}
+                    onValueChange={(v) => { setTrunkDirection(v); setFieldErrors(prev => ({ ...prev, trunk_direction: false })); }}
                   >
-                    <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white">
+                    <SelectTrigger className={`bg-gray-100 dark:bg-zinc-800 text-gray-900 dark:text-white ${fieldErrors.trunk_direction ? "border-red-500 focus:ring-red-500" : "border-gray-200 dark:border-zinc-700"}`}>
                       <SelectValue placeholder="Select direction" />
                     </SelectTrigger>
                     <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
@@ -3708,6 +4133,7 @@ export default function RequestsPage() {
                       <SelectItem value="Both" className="text-gray-900 dark:text-white">Both</SelectItem>
                     </SelectContent>
                   </Select>
+                  {fieldErrors.trunk_direction && <FieldError>Please select a direction</FieldError>}
                 </div>
                 <div className="flex items-center gap-2">
                   <input
@@ -3717,7 +4143,7 @@ export default function RequestsPage() {
                     onChange={(e) => setTrunkWithLcr(e.target.checked)}
                     className="w-4 h-4 accent-blue-500"
                   />
-                  <label htmlFor="with_lcr" className="text-gray-900 dark:text-white text-sm cursor-pointer">With LCR *</label>
+                  <label htmlFor="with_lcr" className="text-gray-900 dark:text-white text-sm cursor-pointer">With LCR</label>
                 </div>
               </>
             )}
@@ -3726,16 +4152,17 @@ export default function RequestsPage() {
             {formData.request_type === "open_tt" && (
               <>
                 <div>
-                  <Label className="text-gray-500 dark:text-zinc-400">Destination *</Label>
+                  <Label className="text-gray-500 dark:text-zinc-400">Destination <RequiredAsterisk /></Label>
                   <Input
                     value={formData.destination}
-                    onChange={(e) => setFormData({ ...formData, destination: e.target.value })}
+                    onChange={(e) => { setFormData({ ...formData, destination: e.target.value }); setFieldErrors(prev => ({ ...prev, destination: false })); }}
                     placeholder="e.g., Ghana - MTN, Nigeria - All Networks"
-                    className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white"
+                    className={`bg-gray-100 dark:bg-zinc-800 text-gray-900 dark:text-white ${fieldErrors.destination ? "border-red-500 focus-visible:ring-red-500" : "border-gray-200 dark:border-zinc-700"}`}
                   />
+                  {fieldErrors.destination && <FieldError />}
                 </div>
                 <div>
-                  <Label className="text-gray-500 dark:text-zinc-400">Vendor Trunk(s) *</Label>
+                  <Label className="text-gray-500 dark:text-zinc-400">Vendor Trunk(s) <RequiredAsterisk /></Label>
                   <p className="text-xs text-zinc-500 mb-2">Select vendor trunk(s)</p>
                   {formData.vendor_trunks.map((trunk, index) => (
                     <div key={index} className="mb-3 p-3 bg-gray-100/50 dark:bg-zinc-800/50 rounded-lg border border-gray-200 dark:border-zinc-700">
@@ -3743,9 +4170,10 @@ export default function RequestsPage() {
                         <SearchableSelect
                           options={vendorTrunkOptions.map(vt => ({ value: vt, label: vt }))}
                           value={trunk.trunk}
-                          onChange={(value) => handleVendorTrunkChange(index, "trunk", value)}
+                          onChange={(value) => { handleVendorTrunkChange(index, "trunk", value); setFieldErrors(prev => ({ ...prev, vendor_trunks: false })); }}
                           placeholder="Select vendor trunk"
                           isRequired={true}
+                          hasError={!!fieldErrors.vendor_trunks && !trunk.trunk}
                           className="flex-1"
                         />
                         {formData.vendor_trunks.length > 1 && (
@@ -3754,14 +4182,15 @@ export default function RequestsPage() {
                       </div>
                     </div>
                   ))}
+                  {fieldErrors.vendor_trunks && <FieldError>At least one vendor trunk must be selected</FieldError>}
                   <Button variant="outline" size="sm" onClick={addVendorTrunk} className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white hover:bg-gray-200 dark:hover:bg-zinc-700 mt-2">
                     <Plus className="h-4 w-4 mr-1" /> Add Vendor Trunk
                   </Button>
                 </div>
                 <div>
-                  <Label className="text-gray-500 dark:text-zinc-400">Open By *</Label>
-                  <Select value={formData.open_by} onValueChange={(v) => setFormData({ ...formData, open_by: v })}>
-                    <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white">
+                  <Label className="text-gray-500 dark:text-zinc-400">Open By <RequiredAsterisk /></Label>
+                  <Select value={formData.open_by} onValueChange={(v) => { setFormData({ ...formData, open_by: v }); setFieldErrors(prev => ({ ...prev, open_by: false })); }}>
+                    <SelectTrigger className={`bg-gray-100 dark:bg-zinc-800 text-gray-900 dark:text-white ${fieldErrors.open_by ? "border-red-500 focus:ring-red-500" : "border-gray-200 dark:border-zinc-700"}`}>
                       <SelectValue placeholder="Select how to open" />
                     </SelectTrigger>
                     <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
@@ -3769,6 +4198,7 @@ export default function RequestsPage() {
                       <SelectItem value="Email" className="text-gray-900 dark:text-white">Email</SelectItem>
                     </SelectContent>
                   </Select>
+                  {fieldErrors.open_by && <FieldError>Please select how to open</FieldError>}
                 </div>
                 <div>
                   <Label className="text-gray-500 dark:text-zinc-400">Notes (Optional)</Label>
@@ -3823,13 +4253,13 @@ export default function RequestsPage() {
 
       {/* View Request Details Dialog */}
       <Dialog open={viewRequestDialogOpen} onOpenChange={setViewRequestDialogOpen}>
-        <DialogContent disableOutsideClick className="bg-white dark:bg-zinc-900 border-black/10 dark:border-white/10 text-gray-900 dark:text-white max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent disableOutsideClick className="bg-white dark:bg-zinc-900 border-black/10 dark:border-white/10 text-gray-900 dark:text-white max-w-2xl max-h-[90vh] overflow-y-auto overflow-x-hidden p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle>Request Details</DialogTitle>
           </DialogHeader>
           {selectedRequest && (
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <Label className="text-gray-500 dark:text-zinc-400">Request Type</Label>
                   <p className="text-gray-900 dark:text-white">{selectedRequest.request_type_label}</p>
@@ -3846,6 +4276,20 @@ export default function RequestsPage() {
                   <Label className="text-gray-500 dark:text-zinc-400">Priority</Label>
                   <p className="text-gray-900 dark:text-white">{selectedRequest.priority}</p>
                 </div>
+                {selectedRequest.request_type === "rating_routing" && (
+                  <div>
+                    <Label className="text-gray-500 dark:text-zinc-400">Plan</Label>
+                    <p className="text-gray-900 dark:text-white">
+                      {RATING_ROUTING_SCOPES.find(s => s.value === (selectedRequest.rating_routing_scope || "both"))?.label || "Rating and Routing"}
+                    </p>
+                  </div>
+                )}
+                {selectedRequest.request_type === "rating_routing" && (
+                  <div>
+                    <Label className="text-gray-500 dark:text-zinc-400">Currency</Label>
+                    <p className="text-gray-900 dark:text-white">{selectedRequest.currency || "EUR"}</p>
+                  </div>
+                )}
                 <div>
                   <Label className="text-gray-500 dark:text-zinc-400">Status</Label>
                   <p className="text-gray-900 dark:text-white capitalize">{selectedRequest.status}</p>
@@ -3891,9 +4335,10 @@ export default function RequestsPage() {
                             <span className="text-amber-400 font-medium text-sm">Customer Trunk {i + 1}</span>
                           </div>
                           
-                          {/* Two-column layout: Rating Plan | Routing Plan */}
-                          <div className="grid grid-cols-2 gap-3">
-                            {/* Rating Plan */}
+                          {/* Two-column layout: Rating Plan | Routing Plan - stacked on mobile */}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            {/* Rating Plan - hidden for Routing-only requests */}
+                            {(selectedRequest.rating_routing_scope || "both") !== "routing" && (
                             <div className="border border-gray-200/50 dark:border-zinc-700/50 rounded p-2 bg-gray-100/20 dark:bg-zinc-800/20">
                               <div className="text-xs text-amber-300 font-medium mb-1">Rating Plan</div>
                               <div className="text-xs space-y-1">
@@ -3901,20 +4346,21 @@ export default function RequestsPage() {
                                 {isNewFormat && config.rating_pairs ? (
                                   config.rating_pairs.map((pair, pi) => (
                                     <div key={pi} className="text-gray-500 dark:text-zinc-400">
-                                      Dest: <span className="text-gray-900 dark:text-white">{pair.destination || "N/A"}</span> → Rate: <span className="text-gray-900 dark:text-white">{pair.rate || "N/A"} EUR</span>
+                                      Dest: <span className="text-gray-900 dark:text-white">{pair.destination || "N/A"}</span> → Rate: <span className="text-gray-900 dark:text-white">{pair.rate || "N/A"} {selectedRequest.currency || "EUR"}</span>
                                     </div>
                                   ))
                                 ) : (
                                   <>
                                     <div className="text-gray-500 dark:text-zinc-400">Destination: <span className="text-gray-900 dark:text-white">{config.destination || "N/A"}</span></div>
-                                    <div className="text-gray-500 dark:text-zinc-400">Rate: <span className="text-gray-900 dark:text-white">{config.rate || "N/A"} EUR</span></div>
+                                    <div className="text-gray-500 dark:text-zinc-400">Rate: <span className="text-gray-900 dark:text-white">{config.rate || "N/A"} {selectedRequest.currency || "EUR"}</span></div>
                                   </>
                                 )}
                               </div>
                             </div>
-                            
-                            {/* Routing Plan - only show if NOT using common routing */}
-                            {!selectedRequest.use_common_routing && (
+                            )}
+
+                            {/* Routing Plan - hidden for Rating-only requests, and shown per-config only if NOT using common routing */}
+                            {(selectedRequest.rating_routing_scope || "both") !== "rating" && !selectedRequest.use_common_routing && (
                               <div className="border border-gray-200/50 dark:border-zinc-700/50 rounded p-2 bg-gray-100/20 dark:bg-zinc-800/20">
                                 <div className="text-xs text-blue-300 font-medium mb-1">Routing Plan</div>
                                 <div className="text-xs space-y-1">
@@ -3934,7 +4380,7 @@ export default function RequestsPage() {
                                             <div className="flex flex-wrap gap-2 text-gray-500 dark:text-zinc-400">
                                               {rule.vendors.length > 1 && vendor.percentage && <span>%:{vendor.percentage}%</span>}
                                               {vendor.cost_type && <span>{vendor.cost_type === "fixed" ? "Fixed" : "Range"}</span>}
-                                              {vendor.cost_min && <span>{vendor.cost_type === "fixed" ? `Cost:${vendor.cost_min}` : `${vendor.cost_min}-${vendor.cost_max}`}</span>}
+                                              {vendor.cost_min && <span>{vendor.cost_type === "fixed" ? `Cost:${vendor.cost_min}` : `${vendor.cost_min}-${vendor.cost_max}`} {selectedRequest.currency || "EUR"}</span>}
                                             </div>
                                           </div>
                                         ))}
@@ -3959,7 +4405,7 @@ export default function RequestsPage() {
                                             {vendor.position && <span>Pos:{vendor.position}</span>}
                                             {vendor.percentage && <span>%:{vendor.percentage}%</span>}
                                             {vendor.cost_type && <span>{vendor.cost_type === "fixed" ? "Fixed" : "Range"}</span>}
-                                            {vendor.cost_min && <span>{vendor.cost_type === "fixed" ? `Cost:${vendor.cost_min}` : `${vendor.cost_min}-${vendor.cost_max}`}</span>}
+                                            {vendor.cost_min && <span>{vendor.cost_type === "fixed" ? `Cost:${vendor.cost_min}` : `${vendor.cost_min}-${vendor.cost_max}`} {selectedRequest.currency || "EUR"}</span>}
                                           </div>
                                         </div>
                                       ))
@@ -3999,7 +4445,7 @@ export default function RequestsPage() {
                                   <div className="flex flex-wrap gap-2 text-gray-500 dark:text-zinc-400 text-xs">
                                     {rule.vendors.length > 1 && vendor.percentage && <span>%:{vendor.percentage}%</span>}
                                     {vendor.cost_type && <span>{vendor.cost_type === "fixed" ? "Fixed" : "Range"}</span>}
-                                    {vendor.cost_min && <span>{vendor.cost_type === "fixed" ? `Cost:${vendor.cost_min}` : `${vendor.cost_min}-${vendor.cost_max}`}</span>}
+                                    {vendor.cost_min && <span>{vendor.cost_type === "fixed" ? `Cost:${vendor.cost_min}` : `${vendor.cost_min}-${vendor.cost_max}`} {selectedRequest.currency || "EUR"}</span>}
                                   </div>
                                 </div>
                               ))}
@@ -4177,7 +4623,7 @@ export default function RequestsPage() {
               {selectedRequest.response && (
                 <div className="border-t border-gray-200 dark:border-zinc-700 pt-4">
                   <Label className="text-gray-500 dark:text-zinc-400">Response</Label>
-                  <p className="text-gray-900 dark:text-white mt-2">{selectedRequest.response}</p>
+                  <p className="text-gray-900 dark:text-white mt-2 whitespace-pre-wrap">{selectedRequest.response}</p>
                 </div>
               )}
 

@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import Select from 'react-select';
 import { useTheme } from '@/contexts/ThemeContext';
 
@@ -27,17 +28,19 @@ export const SearchableSelect = ({
   placeholder = "Select...",
   isRequired = false,
   isDisabled = false,
+  hasError = false,
   className = ""
 }) => {
   const { theme } = useTheme();
   const colors = PALETTES[theme];
+  const selectRef = useRef(null);
   const customStyles = {
     control: (base, state) => ({
       ...base,
       backgroundColor: colors.surface,
-      borderColor: state.isFocused ? '#10b981' : colors.border,
+      borderColor: state.isFocused ? '#10b981' : hasError ? '#ef4444' : colors.border,
       minHeight: '40px',
-      boxShadow: state.isFocused ? '0 0 0 1px #10b981' : 'none',
+      boxShadow: state.isFocused ? '0 0 0 1px #10b981' : hasError ? '0 0 0 1px #ef4444' : 'none',
       '&:hover': {
         borderColor: '#10b981'
       }
@@ -80,6 +83,7 @@ export const SearchableSelect = ({
 
   return (
     <Select
+      ref={selectRef}
       options={options}
       value={selectedOption}
       onChange={(option) => onChange(option?.value)}
@@ -89,6 +93,15 @@ export const SearchableSelect = ({
       isDisabled={isDisabled}
       styles={customStyles}
       className={className}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          // Let react-select's own Enter handling (select the highlighted
+          // option, if any) run first, then force the menu closed - so Enter
+          // always dismisses the dropdown, the same as clicking away from it
+          // or on the field itself does, even when nothing was highlighted.
+          setTimeout(() => selectRef.current?.blur(), 0);
+        }
+      }}
     />
   );
 };

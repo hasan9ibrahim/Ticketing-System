@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { ChevronLeft, ChevronRight, Save, FileText, FileUp } from "lucide-react";
 import { toast } from "sonner";
 import { fetchCached } from "@/lib/dataCache";
+import { FieldError, RequiredAsterisk } from "@/components/ui/field-error";
 
 const API = `${process.env.REACT_APP_API_URL}/api`;
 
@@ -68,7 +69,19 @@ export default function NOCSchedulePage() {
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editData, setEditData] = useState(null);
   const [importing, setImporting] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState({});
   const fileInputRef = useRef(null);
+  // The header row and calendar body scroll horizontally in sync (the header
+  // has no scrollbar of its own - its scrollLeft just mirrors the body's -
+  // so the last user column's label is never clipped out of reach on narrow
+  // screens or with many NOC users.
+  const scheduleHeaderScrollRef = useRef(null);
+  const scheduleBodyScrollRef = useRef(null);
+  const syncScheduleHeaderScroll = (e) => {
+    if (scheduleHeaderScrollRef.current) {
+      scheduleHeaderScrollRef.current.scrollLeft = e.target.scrollLeft;
+    }
+  };
 
   const user = getCurrentUser();
   const isAdmin = user?.role === "admin";
@@ -232,14 +245,21 @@ export default function NOCSchedulePage() {
       shiftType: schedule?.shift_type || "off",
       notes: schedule?.notes || ""
     });
+    setFieldErrors({});
     setEditDialogOpen(true);
   };
 
   const saveEdit = async () => {
     if (!editData) return;
-    
+
+    if (!editData.shiftType) {
+      setFieldErrors({ shiftType: true });
+      return;
+    }
+    setFieldErrors({});
+
     console.log("Saving edit:", editData);
-    
+
     try {
       let result;
       if (editData.scheduleId) {
@@ -577,29 +597,39 @@ export default function NOCSchedulePage() {
 
       {/* Calendar */}
       <div className="border border-gray-200 dark:border-zinc-800 rounded-lg overflow-hidden mb-6">
-        {/* Header row - sticky */}
-        <div className="flex bg-white dark:bg-zinc-900 border-b border-gray-200 dark:border-zinc-800 sticky top-0 z-20">
-          <div className="w-16 flex-shrink-0 p-2 border-r border-gray-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
-            <span className="text-sm font-medium text-gray-500 dark:text-zinc-400">Day</span>
-          </div>
-          {nocUsers.map(nocUser => (
-            <div 
-              key={nocUser.id} 
-              className="flex-1 min-w-[80px] p-2 border-r border-gray-200 dark:border-zinc-800 text-center"
-            >
-              <div className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                {nocUser.name || nocUser.username}
-              </div>
+        {/* Header row - horizontal scroll mirrors the body below (via JS, it has no
+            scrollbar of its own) so the last user column's label is always reachable
+            in sync with that column's cells, instead of being clipped with no way to
+            scroll it into view. Still sticky so it stays visible as the page scrolls. */}
+        <div ref={scheduleHeaderScrollRef} className="overflow-x-hidden sticky top-0 z-20">
+          <div
+            className="flex bg-white dark:bg-zinc-900 border-b border-gray-200 dark:border-zinc-800"
+            style={{ minWidth: `${64 + nocUsers.length * 80}px` }}
+          >
+            <div className="w-16 flex-shrink-0 p-2 border-r border-gray-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 sticky left-0 z-10">
+              <span className="text-sm font-medium text-gray-500 dark:text-zinc-400">Day</span>
             </div>
-          ))}
+            {nocUsers.map(nocUser => (
+              <div
+                key={nocUser.id}
+                className="flex-1 min-w-[80px] p-2 border-r border-gray-200 dark:border-zinc-800 text-center"
+              >
+                <div className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                  {nocUser.name || nocUser.username}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
-        
+
         {/* Calendar body */}
         {loading ? (
           <div className="p-8 text-center text-gray-500 dark:text-zinc-400">Loading...</div>
         ) : (
-          <div className="overflow-auto max-h-[600px]">
-            {renderCalendarDays()}
+          <div ref={scheduleBodyScrollRef} className="overflow-auto max-h-[600px]" onScroll={syncScheduleHeaderScroll}>
+            <div style={{ minWidth: `${64 + nocUsers.length * 80}px` }}>
+              {renderCalendarDays()}
+            </div>
           </div>
         )}
       </div>
@@ -640,12 +670,15 @@ export default function NOCSchedulePage() {
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div>
-              <label className="text-sm text-gray-500 dark:text-zinc-400 mb-1 block">Shift</label>
-              <Select 
-                value={editData?.shiftType || "off"} 
-                onValueChange={(value) => setEditData({ ...editData, shiftType: value })}
+              <label className="text-sm text-gray-500 dark:text-zinc-400 mb-1 block">Shift <RequiredAsterisk /></label>
+              <Select
+                value={editData?.shiftType || "off"}
+                onValueChange={(value) => {
+                  setEditData({ ...editData, shiftType: value });
+                  setFieldErrors((prev) => ({ ...prev, shiftType: false }));
+                }}
               >
-                <SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
+                <SelectTrigger className={`bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 ${fieldErrors.shiftType ? "border-red-500 focus:ring-red-500" : ""}`}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
@@ -656,6 +689,7 @@ export default function NOCSchedulePage() {
                   ))}
                 </SelectContent>
               </Select>
+              {fieldErrors.shiftType && <FieldError />}
             </div>
             <div>
               <label className="text-sm text-gray-500 dark:text-zinc-400 mb-1 block">Notes (optional)</label>

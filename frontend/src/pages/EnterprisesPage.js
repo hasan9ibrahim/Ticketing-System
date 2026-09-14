@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { FieldError, RequiredAsterisk } from "@/components/ui/field-error";
 import MultiFilter from "@/components/custom/MultiFilter";
 import { useDebounce } from "@/hooks/useDebounce";
 import { fetchCached, invalidateCache } from "@/lib/dataCache";
@@ -28,6 +29,7 @@ export default function EnterprisesPage() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editingEnterprise, setEditingEnterprise] = useState(null);
   const [formData, setFormData] = useState({});
+  const [fieldErrors, setFieldErrors] = useState({});
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteAllDialogOpen, setDeleteAllDialogOpen] = useState(false);
   const [enterpriseToDelete, setEnterpriseToDelete] = useState(null);
@@ -134,6 +136,7 @@ export default function EnterprisesPage() {
   const openCreateSheet = () => {
     setEditingEnterprise(null);
     setFormData({});
+    setFieldErrors({});
     setCustomerTrunks([]);
     setVendorTrunks([]);
     setNewCustomerTrunk("");
@@ -144,6 +147,7 @@ export default function EnterprisesPage() {
   const openEditSheet = (enterprise) => {
     setEditingEnterprise(enterprise);
     setFormData(enterprise);
+    setFieldErrors({});
     setCustomerTrunks(enterprise.customer_trunks || []);
     setVendorTrunks(enterprise.vendor_trunks || []);
     setNewCustomerTrunk("");
@@ -153,6 +157,17 @@ export default function EnterprisesPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    const errors = {};
+    if (!formData.name?.trim()) errors.name = true;
+    if (!formData.enterprise_type) errors.enterprise_type = true;
+
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      return;
+    }
+    setFieldErrors({});
+
     try {
       const token = localStorage.getItem("token");
       const headers = { Authorization: `Bearer ${token}` };
@@ -463,8 +478,8 @@ export default function EnterprisesPage() {
         <SheetContent className="bg-white dark:bg-zinc-900 border-black/10 dark:border-white/10 text-gray-900 dark:text-white sm:max-w-2xl overflow-y-auto" data-testid="enterprise-sheet">
           <SheetHeader><SheetTitle className="text-gray-900 dark:text-white">{editingEnterprise ? "Edit Enterprise" : "Create Enterprise"}</SheetTitle></SheetHeader>
           <form onSubmit={handleSubmit} className="space-y-4 mt-6">
-            <div className="space-y-2"><Label>Enterprise Name *</Label><Input value={formData.name || ""} onChange={(e) => setFormData({ ...formData, name: e.target.value })} className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white" data-testid="enterprise-name-input" required /></div>
-            <div className="space-y-2"><Label>SMS/Voice *</Label><Select value={formData.enterprise_type || ""} onValueChange={(value) => setFormData({ ...formData, enterprise_type: value })} required><SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700" data-testid="enterprise-type-select"><SelectValue placeholder="Select type" /></SelectTrigger><SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700"><SelectItem value="sms">SMS</SelectItem><SelectItem value="voice">Voice</SelectItem></SelectContent></Select></div>
+            <div className="space-y-2"><Label>Enterprise Name <RequiredAsterisk /></Label><Input value={formData.name || ""} onChange={(e) => { setFormData({ ...formData, name: e.target.value }); setFieldErrors((prev) => ({ ...prev, name: false })); }} className={`bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white ${fieldErrors.name ? "border-red-500 focus-visible:ring-red-500" : ""}`} data-testid="enterprise-name-input" required />{fieldErrors.name && <FieldError />}</div>
+            <div className="space-y-2"><Label>SMS/Voice <RequiredAsterisk /></Label><Select value={formData.enterprise_type || ""} onValueChange={(value) => { setFormData({ ...formData, enterprise_type: value }); setFieldErrors((prev) => ({ ...prev, enterprise_type: false })); }} required><SelectTrigger className={`bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 ${fieldErrors.enterprise_type ? "border-red-500 focus:ring-red-500" : ""}`} data-testid="enterprise-type-select"><SelectValue placeholder="Select type" /></SelectTrigger><SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700"><SelectItem value="sms">SMS</SelectItem><SelectItem value="voice">Voice</SelectItem></SelectContent></Select>{fieldErrors.enterprise_type && <FieldError>Please select a type</FieldError>}</div>
             <div className="space-y-2"><Label>Tier</Label><Select value={formData.tier} onValueChange={(value) => setFormData({ ...formData, tier: value })}><SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700" data-testid="tier-select"><SelectValue placeholder="Select tier" /></SelectTrigger><SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700"><SelectItem value="Tier 1">Tier 1</SelectItem><SelectItem value="Tier 2">Tier 2</SelectItem><SelectItem value="Tier 3">Tier 3</SelectItem><SelectItem value="Tier 4">Tier 4</SelectItem></SelectContent></Select></div>
             <div className="space-y-2"><Label>Contact Person</Label><Input value={formData.contact_person || ""} onChange={(e) => setFormData({ ...formData, contact_person: e.target.value })} className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white" /></div>
             <div className="space-y-2"><Label>Contact Email</Label><Input type="email" value={formData.contact_email || ""} onChange={(e) => setFormData({ ...formData, contact_email: e.target.value })} className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white" /></div>

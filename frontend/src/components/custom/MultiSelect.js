@@ -9,7 +9,8 @@ export default function MultiSelect({
   onValueChange, 
   placeholder = "Select options...",
   searchPlaceholder = "Search...",
-  className = "" 
+  className = "",
+  hasError = false
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -52,7 +53,7 @@ export default function MultiSelect({
     <div className={`relative ${className}`} ref={ref}>
       <div
         onClick={() => setIsOpen(!isOpen)}
-        className="min-h-[40px] bg-gray-100 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-md px-3 py-2 cursor-pointer flex items-center justify-between gap-2 hover:border-gray-300 dark:hover:border-zinc-600 transition-colors"
+        className={`min-h-[40px] bg-gray-100 dark:bg-zinc-800 border rounded-md px-3 py-2 cursor-pointer flex items-center justify-between gap-2 transition-colors ${hasError ? "border-red-500 hover:border-red-500 dark:hover:border-red-500" : "border-gray-200 dark:border-zinc-700 hover:border-gray-300 dark:hover:border-zinc-600"}`}
       >
         <div className="flex-1 flex flex-wrap gap-1 overflow-hidden">
           {value.length === 0 ? (
@@ -95,6 +96,13 @@ export default function MultiSelect({
               placeholder={searchPlaceholder}
               className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white h-8"
               onClick={(e) => e.stopPropagation()}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  setIsOpen(false);
+                  setSearch("");
+                }
+              }}
               autoFocus
             />
           </div>
