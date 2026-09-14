@@ -1254,8 +1254,33 @@ export default function DashboardLayout({ user, setUser }) {
 
       {/* Main Content */}
       <main className="relative flex-1 flex flex-col overflow-auto">
+        {/* Ambient page background - a much-quieter echo of the login page's
+            glow/grid look, sitting behind the (opaque) cards, tables and
+            buttons so it only reads as soft texture in the space around
+            them. Absolutely positioned against this non-scrolling `main`
+            box (not the scrolling content div below), so it stays put as
+            the page content scrolls over it, same as on the login page. */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <div
+            className="absolute -left-32 -top-32 w-[32rem] h-[32rem] bg-emerald-500/[0.025] dark:bg-emerald-500/[0.05] rounded-full blur-3xl animate-pulse"
+            style={{ animationDuration: "10s" }}
+          />
+          <div
+            className="absolute -right-32 bottom-0 w-[28rem] h-[28rem] bg-emerald-400/[0.02] dark:bg-emerald-400/[0.04] rounded-full blur-3xl animate-pulse"
+            style={{ animationDuration: "12s", animationDelay: "2s" }}
+          />
+          <div
+            className="absolute inset-0 opacity-[0.015] dark:opacity-[0.03]"
+            style={{
+              backgroundImage:
+                "linear-gradient(rgba(16, 185, 129, 0.6) 1px, transparent 1px), linear-gradient(90deg, rgba(16, 185, 129, 0.6) 1px, transparent 1px)",
+              backgroundSize: "56px 56px",
+            }}
+          />
+        </div>
+
         {/* Top Header Bar with Notifications */}
-        <header className="h-14 bg-white dark:bg-zinc-900 border-b border-black/5 dark:border-white/5 flex items-center justify-between px-4 gap-4">
+        <header className="relative z-10 h-14 bg-white dark:bg-zinc-900 border-b border-black/5 dark:border-white/5 flex items-center justify-between px-4 gap-4">
           {/* Mobile Sidebar Expand Button - Only shows on mobile when sidebar is collapsed */}
           {!sidebarOpen ? (
             <Button
@@ -1515,7 +1540,7 @@ export default function DashboardLayout({ user, setUser }) {
           </div>
         </header>
         
-        <div className="flex-1 overflow-auto">
+        <div className="relative z-10 flex-1 overflow-auto">
           <Outlet />
         </div>
 
