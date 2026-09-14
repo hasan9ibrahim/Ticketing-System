@@ -1510,6 +1510,14 @@ export default function RequestsPage() {
   const handleCreateOpenTTFromTesting = (request) => {
     setIsEditMode(false);
     setEditingRequest(null);
+
+    // For Voice, carry over any link the NOC left in their test response
+    // (e.g. a recording/result link) into the Open TT notes so the AM doesn't
+    // have to go dig it up again.
+    const responseLink = request.department === "voice"
+      ? request.response?.match(/https?:\/\/\S+/)?.[0] || ""
+      : "";
+
     // Populate formData with Open TT request type, pre-filling common fields from Testing request
     setFormData({
       request_type: "open_tt",
@@ -1524,7 +1532,7 @@ export default function RequestsPage() {
       vendor_trunks: request.vendor_trunks?.length > 0 ? request.vendor_trunks : [{ trunk: "", sid_content_pairs: [{sid: "", content: ""}] }],
       // Open TT-specific fields (will be filled by AM)
       open_by: "",
-      open_tt_notes: "",
+      open_tt_notes: responseLink,
       // Clear other fields not needed for Open TT
       rating: "",
       routing: "",
