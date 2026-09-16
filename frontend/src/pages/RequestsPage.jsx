@@ -4528,8 +4528,13 @@ export default function RequestsPage() {
                           - {trunk.trunk}
                           {/* Show SID/Content only for SMS requests (Voice uses ANI/A-Numbers) */}
                           {selectedRequest.department === "sms" && (trunk.sid_content_pairs || []).length > 0 && (
-                            <div className="ml-2 text-gray-500 dark:text-zinc-400">
-                              SID/Content: {trunk.sid_content_pairs.map(p => `${p.sid}: ${p.content}`).join(", ")}
+                            <div className="ml-2 space-y-1">
+                              {trunk.sid_content_pairs.map((p, pi) => (
+                                <div key={pi} className="text-gray-500 dark:text-zinc-400">
+                                  <div>SID: <span className="text-gray-900 dark:text-white">{p.sid}</span></div>
+                                  <div>Content: <span className="text-gray-900 dark:text-white">{p.content}</span></div>
+                                </div>
+                              ))}
                             </div>
                           )}
                           {(trunk.ani_numbers || []).length > 0 && (

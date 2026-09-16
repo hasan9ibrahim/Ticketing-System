@@ -3,6 +3,7 @@ import {
   MessageSquare, X, Send, Paperclip, Image as ImageIcon, Users, Plus,
   Check, CheckCheck, Info, LogOut, Smile, Pencil, Trash2, Loader2, Minus,
   Reply, Forward, ChevronDown, ChevronLeft, ChevronRight, Maximize2, Minimize2, Search, Pin,
+  Mail, MailOpen,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1066,6 +1067,21 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
     }
   };
 
+  const toggleUnreadConversation = async (conversationId, isCurrentlyUnread) => {
+    try {
+      if (isCurrentlyUnread) {
+        await markAsRead(conversationId);
+      } else {
+        const response = await axios.post(`${API}/chat/conversations/${conversationId}/unread`, null, { headers: authHeaders() });
+        setConversations((prev) =>
+          prev.map((c) => (c.id === conversationId ? { ...c, unread_count: response.data.unread_count } : c))
+        );
+      }
+    } catch (error) {
+      console.error("Error toggling unread state:", error);
+    }
+  };
+
   const toggleReaction = async (conversationId, messageId, emoji) => {
     try {
       const response = await axios.post(
@@ -1231,6 +1247,7 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
                   onSelectConversation={selectExpandedConversation}
                   onStartConversation={startConversationExpanded}
                   onTogglePin={togglePinConversation}
+                  onToggleUnread={toggleUnreadConversation}
                   userId={user?.id}
                   activeConversationId={expandedConversationId}
                 />
@@ -1412,6 +1429,7 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
                 onSelectConversation={openConversationWindow}
                 onStartConversation={startConversation}
                 onTogglePin={togglePinConversation}
+                onToggleUnread={toggleUnreadConversation}
                 userId={user?.id}
               />
             )}
@@ -1458,7 +1476,7 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
   );
 }
 
-function ChatListView({ conversations, users, loading, error, onRetry, onSelectConversation, onStartConversation, onTogglePin, userId, activeConversationId }) {
+function ChatListView({ conversations, users, loading, error, onRetry, onSelectConversation, onStartConversation, onTogglePin, onToggleUnread, userId, activeConversationId }) {
   const [searchQuery, setSearchQuery] = useState("");
   // Collapsed by default - the list of everyone you haven't messaged yet
   // can be long and isn't what most people are scanning for on open.
@@ -1551,6 +1569,20 @@ function ChatListView({ conversations, users, loading, error, onRetry, onSelectC
                       )}
                     </div>
                   </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onToggleUnread(conv.id, conv.unread_count > 0);
+                    }}
+                    className={`p-1 flex-shrink-0 rounded transition-opacity ${
+                      conv.unread_count > 0
+                        ? "text-emerald-500 opacity-100"
+                        : "text-gray-400 opacity-0 group-hover:opacity-100 hover:text-gray-700 dark:hover:text-gray-200"
+                    }`}
+                    title={conv.unread_count > 0 ? "Mark as read" : "Mark as unread"}
+                  >
+                    {conv.unread_count > 0 ? <Mail className="w-3.5 h-3.5" /> : <MailOpen className="w-3.5 h-3.5" />}
+                  </button>
                   <button
                     onClick={(e) => {
                       e.stopPropagation();

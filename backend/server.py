@@ -6302,6 +6302,25 @@ async def toggle_pin_conversation(
 
     return {"id": conversation_id, "pinned": not already_pinned}
 
+@api_router.post("/chat/conversations/{conversation_id}/unread")
+async def mark_conversation_unread(
+    conversation_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Mark a conversation as unread for the current user only - a personal
+    display preference (mirrors pin/unpin), not something other participants
+    see or that affects the read receipts they've already gotten."""
+    user_id = current_user["id"]
+    conv = await db.conversations.find_one({"id": conversation_id, "participant_ids": user_id})
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    await db.conversations.update_one(
+        {"id": conversation_id},
+        {"$set": {f"unread_counts.{user_id}": 1}}
+    )
+    return {"id": conversation_id, "unread_count": 1}
+
 @api_router.get("/chat/conversations/{conversation_id}/messages")
 async def get_conversation_messages(
     conversation_id: str,
