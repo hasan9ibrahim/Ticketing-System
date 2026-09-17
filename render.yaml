@@ -17,8 +17,6 @@ services:
         value: supersecretkey123
       - key: PORT
         value: "8000"
-      - key: BOB_LLM_MODEL
-        value: openrouter/meta-llama/llama-3.3-70b-instruct:free
       - key: OPENROUTER_API_KEY
         sync: false
     routes:

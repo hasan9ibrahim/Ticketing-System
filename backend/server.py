@@ -7018,7 +7018,21 @@ async def get_chat_file(file_id: str):
 # create_request() function so it gets the same validation/audit trail.
 
 BOB_USER_ID = "bob-ai-assistant"
-BOB_LLM_MODEL = os.environ.get("BOB_LLM_MODEL", "openrouter/meta-llama/llama-3.3-70b-instruct:free")
+BOB_LLM_MODEL = os.environ.get("BOB_LLM_MODEL", "openrouter/google/gemini-2.0-flash-exp:free")
+# OpenRouter's free catalog is added to / paywalled / retired without notice
+# (its own docs recommend listing a few fallbacks rather than hardcoding one
+# model id) - these are tried in order if BOB_LLM_MODEL turns out to be gone,
+# so BOB self-heals instead of going silent until someone notices and edits
+# an env var. Only used as a fallback for a "model unavailable" style error -
+# a bad key or rate limit is reported as-is, not masked by trying every model.
+BOB_LLM_FALLBACK_MODELS = [
+    "openrouter/google/gemini-2.0-flash-exp:free",
+    "openrouter/qwen/qwen3-coder:free",
+    "openrouter/deepseek/deepseek-chat-v3.1:free",
+    "openrouter/mistralai/mistral-small-3.2-24b-instruct:free",
+    "openrouter/meta-llama/llama-3.3-70b-instruct:free",
+]
+_bob_model_state = {"current": BOB_LLM_MODEL}
 
 # request_type -> (display label, department this type is restricted to, or
 # None if it's available to both SMS and Voice AMs). Mirrors REQUEST_TYPES in
@@ -7161,6 +7175,49 @@ def _bob_safe_error_detail(e: Exception) -> str:
     text = f"{type(e).__name__}: {e}"
     text = _SECRET_LIKE_RE.sub("[redacted]", text)
     return text[:300]
+
+
+def _bob_candidate_models() -> list:
+    """Whichever model last worked, tried first, then the configured model,
+    then the rest of the fallback list - each only once."""
+    seen = set()
+    ordered = []
+    for m in [_bob_model_state["current"], BOB_LLM_MODEL] + BOB_LLM_FALLBACK_MODELS:
+        if m and m not in seen:
+            seen.add(m)
+            ordered.append(m)
+    return ordered
+
+
+def _is_missing_model_error(e: Exception) -> bool:
+    """True for 'this model id doesn't exist / isn't free anymore' style
+    errors - worth trying the next candidate for. False for anything else
+    (bad key, rate limit, provider outage), which should be reported as-is
+    rather than masked by silently cycling through every fallback."""
+    msg = str(e).lower()
+    return (
+        type(e).__name__ == "NotFoundError"
+        or "no endpoints found" in msg
+        or "unavailable for free" in msg
+        or "model_not_found" in msg
+        or "is not a valid model" in msg
+    )
+
+
+async def _bob_complete(litellm_module, **kwargs):
+    last_error = None
+    for model in _bob_candidate_models():
+        try:
+            response = await litellm_module.acompletion(model=model, **kwargs)
+            if model != _bob_model_state["current"]:
+                logger.info(f"BOB switched to fallback model '{model}'")
+                _bob_model_state["current"] = model
+            return response
+        except Exception as e:
+            last_error = e
+            if not _is_missing_model_error(e):
+                raise
+    raise last_error
 
 
 def _bob_llm_configured() -> bool:
@@ -7627,8 +7684,8 @@ async def generate_bob_reply(conversation_id: str, current_user: dict) -> str:
 
     for _ in range(6):
         try:
-            response = await litellm.acompletion(
-                model=BOB_LLM_MODEL, messages=messages, tools=tools, tool_choice="auto",
+            response = await _bob_complete(
+                litellm, messages=messages, tools=tools, tool_choice="auto",
                 temperature=0.3, **extra_kwargs,
             )
         except Exception as e:
