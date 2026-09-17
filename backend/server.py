@@ -20,6 +20,8 @@ import io
 import pyotp
 import secrets
 import hashlib
+import asyncio
+import json
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -2058,8 +2060,9 @@ async def mark_all_request_notifications_as_read(current_user: dict = Depends(ge
 
 @api_router.get("/users", response_model=List[UserResponse])
 async def get_users(current_user: dict = Depends(get_current_user)):
-    # Exclude password_hash at query level for efficiency
-    users = await db.users.find({}, {"_id": 0, "password_hash": 0}).to_list(1000)
+    # Exclude password_hash at query level for efficiency. BOB (is_bot) isn't
+    # a manageable account, so it's left out of user administration.
+    users = await db.users.find({"is_bot": {"$ne": True}}, {"_id": 0, "password_hash": 0}).to_list(1000)
     for user in users:
         if isinstance(user.get('created_at'), str):
             user['created_at'] = datetime.fromisoformat(user['created_at'])
@@ -5959,6 +5962,10 @@ def build_chat_user_info(u: dict) -> dict:
         if last_active.tzinfo is None:
             last_active = last_active.replace(tzinfo=timezone.utc)
         is_online = last_active > datetime.now(timezone.utc) - timedelta(minutes=5)
+    if u["id"] == BOB_USER_ID:
+        # BOB has no session/last_active - always show it available rather
+        # than as permanently "offline".
+        is_online = True
     return {
         "id": u["id"],
         "username": u["username"],
@@ -5969,10 +5976,13 @@ def build_chat_user_info(u: dict) -> dict:
 
 @api_router.get("/chat/users")
 async def get_chat_users(current_user: dict = Depends(get_current_user)):
-    """Get all users that can be chatted with (all users except current)"""
+    """Get all users that can be chatted with (all users except current).
+    BOB is excluded - every user already gets an auto-created, pinned
+    conversation with it (see _ensure_bob_conversation) rather than needing
+    to "start" a chat with it from this list."""
     try:
         users = await db.users.find(
-            {"id": {"$ne": current_user["id"]}},
+            {"id": {"$ne": current_user["id"]}, "is_bot": {"$ne": True}},
             {"_id": 0, "id": 1, "username": 1, "name": 1, "last_active": 1}
         ).to_list(length=500)
 
@@ -5986,6 +5996,7 @@ async def get_conversations(current_user: dict = Depends(get_current_user)):
     """Get all conversations for the current user"""
     try:
         user_id = current_user["id"]
+        await _ensure_bob_conversation(user_id)
 
         conversations = await db.conversations.find(
             {"participant_ids": user_id}
@@ -6494,6 +6505,9 @@ async def create_message(
     for participant_id in conv.get("participant_ids", []):
         await manager.send_personal_message({"type": "new_message", "message": message_payload}, participant_id)
 
+    if not conv.get("is_group") and BOB_USER_ID in other_participant_ids:
+        asyncio.create_task(handle_bob_reply(data.conversation_id, current_user))
+
     return message_payload
 
 async def _update_conversation_preview_if_latest(conversation_id: str, message_id: str, preview: str):
@@ -6700,6 +6714,666 @@ async def get_chat_file(file_id: str):
             "Content-Disposition": f'inline; filename="{doc.get("filename", "file")}"'
         }
     )
+
+
+# ==================== BOB AI ASSISTANT ====================
+# BOB is a normal chat user (see ensure_bob_user, called at startup) that
+# every user gets an auto-created, pinned 1:1 conversation with. A message
+# sent into that conversation (POST /chat/messages) triggers handle_bob_reply
+# as a background task - BOB "thinks" (an LLM tool-calling loop grounded in
+# this system's real data) and then sends its answer through the same
+# insert+broadcast path a human message uses, so the existing chat UI/sockets
+# need no changes at all to support it.
+#
+# Tools are thin wrappers around the already-permission-scoped endpoint
+# functions defined above (get_sms_tickets, get_clients, get_requests, ...) -
+# BOB can only ever see what the person it's chatting with could already see
+# through the normal UI, and request creation goes through the real
+# create_request() function so it gets the same validation/audit trail.
+
+BOB_USER_ID = "bob-ai-assistant"
+BOB_LLM_MODEL = os.environ.get("BOB_LLM_MODEL", "gpt-4o-mini")
+
+# request_type -> (display label, department this type is restricted to, or
+# None if it's available to both SMS and Voice AMs). Mirrors REQUEST_TYPES in
+# frontend/src/pages/RequestsPage.jsx.
+BOB_REQUEST_TYPES = {
+    "rating_routing": {"label": "Rating and/or Routing", "for_department": None},
+    "testing": {"label": "Testing Vendor Trunk", "for_department": None},
+    "translation": {"label": "Translation Request", "for_department": "sms"},
+    "lcr": {"label": "LCR Request", "for_department": "voice"},
+    "investigation": {"label": "Investigation Request", "for_department": None},
+    "trunk_request_sms": {"label": "New Trunk Request", "for_department": "sms"},
+    "trunk_request_voice": {"label": "New Trunk Request", "for_department": "voice"},
+    "open_tt": {"label": "Open TT", "for_department": None},
+}
+
+# request_type -> list of tool-argument names that must be present. Mirrors
+# getRequestFieldErrors() in RequestsPage.jsx (plus 'priority', required for
+# every type). Some types have further conditional requirements handled in
+# _bob_create_am_request itself (translation's old/new value pairs, SMS
+# testing's SID/content).
+BOB_REQUEST_MANDATORY = {
+    "rating_routing": ["customer_names", "customer_trunk", "destination", "rating"],
+    "testing": ["destination", "vendor_trunk_names"],
+    "translation": ["customer_name", "translation_type", "trunk_type", "trunk_name"],
+    "lcr": ["destination", "lcr_type", "lcr_change", "vendor_trunk_names"],
+    "investigation": ["customer_name", "customer_trunk"],
+    "trunk_request_sms": ["customer_names", "trunk_type", "direction"],
+    "trunk_request_voice": ["customer_names", "trunk_type", "direction"],
+    "open_tt": ["destination", "vendor_trunk_names", "open_by"],
+}
+
+BOB_MANDATORY_FIELDS_HELP = """- rating_routing (both): customer_names (>=1), customer_trunk, destination, rating
+- testing (both): destination, vendor_trunk_names (>=1); SMS also needs test_sid + test_content; Voice also needs test_type ("tool_test" or "manual_test")
+- translation (SMS only): customer_name, translation_type ("sid_change"|"content_change"|"sid_content_change"|"remove"), trunk_type ("customer"|"vendor"), trunk_name, then: sid_change/content_change need old_value+new_value; sid_content_change needs old_sid+new_sid+old_value+new_value; remove needs word_to_remove
+- lcr (Voice only): destination, lcr_type ("PRM"|"STD"|"CC"|"TDM"|"ORTP"|"ATX"), lcr_change ("add"|"drop"), vendor_trunk_names (>=1)
+- investigation (both): customer_name, customer_trunk (issue_types/investigation_destination/issue_description are optional but helpful)
+- trunk_request_sms / trunk_request_voice: customer_names (>=1), trunk_type, direction ("Customer"|"Vendor"|"Both")
+- open_tt (both): destination, vendor_trunk_names (>=1), open_by ("Teams"|"Email")
+- priority ("Low"|"Medium"|"High"|"Urgent") is required for every type"""
+
+
+async def ensure_bob_user():
+    """Seed/refresh BOB's user doc. Idempotent - safe to call on every startup."""
+    bot_doc = {
+        "id": BOB_USER_ID,
+        "username": "bob",
+        "name": "BOB",
+        "email": "bob@internal.local",
+        "phone": "",
+        "password_hash": pwd_context.hash(secrets.token_urlsafe(32)),
+        "is_bot": True,
+        "is_active": True,
+        "created_at": datetime.now(timezone.utc),
+    }
+    existing = await db.users.find_one({"id": BOB_USER_ID})
+    if not existing:
+        await db.users.insert_one(bot_doc)
+    else:
+        await db.users.update_one(
+            {"id": BOB_USER_ID},
+            {"$set": {"name": "BOB", "username": "bob", "is_bot": True, "is_active": True}}
+        )
+
+
+async def _ensure_bob_conversation(user_id: str):
+    """Every user gets exactly one pinned 1:1 conversation with BOB, created
+    lazily the first time they open their conversation list."""
+    existing = await db.conversations.find_one({
+        "participant_ids": {"$all": [user_id, BOB_USER_ID], "$size": 2},
+        "is_group": {"$ne": True}
+    })
+    if existing:
+        return
+    conv = Conversation(
+        participant_ids=[user_id, BOB_USER_ID],
+        unread_counts={user_id: 0, BOB_USER_ID: 0},
+        created_by=BOB_USER_ID,
+        pinned_by=[user_id],
+    )
+    await db.conversations.insert_one(conv.model_dump())
+    await _send_bob_message(
+        conv.id,
+        "Hi, I'm BOB \U0001F916 — ask me about any SMS/Voice ticket, enterprise, or AM request in the system. "
+        "I can also file a new AM request for you if you're an Account Manager, once you give me the required details."
+    )
+
+
+async def _send_bob_message(conversation_id: str, content: str):
+    """Insert + broadcast a message from BOB, the same way a human message
+    would be - so read receipts, unread counts and previews all just work."""
+    conv = await db.conversations.find_one({"id": conversation_id})
+    if not conv:
+        return
+    msg_obj = ChatMessage(
+        conversation_id=conversation_id,
+        sender_id=BOB_USER_ID,
+        sender_name="BOB",
+        content=content,
+    )
+    await db.chat_messages.insert_one(msg_obj.model_dump())
+    await db.conversations.update_one(
+        {"id": conversation_id},
+        {"$set": {
+            "last_message": content[:100],
+            "last_message_time": msg_obj.created_at,
+            "last_message_sender_id": BOB_USER_ID,
+            "updated_at": msg_obj.created_at,
+        }}
+    )
+    for participant_id in conv.get("participant_ids", []):
+        if participant_id != BOB_USER_ID:
+            await db.conversations.update_one(
+                {"id": conversation_id},
+                {"$inc": {f"unread_counts.{participant_id}": 1}}
+            )
+    message_payload = {
+        "id": msg_obj.id,
+        "conversation_id": conversation_id,
+        "sender_id": BOB_USER_ID,
+        "sender_name": "BOB",
+        "content": content,
+        "message_type": "text",
+        "file_url": None, "file_name": None, "file_size": None, "file_mime_type": None,
+        "read_by": [], "edited": False, "is_deleted": False, "client_id": None,
+        "reply_to": None, "is_forwarded": False, "forwarded_from": None,
+        "created_at": msg_obj.created_at.isoformat(),
+    }
+    for participant_id in conv.get("participant_ids", []):
+        await manager.send_personal_message({"type": "new_message", "message": message_payload}, participant_id)
+
+
+def _bob_llm_configured() -> bool:
+    return any(os.environ.get(k) for k in (
+        "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY",
+        "AZURE_API_KEY", "BOB_LLM_API_KEY",
+    ))
+
+
+def _model_dump(obj):
+    return obj.model_dump() if hasattr(obj, "model_dump") else obj
+
+
+def _bob_system_prompt(current_user: dict) -> str:
+    role = current_user.get("role", "unknown")
+    dept = current_user.get("department") or {}
+    dept_name = dept.get("name") or current_user.get("am_type") or "unknown"
+    name = current_user.get("name") or current_user.get("username")
+    lines = [
+        "You are BOB, the AI assistant built into the Wii Telecom NOC ticketing system's chat.",
+        f"You are talking with {name} (role: {role}, department: {dept_name}).",
+        "Use your tools to look up real SMS/Voice tickets, enterprises (customers) and AM requests - never invent "
+        "ticket numbers, statuses, rates or enterprise data. If a tool finds nothing, say so plainly instead of "
+        "guessing.",
+        "Be conversational, concise, and friendly. If a request is ambiguous (which department, which enterprise, "
+        "which ticket, a name that matches more than one enterprise, etc.) ask a short clarifying question instead "
+        "of assuming.",
+    ]
+    if role == "am":
+        lines.append(
+            "You can also file a new AM request (Rating/Routing, Testing Vendor Trunk, Translation [SMS only], "
+            "LCR [Voice only], Investigation, New Trunk Request, Open TT) with the create_am_request tool. Collect "
+            "every mandatory field for the chosen type through conversation first, show the user a short summary, "
+            "and only call create_am_request after they confirm it. If create_am_request returns missing_fields, "
+            "ask the user for exactly those fields and try again - don't guess values. Required fields per type:\n"
+            + BOB_MANDATORY_FIELDS_HELP
+        )
+    else:
+        lines.append("Only Account Managers can file AM requests, so don't offer to create one for this user.")
+    return "\n".join(lines)
+
+
+def _bob_tool_schemas(current_user: dict) -> list:
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "get_dashboard_stats",
+                "description": "Get overall ticket counts by status/priority for the current user's visible tickets.",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "search_tickets",
+                "description": "Search SMS and/or Voice tickets visible to the current user.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "department": {"type": "string", "enum": ["sms", "voice"], "description": "Omit to search both"},
+                        "ticket_number": {"type": "string"},
+                        "customer": {"type": "string", "description": "Enterprise name, partial match"},
+                        "status": {"type": "string", "description": "e.g. Unassigned, Assigned, Awaiting Vendor, Awaiting Client, Awaiting AM, Resolved, Unresolved"},
+                        "priority": {"type": "string", "enum": ["Low", "Medium", "High", "Urgent"]},
+                        "issue_type": {"type": "string", "description": "Partial match against issue types/other/legacy issue text"},
+                        "opened_via": {"type": "string", "description": "e.g. Monitoring, Email, Teams, AM, Telegram"},
+                    },
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_ticket_detail",
+                "description": "Get full details (root cause, action taken, notes, actions log) for one ticket by its exact ticket number.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"ticket_number": {"type": "string"}},
+                    "required": ["ticket_number"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "list_enterprises",
+                "description": "List/search enterprises (customers) in the system.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "department": {"type": "string", "enum": ["sms", "voice"], "description": "Omit to search both"},
+                        "query": {"type": "string", "description": "Partial name match"},
+                    },
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "list_am_requests",
+                "description": "List existing AM requests (Rating/Routing, Testing, Translation, LCR, Investigation, Trunk Request, Open TT).",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "status": {"type": "string", "enum": ["pending", "in_progress", "completed", "rejected"]},
+                        "department": {"type": "string", "enum": ["sms", "voice"]},
+                        "mine_only": {"type": "boolean", "description": "Default true for AMs - only their own requests"},
+                    },
+                },
+            },
+        },
+    ]
+    if current_user.get("role") == "am":
+        tools.append({
+            "type": "function",
+            "function": {
+                "name": "create_am_request",
+                "description": (
+                    "File a new AM request. Only call this once every mandatory field for the chosen request_type "
+                    "has been explicitly given/confirmed by the user - never invent or assume values."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "request_type": {"type": "string", "enum": list(BOB_REQUEST_TYPES.keys())},
+                        "priority": {"type": "string", "enum": ["Low", "Medium", "High", "Urgent"]},
+                        "customer_name": {"type": "string", "description": "Enterprise name, for single-customer types"},
+                        "customer_names": {"type": "array", "items": {"type": "string"}, "description": "Enterprise name(s), for rating_routing/trunk_request_*"},
+                        "destination": {"type": "string"},
+                        "customer_trunk": {"type": "string"},
+                        "vendor_trunk_names": {"type": "array", "items": {"type": "string"}},
+                        "rating": {"type": "string"},
+                        "translation_type": {"type": "string", "enum": ["sid_change", "content_change", "sid_content_change", "remove"]},
+                        "trunk_type": {"type": "string"},
+                        "trunk_name": {"type": "string"},
+                        "old_value": {"type": "string"},
+                        "new_value": {"type": "string"},
+                        "old_sid": {"type": "string"},
+                        "new_sid": {"type": "string"},
+                        "word_to_remove": {"type": "string"},
+                        "test_type": {"type": "string", "enum": ["tool_test", "manual_test"]},
+                        "test_sid": {"type": "string"},
+                        "test_content": {"type": "string"},
+                        "lcr_type": {"type": "string", "enum": ["PRM", "STD", "CC", "TDM", "ORTP", "ATX"]},
+                        "lcr_change": {"type": "string", "enum": ["add", "drop"]},
+                        "direction": {"type": "string", "enum": ["Customer", "Vendor", "Both"]},
+                        "with_lcr": {"type": "boolean"},
+                        "open_by": {"type": "string", "enum": ["Teams", "Email"]},
+                        "notes": {"type": "string"},
+                        "ticket_id": {"type": "string"},
+                        "issue_types": {"type": "array", "items": {"type": "string"}},
+                        "issue_other": {"type": "string"},
+                        "investigation_destination": {"type": "string"},
+                        "issue_description": {"type": "string"},
+                    },
+                    "required": ["request_type", "priority"],
+                },
+            },
+        })
+    return tools
+
+
+def _ticket_matches(t: dict, args: dict) -> bool:
+    if args.get("ticket_number") and args["ticket_number"].strip().lower() not in (t.get("ticket_number") or "").lower():
+        return False
+    if args.get("customer") and args["customer"].strip().lower() not in (t.get("customer") or "").lower():
+        return False
+    if args.get("status") and (t.get("status") or "").strip().lower() != args["status"].strip().lower():
+        return False
+    if args.get("priority") and (t.get("priority") or "").strip().lower() != args["priority"].strip().lower():
+        return False
+    if args.get("issue_type"):
+        q = args["issue_type"].strip().lower()
+        issues = [i.lower() for i in (t.get("issue_types") or [])]
+        other = (t.get("issue_other") or "").lower()
+        legacy = (t.get("issue") or "").lower()
+        if not (any(q in i for i in issues) or q in other or q in legacy):
+            return False
+    if args.get("opened_via"):
+        q = args["opened_via"].strip().lower()
+        vias = [v.lower() for v in (t.get("opened_via") or [])]
+        if not any(q in v for v in vias):
+            return False
+    return True
+
+
+def _ticket_summary(t: dict, department: str) -> dict:
+    return {
+        "department": department,
+        "ticket_number": t.get("ticket_number"),
+        "date": str(t.get("date")),
+        "priority": t.get("priority"),
+        "status": t.get("status"),
+        "customer": t.get("customer"),
+        "customer_trunk": t.get("customer_trunk"),
+        "destination": t.get("destination"),
+        "volume": t.get("volume"),
+        "issue_types": t.get("issue_types"),
+        "issue_other": t.get("issue_other"),
+        "assigned_to": t.get("assigned_to"),
+        "root_cause": t.get("root_cause"),
+        "action_taken": t.get("action_taken"),
+    }
+
+
+async def _bob_fetch_tickets(department: str, current_user: dict, limit: int) -> list:
+    """Fetch tickets for one department, tolerating an AM whose account
+    simply isn't permitted on that department (e.g. an SMS-only AM has no
+    Voice access) - that's an expected, per-department outcome when the
+    caller is searching "both" departments, not a failure of the search."""
+    fn = get_sms_tickets if department == "sms" else get_voice_tickets
+    try:
+        tickets = await fn(response=Response(), current_user=current_user, view_mode="all", trunk_filter=None, limit=limit, skip=0, if_none_match=None)
+    except HTTPException:
+        return []
+    return [_model_dump(t) for t in tickets]
+
+
+async def _bob_search_tickets(current_user: dict, args: dict) -> dict:
+    department = args.get("department")
+    depts = [department] if department in ("sms", "voice") else ["sms", "voice"]
+    matches = []
+    for d in depts:
+        for t in await _bob_fetch_tickets(d, current_user, 500):
+            if _ticket_matches(t, args):
+                matches.append(_ticket_summary(t, d))
+    return {"total_matches": len(matches), "returned": min(len(matches), 25), "tickets": matches[:25]}
+
+
+async def _bob_get_ticket_detail(current_user: dict, args: dict) -> dict:
+    ticket_number = (args.get("ticket_number") or "").strip()
+    if not ticket_number:
+        return {"error": "ticket_number is required"}
+    for d in ("sms", "voice"):
+        for t in await _bob_fetch_tickets(d, current_user, 2000):
+            if (t.get("ticket_number") or "").strip().lower() == ticket_number.lower():
+                t["department"] = d
+                for k in ("date", "updated_at", "assigned_at"):
+                    if t.get(k) is not None:
+                        t[k] = str(t[k])
+                return t
+    return {"error": f"No ticket found with number '{ticket_number}' that you have access to."}
+
+
+async def _bob_list_enterprises(current_user: dict, args: dict) -> dict:
+    department = args.get("department")
+    clients = await get_clients(response=Response(), current_user=current_user, if_none_match=None, include_all=True, department=department)
+    q = (args.get("query") or "").strip().lower()
+    out = []
+    for c in clients:
+        c = _model_dump(c)
+        if q and q not in (c.get("name") or "").lower():
+            continue
+        out.append({
+            "id": c.get("id"), "name": c.get("name"), "enterprise_type": c.get("enterprise_type"),
+            "tier": c.get("tier"), "customer_trunks": c.get("customer_trunks"), "vendor_trunks": c.get("vendor_trunks"),
+        })
+    return {"total": len(out), "enterprises": out[:40]}
+
+
+async def _bob_list_am_requests(current_user: dict, args: dict) -> dict:
+    reqs = await get_requests(
+        response=Response(), department=args.get("department"), request_type=None,
+        status=args.get("status"), show_mine_only=bool(args.get("mine_only", True)),
+        sub_tab=None, limit=30, skip=0, if_none_match=None, current_user=current_user,
+    )
+    out = []
+    for r in reqs:
+        r = _model_dump(r)
+        out.append({
+            "id": r.get("id"), "type": r.get("request_type_label"), "department": r.get("department"),
+            "priority": r.get("priority"), "status": r.get("status"), "customer": r.get("customer"),
+            "created_at": str(r.get("created_at")), "response": r.get("response"),
+        })
+    return {"total": len(out), "requests": out}
+
+
+async def _resolve_bob_customer(name: str, department: str) -> dict:
+    clients = await db.clients.find({"enterprise_type": {"$in": [department, "all"]}}, {"_id": 0}).to_list(1000)
+    name_l = name.strip().lower()
+    exact = [c for c in clients if (c.get("name") or "").strip().lower() == name_l]
+    if exact:
+        return exact[0]
+    partial = [c for c in clients if name_l in (c.get("name") or "").strip().lower()]
+    if len(partial) == 1:
+        return partial[0]
+    if len(partial) > 1:
+        raise ValueError(f"Multiple enterprises match '{name}': {', '.join(c['name'] for c in partial[:8])}. Which one did you mean?")
+    raise ValueError(f"No enterprise named '{name}' found in the {department} department.")
+
+
+async def _bob_create_am_request(current_user: dict, args: dict) -> dict:
+    if current_user.get("role") != "am":
+        return {"error": "Only Account Managers can create requests. This account isn't an AM."}
+
+    dept = current_user.get("department") or {}
+    department = dept.get("department_type") if dept else None
+    if department not in ("sms", "voice"):
+        department = current_user.get("am_type")
+    if department not in ("sms", "voice"):
+        return {"error": "Could not determine whether this user is an SMS or Voice AM. Ask an admin to fix their department."}
+
+    request_type = args.get("request_type")
+    type_info = BOB_REQUEST_TYPES.get(request_type)
+    if not type_info:
+        return {"error": f"Unknown request_type '{request_type}'. Valid values: {list(BOB_REQUEST_TYPES.keys())}"}
+    if type_info["for_department"] and type_info["for_department"] != department:
+        return {"error": f"{type_info['label']} requests are only for the {type_info['for_department']} department; this user is a {department} AM."}
+
+    missing = []
+    if not args.get("priority"):
+        missing.append("priority")
+    for field in BOB_REQUEST_MANDATORY.get(request_type, []):
+        if not args.get(field):
+            missing.append(field)
+
+    if request_type == "translation":
+        ttype = args.get("translation_type")
+        if ttype in ("sid_change", "content_change"):
+            missing += [f for f in ("old_value", "new_value") if not args.get(f)]
+        elif ttype == "sid_content_change":
+            missing += [f for f in ("old_sid", "new_sid", "old_value", "new_value") if not args.get(f)]
+        elif ttype == "remove" and not args.get("word_to_remove"):
+            missing.append("word_to_remove")
+    if request_type == "testing":
+        if department == "sms":
+            missing += [f for f in ("test_sid", "test_content") if not args.get(f)]
+        elif department == "voice" and not args.get("test_type"):
+            missing.append("test_type")
+
+    if missing:
+        return {"status": "missing_fields", "missing": sorted(set(missing))}
+
+    customer = None
+    customer_id = None
+    customer_ids = []
+    try:
+        if args.get("customer_names"):
+            resolved = [await _resolve_bob_customer(n, department) for n in args["customer_names"]]
+            customer_ids = [c["id"] for c in resolved]
+            customer = ", ".join(c["name"] for c in resolved)
+        elif args.get("customer_name"):
+            c = await _resolve_bob_customer(args["customer_name"], department)
+            customer, customer_id = c["name"], c["id"]
+    except ValueError as e:
+        return {"error": str(e)}
+
+    vendor_trunks = [{"trunk": t} for t in (args.get("vendor_trunk_names") or []) if t]
+    if request_type == "testing" and department == "sms" and vendor_trunks:
+        pair = [{"sid": args.get("test_sid"), "content": args.get("test_content")}]
+        vendor_trunks = [{**vt, "sid_content_pairs": pair} for vt in vendor_trunks]
+
+    customer_trunk_configs = []
+    if request_type == "rating_routing" and args.get("customer_trunk"):
+        customer_trunk_configs = [{
+            "trunk": args["customer_trunk"],
+            "rating_pairs": [{"destination": args.get("destination"), "rate": args.get("rating")}],
+        }]
+
+    payload = AMRequestCreate(
+        request_type=request_type,
+        request_type_label=type_info["label"],
+        department=department,
+        priority=args["priority"],
+        customer=customer,
+        customer_id=customer_id,
+        customer_ids=customer_ids,
+        ticket_id=args.get("ticket_id"),
+        rating=args.get("rating"),
+        customer_trunk=args.get("customer_trunk"),
+        customer_trunk_configs=customer_trunk_configs,
+        destination=args.get("destination"),
+        vendor_trunks=vendor_trunks,
+        translation_type=args.get("translation_type"),
+        trunk_type=args.get("trunk_type"),
+        trunk_name=args.get("trunk_name"),
+        old_value=args.get("old_value"),
+        new_value=args.get("new_value"),
+        old_sid=args.get("old_sid"),
+        new_sid=args.get("new_sid"),
+        word_to_remove=args.get("word_to_remove"),
+        test_type=args.get("test_type"),
+        lcr_type=args.get("lcr_type"),
+        lcr_change=args.get("lcr_change"),
+        issue_types=args.get("issue_types") or [],
+        issue_other=args.get("issue_other"),
+        investigation_destination=args.get("investigation_destination"),
+        issue_description=args.get("issue_description"),
+        open_by=args.get("open_by"),
+        open_tt_notes=args.get("notes"),
+        with_lcr=args.get("with_lcr"),
+        direction=args.get("direction"),
+    )
+
+    try:
+        created = await create_request(request_data=payload, current_user=current_user)
+    except HTTPException as e:
+        return {"error": e.detail}
+
+    return {
+        "status": "created",
+        "request_id": created.id,
+        "request_type_label": created.request_type_label,
+        "department": created.department,
+        "priority": created.priority,
+        "customer": created.customer,
+    }
+
+
+async def _bob_run_tool(name: str, args: dict, current_user: dict) -> dict:
+    try:
+        if name == "get_dashboard_stats":
+            return _model_dump(await get_dashboard_stats(current_user=current_user))
+        if name == "search_tickets":
+            return await _bob_search_tickets(current_user, args)
+        if name == "get_ticket_detail":
+            return await _bob_get_ticket_detail(current_user, args)
+        if name == "list_enterprises":
+            return await _bob_list_enterprises(current_user, args)
+        if name == "list_am_requests":
+            return await _bob_list_am_requests(current_user, args)
+        if name == "create_am_request":
+            return await _bob_create_am_request(current_user, args)
+        return {"error": f"Unknown tool '{name}'"}
+    except HTTPException as e:
+        return {"error": e.detail}
+    except Exception as e:
+        logger.error(f"BOB tool '{name}' failed: {e}")
+        return {"error": "That lookup failed unexpectedly."}
+
+
+async def _bob_load_history(conversation_id: str, limit: int = 24) -> list:
+    msgs = await db.chat_messages.find(
+        {"conversation_id": conversation_id, "is_deleted": {"$ne": True}, "message_type": "text"},
+        {"_id": 0, "sender_id": 1, "content": 1}
+    ).sort("created_at", -1).limit(limit).to_list(limit)
+    msgs.reverse()
+    history = []
+    for m in msgs:
+        if not m.get("content"):
+            continue
+        role = "assistant" if m.get("sender_id") == BOB_USER_ID else "user"
+        history.append({"role": role, "content": m["content"]})
+    return history
+
+
+async def generate_bob_reply(conversation_id: str, current_user: dict) -> str:
+    if not _bob_llm_configured():
+        return (
+            "I'm not fully set up yet - no AI API key is configured for this deployment. "
+            "Ask an admin to set BOB_LLM_MODEL and a matching provider API key "
+            "(e.g. OPENAI_API_KEY) in the backend environment, then I'll be ready to chat."
+        )
+
+    import litellm
+
+    history = await _bob_load_history(conversation_id)
+    messages = [{"role": "system", "content": _bob_system_prompt(current_user)}] + history
+    tools = _bob_tool_schemas(current_user)
+    extra_kwargs = {}
+    if os.environ.get("BOB_LLM_API_KEY"):
+        extra_kwargs["api_key"] = os.environ["BOB_LLM_API_KEY"]
+
+    for _ in range(6):
+        try:
+            response = await litellm.acompletion(
+                model=BOB_LLM_MODEL, messages=messages, tools=tools, tool_choice="auto",
+                temperature=0.3, **extra_kwargs,
+            )
+        except Exception as e:
+            logger.error(f"BOB LLM call failed: {e}")
+            return "I hit an error reaching the AI service just now - please try again in a moment."
+
+        choice = response.choices[0].message
+        tool_calls = getattr(choice, "tool_calls", None)
+        if not tool_calls:
+            return choice.content or "I'm not sure how to answer that - could you rephrase?"
+
+        messages.append({
+            "role": "assistant",
+            "content": choice.content or "",
+            "tool_calls": [
+                {"id": tc.id, "type": "function", "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+                for tc in tool_calls
+            ],
+        })
+        for tc in tool_calls:
+            try:
+                args = json.loads(tc.function.arguments or "{}")
+            except json.JSONDecodeError:
+                args = {}
+            result = await _bob_run_tool(tc.function.name, args, current_user)
+            messages.append({"role": "tool", "tool_call_id": tc.id, "content": json.dumps(result, default=str)})
+
+    return "I looked into that but couldn't wrap it up in time - could you narrow down the request a bit?"
+
+
+async def handle_bob_reply(conversation_id: str, current_user: dict):
+    """Background task kicked off by POST /chat/messages whenever the other
+    participant is BOB. Runs after the HTTP response for the human's message
+    has already gone out, so the AI's latency never blocks the sender."""
+    try:
+        await manager.send_personal_message(
+            {"type": "typing", "user_id": BOB_USER_ID, "user_name": "BOB", "conversation_id": conversation_id},
+            current_user["id"]
+        )
+        reply = await generate_bob_reply(conversation_id, current_user)
+    except Exception as e:
+        logger.error(f"BOB reply failed: {e}")
+        reply = "Sorry, I ran into an unexpected error looking into that. Please try again."
+    await _send_bob_message(conversation_id, reply)
 
 
 # =====================
@@ -7183,6 +7857,7 @@ async def startup_init():
     """Initialize default departments and migrate users on startup"""
     await init_default_departments()
     await migrate_users_to_departments()
+    await ensure_bob_user()
     
     # Create chat collections if they don't exist
     try:

@@ -17,6 +17,10 @@ services:
         value: supersecretkey123
       - key: PORT
         value: "8000"
+      - key: BOB_LLM_MODEL
+        value: gpt-4o-mini
+      - key: OPENAI_API_KEY
+        sync: false
     routes:
       - type: http
         source: /
