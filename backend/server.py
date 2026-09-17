@@ -7759,19 +7759,35 @@ async def generate_bob_reply(conversation_id: str, current_user: dict) -> str:
     return "I looked into that but couldn't wrap it up in time - could you narrow down the request a bit?"
 
 
+async def _bob_keep_typing(conversation_id: str, user_id: str):
+    """The frontend auto-clears a 'typing' indicator 3s after each ping, but
+    BOB's tool-calling loop against a free/rate-limited model can easily run
+    longer than that - repings every 2s so the indicator stays up the whole
+    time BOB is actually working, instead of vanishing partway through a
+    reply that's still minutes away."""
+    while True:
+        try:
+            await manager.send_personal_message(
+                {"type": "typing", "user_id": BOB_USER_ID, "user_name": "BOB", "conversation_id": conversation_id},
+                user_id
+            )
+        except Exception:
+            pass
+        await asyncio.sleep(2)
+
+
 async def handle_bob_reply(conversation_id: str, current_user: dict):
     """Background task kicked off by POST /chat/messages whenever the other
     participant is BOB. Runs after the HTTP response for the human's message
     has already gone out, so the AI's latency never blocks the sender."""
+    typing_task = asyncio.create_task(_bob_keep_typing(conversation_id, current_user["id"]))
     try:
-        await manager.send_personal_message(
-            {"type": "typing", "user_id": BOB_USER_ID, "user_name": "BOB", "conversation_id": conversation_id},
-            current_user["id"]
-        )
         reply = await generate_bob_reply(conversation_id, current_user)
     except Exception as e:
         logger.error(f"BOB reply failed: {e}")
         reply = "Sorry, I ran into an unexpected error looking into that. Please try again."
+    finally:
+        typing_task.cancel()
     await _send_bob_message(conversation_id, reply)
 
 
