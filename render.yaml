@@ -17,7 +17,7 @@ services:
         value: supersecretkey123
       - key: PORT
         value: "8000"
-      - key: OPENROUTER_API_KEY
+      - key: ANTHROPIC_API_KEY
         sync: false
     routes:
       - type: http

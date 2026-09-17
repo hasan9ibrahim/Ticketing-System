@@ -7019,7 +7019,7 @@ async def get_chat_file(file_id: str):
 # create_request() function so it gets the same validation/audit trail.
 
 BOB_USER_ID = "bob-ai-assistant"
-BOB_LLM_MODEL = os.environ.get("BOB_LLM_MODEL", "openrouter/google/gemini-2.0-flash-exp:free")
+BOB_LLM_MODEL = os.environ.get("BOB_LLM_MODEL", "claude-haiku-4-5")
 # OpenRouter's free catalog is added to / paywalled / retired without notice
 # (its own docs recommend listing a few fallbacks rather than hardcoding one
 # model id) - these are tried in order if BOB_LLM_MODEL turns out to be gone,
@@ -7216,13 +7216,18 @@ async def _bob_discover_free_openrouter_models() -> list:
 
 async def _bob_candidate_models() -> list:
     """Whichever model last worked, tried first, then the configured model,
-    then OpenRouter's currently-free tool-capable models (freshly
-    discovered), then the static fallback guesses as a last resort - each
-    only once."""
-    discovered = await _bob_discover_free_openrouter_models()
+    then - only when actually routing through OpenRouter - its currently-free
+    tool-capable models (freshly discovered) and the static fallback
+    guesses, each only once. A direct provider (Anthropic, OpenAI, ...) never
+    falls back into these: that would silently trade a fast/paid model for a
+    slow free one on any hiccup, and could mask a real error (bad key, wrong
+    model id) behind an unrelated OpenRouter failure."""
+    using_openrouter = _bob_model_state["current"].startswith("openrouter/") or BOB_LLM_MODEL.startswith("openrouter/")
+    discovered = await _bob_discover_free_openrouter_models() if using_openrouter else []
+    fallbacks = BOB_LLM_FALLBACK_MODELS if using_openrouter else []
     seen = set()
     ordered = []
-    for m in [_bob_model_state["current"], BOB_LLM_MODEL] + discovered + BOB_LLM_FALLBACK_MODELS:
+    for m in [_bob_model_state["current"], BOB_LLM_MODEL] + discovered + fallbacks:
         if m and m not in seen:
             seen.add(m)
             ordered.append(m)
