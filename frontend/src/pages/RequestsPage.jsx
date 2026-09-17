@@ -2227,6 +2227,9 @@ export default function RequestsPage() {
                         <Badge variant="outline" className="border-gray-300 dark:border-zinc-600 text-gray-700 dark:text-zinc-300 capitalize">
                           {request.department}
                         </Badge>
+                        <span className="text-xs text-gray-400 dark:text-zinc-500 font-mono" title={request.id}>
+                          ID: {request.id?.slice(0, 8)}
+                        </span>
                       </div>
                       <h3 className="text-gray-900 dark:text-white font-medium">{request.customer}</h3>
                       <p className="text-gray-500 dark:text-zinc-400 text-sm">

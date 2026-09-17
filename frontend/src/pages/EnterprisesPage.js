@@ -412,7 +412,7 @@ export default function EnterprisesPage() {
                 <TableRow key={index} className="border-gray-200 dark:border-zinc-700">
                   <TableCell className="text-gray-900 dark:text-white">{trunk}</TableCell>
                   <TableCell className="text-right">
-                    <Button size="sm" variant="ghost" onClick={() => onRemove(index)} className="text-red-500 hover:text-red-400 h-6 w-6 p-0">
+                    <Button type="button" size="sm" variant="ghost" onClick={() => onRemove(index)} className="text-red-500 hover:text-red-400 h-6 w-6 p-0">
                       <X className="h-4 w-4" />
                     </Button>
                   </TableCell>

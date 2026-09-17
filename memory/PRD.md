@@ -145,6 +145,13 @@ Same as SMS tickets, excluding SID and Content fields.
 - [x] Role-based navigation filtering
 - [x] AM type-specific navigation (SMS AM sees SMS only, Voice AM sees Voice only)
 
+### BOB - AI Chat Assistant (Sep 2026)
+- [x] BOB is a bot user every account gets an auto-created, pinned 1:1 conversation with (existing chat UI needs no changes)
+- [x] LLM tool-calling loop (via litellm - provider/model configurable through `BOB_LLM_MODEL` + the matching API key env var, e.g. `OPENAI_API_KEY`) grounded in real data: dashboard stats, SMS/Voice ticket search and detail, enterprise lookup, AM request listing
+- [x] Every lookup reuses the same permission-scoped endpoint functions a user's own requests go through, so BOB never surfaces data that user couldn't already see in the UI
+- [x] For AM users, BOB can also file a new AM request (Rating/Routing, Testing, Translation, LCR, Investigation, New Trunk, Open TT) by collecting the same mandatory fields the Requests form requires, confirming with the user, then calling the real request-creation endpoint
+- [ ] Rating/Routing via BOB only supports a single customer trunk + destination/rate pair (the full form's multi-trunk-config UI has no chat equivalent yet)
+
 ## Test Coverage
 - Backend: 21 API tests passing (100%)
 - Frontend: UI verification complete (100%)

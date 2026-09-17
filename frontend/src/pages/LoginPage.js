@@ -43,8 +43,10 @@ export default function LoginPage({ setUser }) {
   const [userId, setUserId] = useState("");
   const [twoFactorCode, setTwoFactorCode] = useState("");
   const [verifying2FA, setVerifying2FA] = useState(false);
+  const [resending2FA, setResending2FA] = useState(false);
   const [showPasswordReset, setShowPasswordReset] = useState(false);
   const [resetIdentifier, setResetIdentifier] = useState("");
+  const [resetMethod, setResetMethod] = useState("");
   const [resetStep, setResetStep] = useState(1);
   const [resetCode, setResetCode] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -171,6 +173,18 @@ export default function LoginPage({ setUser }) {
     setTwoFactorMethod("");
   };
 
+  const handleResend2FA = async () => {
+    setResending2FA(true);
+    try {
+      const response = await axios.post(`${API}/auth/2fa/resend`, { user_id: userId });
+      toast.success(response.data.message);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Failed to resend code");
+    } finally {
+      setResending2FA(false);
+    }
+  };
+
   const handlePasswordResetRequest = async (e) => {
     e.preventDefault();
 
@@ -184,6 +198,7 @@ export default function LoginPage({ setUser }) {
       const response = await axios.post(`${API}/auth/password-reset/request`, {
         identifier: resetIdentifier
       });
+      setResetMethod(response.data.method || "email");
       setResetStep(2);
       toast.success(response.data.message);
     } catch (error) {
@@ -242,6 +257,7 @@ export default function LoginPage({ setUser }) {
       setShowPasswordReset(false);
       setResetStep(1);
       setResetIdentifier("");
+      setResetMethod("");
       setResetCode("");
       setNewPassword("");
       setConfirmPassword("");
@@ -338,7 +354,9 @@ export default function LoginPage({ setUser }) {
                   </div>
                   <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Two-Factor Authentication</h2>
                   <p className="text-slate-400 text-sm mt-2">
-                    Enter the code from your Google Authenticator app
+                    {twoFactorMethod === "email"
+                      ? "Enter the verification code sent to your email"
+                      : "Enter the code from your Google Authenticator app"}
                   </p>
                 </div>
                 
@@ -376,7 +394,19 @@ export default function LoginPage({ setUser }) {
                     </span>
                   ) : "Verify"}
                 </Button>
-                
+
+                {twoFactorMethod === "email" && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={handleResend2FA}
+                    disabled={resending2FA}
+                    className="w-full text-slate-400 hover:text-gray-900 dark:hover:text-white hover:bg-slate-700/50"
+                  >
+                    {resending2FA ? "Resending..." : "Resend code"}
+                  </Button>
+                )}
+
                 <Button
                   type="button"
                   variant="ghost"
@@ -535,7 +565,13 @@ export default function LoginPage({ setUser }) {
                 </svg>
               </div>
               <h2 className="text-2xl font-semibold text-gray-900 dark:text-white">Reset Password</h2>
-              <p className="text-slate-400 text-sm mt-2">Use Google Authenticator to verify your identity</p>
+              <p className="text-slate-400 text-sm mt-2">
+                {resetMethod === "totp"
+                  ? "Use Google Authenticator to verify your identity"
+                  : resetStep === 1
+                  ? "We'll email you a verification code"
+                  : "Enter the code we emailed you"}
+              </p>
             </div>
             
             {resetStep === 1 && (
@@ -577,7 +613,9 @@ export default function LoginPage({ setUser }) {
             {resetStep === 2 && (
               <form onSubmit={handlePasswordResetVerify} className="space-y-4">
                 <p className="text-slate-400 text-sm text-center mb-4">
-                  Enter the code from your Google Authenticator app
+                  {resetMethod === "totp"
+                    ? "Enter the code from your Google Authenticator app"
+                    : "Enter the verification code sent to your email"}
                 </p>
                 <div>
                   <Label htmlFor="resetCode" className="text-slate-300 text-sm font-medium">

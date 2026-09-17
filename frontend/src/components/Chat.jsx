@@ -277,16 +277,19 @@ function sortConversations(list) {
   });
 }
 
-// Builds a single split-regex covering both auto-linked URLs and @mentions of
-// known conversation participants, so message content can be tokenized into
-// link/mention/plain-text spans in one pass. Names are sorted longest-first
-// so e.g. "@Bob" doesn't shadow a match of "@Bob NOC".
+// Builds a single split-regex covering auto-linked URLs, **bold** spans
+// (BOB's replies are markdown-formatted, and plain chat messages almost
+// never contain a literal "**"), and @mentions of known conversation
+// participants, so message content can be tokenized into link/bold/mention/
+// plain-text spans in one pass. Names are sorted longest-first so e.g.
+// "@Bob" doesn't shadow a match of "@Bob NOC".
+const BOLD_PATTERN = "\\*\\*[^*\\n]+\\*\\*";
 function buildMessageContentRegex(names) {
-  if (!names.length) return /(https?:\/\/[^\s]+)/g;
+  if (!names.length) return new RegExp(`(https?:\\/\\/[^\\s]+|${BOLD_PATTERN})`, "g");
   const escaped = [...names]
     .sort((a, b) => b.length - a.length)
     .map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-  return new RegExp(`(https?:\\/\\/[^\\s]+|@(?:${escaped.join("|")}))`, "g");
+  return new RegExp(`(https?:\\/\\/[^\\s]+|${BOLD_PATTERN}|@(?:${escaped.join("|")}))`, "g");
 }
 
 export default function Chat({ user, openChats, setOpenChats, activeChat, setActiveChat, isExpanded, setIsExpanded }) {
@@ -2646,6 +2649,8 @@ function ChatWindowView({
                               >
                                 {part}
                               </a>
+                            ) : /^\*\*[^*\n]+\*\*$/.test(part) ? (
+                              <strong key={i}>{part.slice(2, -2)}</strong>
                             ) : part.startsWith("@") && mentionNames.includes(part.slice(1)) ? (
                               <span
                                 key={i}

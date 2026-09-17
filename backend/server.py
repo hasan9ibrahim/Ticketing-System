@@ -20,6 +20,9 @@ import io
 import pyotp
 import secrets
 import hashlib
+import asyncio
+import json
+import time
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -38,43 +41,93 @@ if not SECRET_KEY:
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_DAYS = 30
 
-# Email configuration
-SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.gmail.com")
-SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
-SMTP_USER = os.environ.get("SMTP_USER", "")
-SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
-FROM_EMAIL = os.environ.get("FROM_EMAIL", SMTP_USER)
+# Email configuration - env vars are the fallback defaults; admins can
+# override them at runtime via the /admin/smtp-settings endpoints, which
+# persist to the "smtp_config" document in db.settings.
+SMTP_SETTINGS_ID = "smtp_config"
+DEFAULT_SMTP_SETTINGS = {
+    "smtp_host": os.environ.get("SMTP_HOST", "smtp.gmail.com"),
+    "smtp_port": int(os.environ.get("SMTP_PORT", "587")),
+    "smtp_username": os.environ.get("SMTP_USER", ""),
+    "smtp_password": os.environ.get("SMTP_PASSWORD", ""),
+    "from_email": os.environ.get("FROM_EMAIL", "") or os.environ.get("SMTP_USER", ""),
+    "use_tls": True,
+}
 
-async def send_email(to_email: str, subject: str, body: str):
-    """Send an email using SMTP"""
+async def get_smtp_config() -> dict:
+    """Merge the stored admin-configured SMTP settings over the env var defaults."""
+    stored = await db.settings.find_one({"id": SMTP_SETTINGS_ID}, {"_id": 0})
+    config = dict(DEFAULT_SMTP_SETTINGS)
+    if stored:
+        for key in config:
+            value = stored.get(key)
+            if value not in (None, ""):
+                config[key] = value
+    if not config["from_email"]:
+        config["from_email"] = config["smtp_username"]
+    return config
+
+async def send_email(to_email: str, subject: str, body: str) -> tuple[bool, str]:
+    """Send an email using the currently configured SMTP settings. Returns
+    (True, "") on success, or (False, reason) if SMTP isn't configured or
+    sending failed - the reason is safe to show to admins (e.g. in the SMTP
+    test endpoint) but callers sending to end users should use a generic
+    message instead of relaying raw SMTP errors."""
     import aiosmtplib
     from email.mime.text import MIMEText
     from email.mime.multipart import MIMEMultipart
-    
+
+    config = await get_smtp_config()
+
     # Check if SMTP is configured
-    if not SMTP_USER or not SMTP_PASSWORD or not FROM_EMAIL:
-        logger.warning("SMTP not configured, skipping email send")
-        return
-    
+    if not config["smtp_username"] or not config["smtp_password"] or not config["from_email"]:
+        reason = "SMTP is not configured. Set the SMTP username, password, and from address in Email Settings."
+        logger.warning(reason)
+        return False, reason
+
     msg = MIMEMultipart()
-    msg["From"] = FROM_EMAIL
+    msg["From"] = config["from_email"]
     msg["To"] = to_email
     msg["Subject"] = subject
     msg.attach(MIMEText(body, "plain"))
-    
+
     try:
         await aiosmtplib.send(
-            message=msg,
-            hostname=SMTP_HOST,
-            port=SMTP_PORT,
-            username=SMTP_USER,
-            password=SMTP_PASSWORD,
-            start_tls=True
+            msg,
+            hostname=config["smtp_host"],
+            port=config["smtp_port"],
+            username=config["smtp_username"],
+            password=config["smtp_password"],
+            start_tls=config["use_tls"]
         )
+        return True, ""
     except Exception as e:
         logger.error(f"Failed to send email: {e}")
-        # Don't raise - just log the error
-        pass
+        return False, str(e)
+
+def generate_otp_code() -> tuple[str, str]:
+    """Generate a 6-digit numeric OTP and its ISO expiry timestamp (10 minutes)."""
+    code = f"{secrets.randbelow(1000000):06d}"
+    expires = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
+    return code, expires
+
+def is_code_expired(expires_at) -> bool:
+    if not expires_at:
+        return True
+    expires_dt = datetime.fromisoformat(expires_at) if isinstance(expires_at, str) else expires_at
+    if expires_dt.tzinfo is None:
+        expires_dt = expires_dt.replace(tzinfo=timezone.utc)
+    return datetime.now(timezone.utc) > expires_dt
+
+def mask_email(email: str) -> str:
+    if not email or "@" not in email:
+        return email
+    local, domain = email.split("@", 1)
+    if len(local) <= 2:
+        masked_local = local[0] + "*" * (len(local) - 1)
+    else:
+        masked_local = local[0] + "*" * (len(local) - 2) + local[-1]
+    return f"{masked_local}@{domain}"
 
 # Create the main app
 app = FastAPI()
@@ -366,12 +419,33 @@ class UserUpdate(BaseModel):
     am_type: Optional[str] = None  # Deprecated
     password: Optional[str] = None  # Admin can change password
     two_factor_enabled: Optional[bool] = None  # Admin can enable/disable 2FA
-    two_factor_method: Optional[str] = None  # Admin can set 2FA method (only 'totp' supported)
+    two_factor_method: Optional[str] = None  # Admin can set 2FA method ('totp' or 'email')
     can_view_my_enterprises: Optional[bool] = None  # Admin can toggle AM's access to My Enterprises
 
 class TwoFactorSetup(BaseModel):
     """Model for setting up 2FA"""
-    method: str  # "totp" (Google Authenticator only)
+    method: str  # "totp" (Google Authenticator) or "email"
+
+class SMTPSettingsUpdate(BaseModel):
+    """Model for admin-editable SMTP configuration"""
+    smtp_host: Optional[str] = None
+    smtp_port: Optional[int] = None
+    smtp_username: Optional[str] = None
+    smtp_password: Optional[str] = None  # Only overwritten when provided
+    from_email: Optional[str] = None
+    use_tls: Optional[bool] = None
+
+class SMTPSettingsResponse(BaseModel):
+    """SMTP configuration as returned to the admin UI - password is never echoed back"""
+    smtp_host: str
+    smtp_port: int
+    smtp_username: str
+    from_email: str
+    use_tls: bool
+    smtp_password_set: bool
+
+class SMTPTestRequest(BaseModel):
+    to_email: str
 
 class TwoFactorVerify(BaseModel):
     """Model for verifying 2FA code"""
@@ -1395,7 +1469,7 @@ async def login(login_data: UserLogin):
     # Check if 2FA is enabled
     if user.get("two_factor_enabled"):
         method = user.get("two_factor_method")
-        
+
         if method == "totp":
             # Return partial login - needs TOTP
             return TwoFactorResponse(
@@ -1404,7 +1478,27 @@ async def login(login_data: UserLogin):
                 method="totp",
                 message="Please enter your 2FA code"
             )
-    
+
+        if method == "email":
+            code, expires = generate_otp_code()
+            await db.users.update_one(
+                {"id": user["id"]},
+                {"$set": {"two_factor_code": code, "two_factor_code_expires": expires}}
+            )
+            sent, _ = await send_email(
+                user["email"],
+                "Your WiiTelecom Login Verification Code",
+                f"Your login verification code is: {code}\n\nThis code expires in 10 minutes."
+            )
+            if not sent:
+                raise HTTPException(status_code=500, detail="Failed to send verification email. Please contact your administrator.")
+            return TwoFactorResponse(
+                two_factor_required=True,
+                user_id=user["id"],
+                method="email",
+                message=f"A verification code was sent to {mask_email(user['email'])}"
+            )
+
     # No 2FA - complete login normally
     # Update last_active on login
     await db.users.update_one(
@@ -1491,11 +1585,12 @@ async def logout(current_user: dict = Depends(get_current_user)):
 
 @api_router.post("/auth/password-reset/request")
 async def request_password_reset(reset_data: dict):
-    """Request password reset - requires Google Authenticator verification"""
+    """Request password reset. Users with Google Authenticator 2FA verify with
+    their TOTP code; everyone else gets a one-time code emailed to them."""
     identifier = reset_data.get("identifier")
     if not identifier:
         raise HTTPException(status_code=400, detail="Identifier is required")
-    
+
     # Find user by username or email
     user = await db.users.find_one({
         "$or": [
@@ -1503,32 +1598,41 @@ async def request_password_reset(reset_data: dict):
             {"email": identifier}
         ]
     })
-    
+
     if not user:
         # Don't reveal if user exists
-        return {"message": "If the user exists, a verification code has been sent"}
-    
-    # Check if user has 2FA enabled with TOTP
-    if not user.get("two_factor_enabled"):
-        raise HTTPException(status_code=400, detail="User does not have 2FA enabled. Please contact admin.")
-    
-    method = user.get("two_factor_method")
-    
-    if method != "totp":
-        raise HTTPException(status_code=400, detail="Password reset requires Google Authenticator. Please contact admin.")
-    
-    # For TOTP, user will enter their current TOTP code as verification
-    return {"method": "totp", "message": "Enter your Google Authenticator code"}
+        return {"method": "email", "message": "If the user exists, a verification code has been sent"}
+
+    if user.get("two_factor_enabled") and user.get("two_factor_method") == "totp":
+        # For TOTP, user will enter their current TOTP code as verification
+        return {"method": "totp", "message": "Enter your Google Authenticator code"}
+
+    # Everyone else resets via a code emailed to their address on file
+    code, expires = generate_otp_code()
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$set": {"password_reset_code": code, "password_reset_code_expires": expires}}
+    )
+    sent, _ = await send_email(
+        user["email"],
+        "Your WiiTelecom Password Reset Code",
+        f"Your password reset code is: {code}\n\nThis code expires in 10 minutes. If you did not request this, you can ignore this email."
+    )
+    if not sent:
+        raise HTTPException(status_code=500, detail="Failed to send password reset email. Please contact your administrator.")
+
+    return {"method": "email", "message": f"A verification code was sent to {mask_email(user['email'])}"}
 
 @api_router.post("/auth/password-reset/verify")
 async def verify_password_reset(verify_data: dict):
-    """Verify password reset code using Google Authenticator"""
+    """Verify a password reset code, either a live Google Authenticator code
+    or the emailed one-time code, depending on the user's 2FA method."""
     identifier = verify_data.get("identifier")
     code = verify_data.get("code")
-    
+
     if not identifier or not code:
         raise HTTPException(status_code=400, detail="Identifier and code are required")
-    
+
     # Find user
     user = await db.users.find_one({
         "$or": [
@@ -1536,36 +1640,41 @@ async def verify_password_reset(verify_data: dict):
             {"email": identifier}
         ]
     })
-    
+
     if not user:
         raise HTTPException(status_code=400, detail="Invalid code")
-    
-    method = user.get("two_factor_method")
-    
-    if method != "totp":
-        raise HTTPException(status_code=400, detail="Password reset requires Google Authenticator")
-    
-    # For TOTP, verify using live TOTP code
-    secret = user.get("two_factor_secret")
-    if not secret:
-        raise HTTPException(status_code=400, detail="2FA not properly configured")
-    
-    totp = pyotp.TOTP(secret)
-    if not totp.verify(code, valid_window=1):
-        raise HTTPException(status_code=400, detail="Invalid verification code")
-    
+
+    if user.get("two_factor_enabled") and user.get("two_factor_method") == "totp":
+        secret = user.get("two_factor_secret")
+        if not secret:
+            raise HTTPException(status_code=400, detail="2FA not properly configured")
+
+        totp = pyotp.TOTP(secret)
+        if not totp.verify(code, valid_window=1):
+            raise HTTPException(status_code=400, detail="Invalid verification code")
+    else:
+        stored_code = user.get("password_reset_code")
+        expires = user.get("password_reset_code_expires")
+        if not stored_code:
+            raise HTTPException(status_code=400, detail="No password reset request found. Please request a new code.")
+        if is_code_expired(expires):
+            raise HTTPException(status_code=400, detail="Verification code expired. Please request a new code.")
+        if code.strip() != stored_code:
+            raise HTTPException(status_code=400, detail="Invalid verification code")
+
     return {"message": "Code verified successfully"}
 
 @api_router.post("/auth/password-reset/confirm")
 async def confirm_password_reset(reset_data: dict):
-    """Confirm password reset with new password using Google Authenticator"""
+    """Confirm password reset with new password, verifying with either the
+    live Google Authenticator code or the emailed one-time code."""
     identifier = reset_data.get("identifier")
     code = reset_data.get("code")
     new_password = reset_data.get("new_password")
-    
+
     if not identifier or not code or not new_password:
         raise HTTPException(status_code=400, detail="All fields are required")
-    
+
     # Find user
     user = await db.users.find_one({
         "$or": [
@@ -1573,36 +1682,44 @@ async def confirm_password_reset(reset_data: dict):
             {"email": identifier}
         ]
     })
-    
+
     if not user:
         raise HTTPException(status_code=400, detail="Invalid request")
-    
-    method = user.get("two_factor_method")
-    
-    if method != "totp":
-        raise HTTPException(status_code=400, detail="Password reset requires Google Authenticator")
-    
-    # For TOTP, verify the current TOTP code
-    secret = user.get("two_factor_secret")
-    if not secret:
-        raise HTTPException(status_code=400, detail="2FA not properly configured")
-    
-    totp = pyotp.TOTP(secret)
-    if not totp.verify(code, valid_window=1):
-        raise HTTPException(status_code=400, detail="Invalid verification code")
-    
+
+    if user.get("two_factor_enabled") and user.get("two_factor_method") == "totp":
+        secret = user.get("two_factor_secret")
+        if not secret:
+            raise HTTPException(status_code=400, detail="2FA not properly configured")
+
+        totp = pyotp.TOTP(secret)
+        if not totp.verify(code, valid_window=1):
+            raise HTTPException(status_code=400, detail="Invalid verification code")
+    else:
+        stored_code = user.get("password_reset_code")
+        expires = user.get("password_reset_code_expires")
+        if not stored_code:
+            raise HTTPException(status_code=400, detail="No password reset request found. Please request a new code.")
+        if is_code_expired(expires):
+            raise HTTPException(status_code=400, detail="Verification code expired. Please request a new code.")
+        if code.strip() != stored_code:
+            raise HTTPException(status_code=400, detail="Invalid verification code")
+
     # Update password
     from passlib.context import CryptContext
     pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
     password_hash = pwd_context.hash(new_password)
-    
+
     await db.users.update_one(
         {"id": user["id"]},
         {"$set": {
             "password_hash": password_hash
         }}
     )
-    
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$unset": {"password_reset_code": "", "password_reset_code_expires": ""}}
+    )
+
     return {"message": "Password reset successfully"}
 
 @api_router.get("/auth/me", response_model=UserResponse)
@@ -1618,15 +1735,15 @@ async def setup_2fa(setup_data: TwoFactorSetup, current_user: dict = Depends(get
     """Setup 2FA for the current user"""
     print(f"[DEBUG] setup_2fa called, current_user: {current_user.get('id')}, username: {current_user.get('username')}, method: {setup_data.method}")
     method = setup_data.method
-    
-    if method not in ["totp"]:
-        raise HTTPException(status_code=400, detail="Invalid 2FA method. Use 'totp' (Google Authenticator)")
-    
+
+    if method not in ["totp", "email"]:
+        raise HTTPException(status_code=400, detail="Invalid 2FA method. Use 'totp' (Google Authenticator) or 'email'")
+
     if method == "totp":
         # Generate TOTP secret
         secret = pyotp.random_base32()
         print(f"[DEBUG] Generating TOTP secret for user {current_user['id']}: {secret}")
-        
+
         # Save secret to user (pending verification) - clear any previous email settings
         await db.users.update_one(
             {"id": current_user["id"]},
@@ -1638,7 +1755,7 @@ async def setup_2fa(setup_data: TwoFactorSetup, current_user: dict = Depends(get
                 "two_factor_code_expires": None
             }}
         )
-        
+
         # Generate QR code URL for Google Authenticator
         totp = pyotp.TOTP(secret)
         provisioning_uri = totp.provisioning_uri(
@@ -1646,13 +1763,40 @@ async def setup_2fa(setup_data: TwoFactorSetup, current_user: dict = Depends(get
             issuer_name="WiiTelecom"
         )
         print(f"[DEBUG] Generated provisioning_uri: {provisioning_uri}")
-        
+
         return {
             "secret": secret,
             "provisioning_uri": provisioning_uri,
             "message": "Scan the QR code with Google Authenticator, then verify with a code"
         }
-    
+
+    if method == "email":
+        email = current_user.get("email")
+        if not email:
+            raise HTTPException(status_code=400, detail="Your account has no email address on file. Please contact admin.")
+
+        code, expires = generate_otp_code()
+        await db.users.update_one(
+            {"id": current_user["id"]},
+            {"$set": {
+                "two_factor_method": "email",
+                "two_factor_pending": True,
+                "two_factor_code": code,
+                "two_factor_code_expires": expires,
+                "two_factor_secret": None
+            }}
+        )
+
+        sent, _ = await send_email(
+            email,
+            "Your WiiTelecom Verification Code",
+            f"Your two-factor authentication setup code is: {code}\n\nThis code expires in 10 minutes."
+        )
+        if not sent:
+            raise HTTPException(status_code=400, detail="Failed to send verification email. Please check SMTP settings with your administrator.")
+
+        return {"message": f"Verification code sent to {mask_email(email)}"}
+
 @api_router.post("/auth/2fa/verify")
 async def verify_2fa(verify_data: TwoFactorVerify, current_user: dict = Depends(get_current_user)):
     """Verify 2FA setup with a code"""
@@ -1684,7 +1828,16 @@ async def verify_2fa(verify_data: TwoFactorVerify, current_user: dict = Depends(
         
         if not is_valid:
             raise HTTPException(status_code=400, detail="Invalid verification code")
-    
+    elif method == "email":
+        stored_code = user.get("two_factor_code")
+        expires = user.get("two_factor_code_expires")
+        if not stored_code:
+            raise HTTPException(status_code=400, detail="No pending verification code")
+        if is_code_expired(expires):
+            raise HTTPException(status_code=400, detail="Verification code expired. Please restart setup.")
+        if verify_data.code.strip() != stored_code:
+            raise HTTPException(status_code=400, detail="Invalid verification code")
+
     # Enable 2FA (keep the secret for future authentication)
     await db.users.update_one(
         {"id": current_user["id"]},
@@ -1747,7 +1900,16 @@ async def verify_2fa_login(login_data: TwoFactorLogin):
         totp = pyotp.TOTP(secret)
         if not totp.verify(login_data.code, valid_window=1):
             raise HTTPException(status_code=400, detail="Invalid 2FA code")
-    
+    elif method == "email":
+        stored_code = user.get("two_factor_code")
+        expires = user.get("two_factor_code_expires")
+        if not stored_code:
+            raise HTTPException(status_code=400, detail="No pending verification code. Please login again.")
+        if is_code_expired(expires):
+            raise HTTPException(status_code=400, detail="Verification code expired. Please login again.")
+        if login_data.code.strip() != stored_code:
+            raise HTTPException(status_code=400, detail="Invalid 2FA code")
+
     # Clear the 2FA code after successful verification
     await db.users.update_one(
         {"id": login_data.user_id},
@@ -1788,8 +1950,100 @@ async def verify_2fa_login(login_data: TwoFactorLogin):
     
     access_token = create_access_token(data={"sub": user["id"]})
     user_response = UserResponse(**user)
-    
+
     return Token(access_token=access_token, token_type="bearer", user=user_response)
+
+@api_router.post("/auth/2fa/resend")
+async def resend_2fa_code(data: dict):
+    """Resend the email 2FA login code (e.g. if it expired or wasn't received)"""
+    user_id = data.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id is required")
+
+    user = await db.users.find_one({"id": user_id})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if not user.get("two_factor_enabled") or user.get("two_factor_method") != "email":
+        raise HTTPException(status_code=400, detail="Email 2FA is not enabled for this user")
+
+    code, expires = generate_otp_code()
+    await db.users.update_one(
+        {"id": user_id},
+        {"$set": {"two_factor_code": code, "two_factor_code_expires": expires}}
+    )
+    sent, _ = await send_email(
+        user["email"],
+        "Your WiiTelecom Login Verification Code",
+        f"Your login verification code is: {code}\n\nThis code expires in 10 minutes."
+    )
+    if not sent:
+        raise HTTPException(status_code=500, detail="Failed to resend verification email. Please contact your administrator.")
+
+    return {"message": f"A new verification code was sent to {mask_email(user['email'])}"}
+
+# ==================== SMTP / EMAIL SETTINGS (ADMIN) ====================
+
+@api_router.get("/admin/smtp-settings", response_model=SMTPSettingsResponse)
+async def get_smtp_settings(current_admin: dict = Depends(get_current_admin)):
+    """Get the current SMTP configuration - admin only. Password is never returned."""
+    config = await get_smtp_config()
+    return SMTPSettingsResponse(
+        smtp_host=config["smtp_host"],
+        smtp_port=config["smtp_port"],
+        smtp_username=config["smtp_username"],
+        from_email=config["from_email"],
+        use_tls=config["use_tls"],
+        smtp_password_set=bool(config["smtp_password"])
+    )
+
+@api_router.put("/admin/smtp-settings", response_model=SMTPSettingsResponse)
+async def update_smtp_settings(settings_data: SMTPSettingsUpdate, current_admin: dict = Depends(get_current_admin)):
+    """Update the SMTP configuration used for 2FA and password-reset emails - admin only."""
+    update_dict = {k: v for k, v in settings_data.model_dump().items() if v is not None}
+
+    if not update_dict:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    await db.settings.update_one(
+        {"id": SMTP_SETTINGS_ID},
+        {"$set": update_dict, "$setOnInsert": {"id": SMTP_SETTINGS_ID}},
+        upsert=True
+    )
+
+    # Create audit log for SMTP settings update (never log the password itself)
+    await create_audit_log(
+        user_id=current_admin["id"],
+        username=current_admin.get("username", "admin"),
+        action="update",
+        entity_type="smtp_settings",
+        entity_id=SMTP_SETTINGS_ID,
+        entity_name="SMTP Settings",
+        changes={"fields_updated": [k for k in update_dict if k != "smtp_password"] + (["smtp_password"] if "smtp_password" in update_dict else [])}
+    )
+
+    config = await get_smtp_config()
+    return SMTPSettingsResponse(
+        smtp_host=config["smtp_host"],
+        smtp_port=config["smtp_port"],
+        smtp_username=config["smtp_username"],
+        from_email=config["from_email"],
+        use_tls=config["use_tls"],
+        smtp_password_set=bool(config["smtp_password"])
+    )
+
+@api_router.post("/admin/smtp-settings/test")
+async def test_smtp_settings(test_data: SMTPTestRequest, current_admin: dict = Depends(get_current_admin)):
+    """Send a test email using the currently saved SMTP configuration - admin only."""
+    sent, error = await send_email(
+        test_data.to_email,
+        "WiiTelecom Ticketing System - Test Email",
+        "This is a test email confirming your SMTP configuration is working correctly."
+    )
+    if not sent:
+        raise HTTPException(status_code=400, detail=f"Failed to send test email: {error}")
+
+    return {"message": f"Test email sent to {test_data.to_email}"}
 
 
 class NotificationPreferencesUpdate(BaseModel):
@@ -2058,8 +2312,9 @@ async def mark_all_request_notifications_as_read(current_user: dict = Depends(ge
 
 @api_router.get("/users", response_model=List[UserResponse])
 async def get_users(current_user: dict = Depends(get_current_user)):
-    # Exclude password_hash at query level for efficiency
-    users = await db.users.find({}, {"_id": 0, "password_hash": 0}).to_list(1000)
+    # Exclude password_hash at query level for efficiency. BOB (is_bot) isn't
+    # a manageable account, so it's left out of user administration.
+    users = await db.users.find({"is_bot": {"$ne": True}}, {"_id": 0, "password_hash": 0}).to_list(1000)
     for user in users:
         if isinstance(user.get('created_at'), str):
             user['created_at'] = datetime.fromisoformat(user['created_at'])
@@ -2080,6 +2335,10 @@ async def update_user(user_id: str, user_data: UserUpdate, current_admin: dict =
         pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
         update_dict["password_hash"] = pwd_context.hash(update_dict.pop("password"))
     
+    # Get the user before update for audit (also needed below to resolve the
+    # target's email address when admin force-enables email 2FA)
+    user_before = await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})
+
     # Handle 2FA setup when admin enables it
     if update_dict.get("two_factor_enabled") and update_dict.get("two_factor_method") == "totp":
         # Generate TOTP secret
@@ -2087,9 +2346,21 @@ async def update_user(user_id: str, user_data: UserUpdate, current_admin: dict =
         update_dict["two_factor_secret"] = secret
         # Mark as pending so user must verify before 2FA is active
         update_dict["two_factor_pending"] = True
-    
-    # Get the user before update for audit
-    user_before = await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})
+    elif update_dict.get("two_factor_enabled") and update_dict.get("two_factor_method") == "email":
+        target_email = update_dict.get("email") or (user_before or {}).get("email")
+        if not target_email:
+            raise HTTPException(status_code=400, detail="User has no email address on file for email 2FA")
+        code, expires = generate_otp_code()
+        update_dict["two_factor_code"] = code
+        update_dict["two_factor_code_expires"] = expires
+        update_dict["two_factor_pending"] = True
+        sent, error = await send_email(
+            target_email,
+            "Your WiiTelecom Verification Code",
+            f"Your two-factor authentication setup code is: {code}\n\nThis code expires in 10 minutes."
+        )
+        if not sent:
+            raise HTTPException(status_code=400, detail=f"Failed to send verification email: {error}")
     
     result = await db.users.find_one_and_update(
         {"id": user_id},
@@ -5959,6 +6230,10 @@ def build_chat_user_info(u: dict) -> dict:
         if last_active.tzinfo is None:
             last_active = last_active.replace(tzinfo=timezone.utc)
         is_online = last_active > datetime.now(timezone.utc) - timedelta(minutes=5)
+    if u["id"] == BOB_USER_ID:
+        # BOB has no session/last_active - always show it available rather
+        # than as permanently "offline".
+        is_online = True
     return {
         "id": u["id"],
         "username": u["username"],
@@ -5969,10 +6244,13 @@ def build_chat_user_info(u: dict) -> dict:
 
 @api_router.get("/chat/users")
 async def get_chat_users(current_user: dict = Depends(get_current_user)):
-    """Get all users that can be chatted with (all users except current)"""
+    """Get all users that can be chatted with (all users except current).
+    BOB is excluded - every user already gets an auto-created, pinned
+    conversation with it (see _ensure_bob_conversation) rather than needing
+    to "start" a chat with it from this list."""
     try:
         users = await db.users.find(
-            {"id": {"$ne": current_user["id"]}},
+            {"id": {"$ne": current_user["id"]}, "is_bot": {"$ne": True}},
             {"_id": 0, "id": 1, "username": 1, "name": 1, "last_active": 1}
         ).to_list(length=500)
 
@@ -5986,6 +6264,7 @@ async def get_conversations(current_user: dict = Depends(get_current_user)):
     """Get all conversations for the current user"""
     try:
         user_id = current_user["id"]
+        await _ensure_bob_conversation(user_id)
 
         conversations = await db.conversations.find(
             {"participant_ids": user_id}
@@ -6513,6 +6792,9 @@ async def create_message(
     for participant_id in conv.get("participant_ids", []):
         await manager.send_personal_message({"type": "new_message", "message": message_payload}, participant_id)
 
+    if not conv.get("is_group") and BOB_USER_ID in other_participant_ids:
+        asyncio.create_task(handle_bob_reply(data.conversation_id, current_user))
+
     return message_payload
 
 async def _update_conversation_preview_if_latest(conversation_id: str, message_id: str, preview: str):
@@ -6719,6 +7001,888 @@ async def get_chat_file(file_id: str):
             "Content-Disposition": f'inline; filename="{doc.get("filename", "file")}"'
         }
     )
+
+
+# ==================== BOB AI ASSISTANT ====================
+# BOB is a normal chat user (see ensure_bob_user, called at startup) that
+# every user gets an auto-created, pinned 1:1 conversation with. A message
+# sent into that conversation (POST /chat/messages) triggers handle_bob_reply
+# as a background task - BOB "thinks" (an LLM tool-calling loop grounded in
+# this system's real data) and then sends its answer through the same
+# insert+broadcast path a human message uses, so the existing chat UI/sockets
+# need no changes at all to support it.
+#
+# Tools are thin wrappers around the already-permission-scoped endpoint
+# functions defined above (get_sms_tickets, get_clients, get_requests, ...) -
+# BOB can only ever see what the person it's chatting with could already see
+# through the normal UI, and request creation goes through the real
+# create_request() function so it gets the same validation/audit trail.
+
+BOB_USER_ID = "bob-ai-assistant"
+BOB_LLM_MODEL = os.environ.get("BOB_LLM_MODEL", "openrouter/google/gemini-2.5-flash:free")
+# OpenRouter's free catalog is added to / paywalled / retired without notice
+# (its own docs recommend listing a few fallbacks rather than hardcoding one
+# model id) - these are tried in order if BOB_LLM_MODEL turns out to be gone,
+# so BOB self-heals instead of going silent until someone notices and edits
+# an env var. Only used as a fallback for a "model unavailable" style error -
+# a bad key or rate limit is reported as-is, not masked by trying every model.
+# NOTE: meta-llama/llama-3.3-70b-instruct:free is deliberately not listed -
+# confirmed paywalled/retired (OpenRouter's own 404 pointed at the paid slug).
+BOB_LLM_FALLBACK_MODELS = [
+    "openrouter/google/gemini-2.5-flash:free",
+    "openrouter/nvidia/nemotron-3-super:free",
+    "openrouter/qwen/qwen3-coder:free",
+    "openrouter/deepseek/deepseek-chat-v3.1:free",
+    "openrouter/mistralai/mistral-small-3.2-24b-instruct:free",
+]
+_bob_model_state = {"current": BOB_LLM_MODEL}
+
+# request_type -> (display label, department this type is restricted to, or
+# None if it's available to both SMS and Voice AMs). Mirrors REQUEST_TYPES in
+# frontend/src/pages/RequestsPage.jsx.
+BOB_REQUEST_TYPES = {
+    "rating_routing": {"label": "Rating and/or Routing", "for_department": None},
+    "testing": {"label": "Testing Vendor Trunk", "for_department": None},
+    "translation": {"label": "Translation Request", "for_department": "sms"},
+    "lcr": {"label": "LCR Request", "for_department": "voice"},
+    "investigation": {"label": "Investigation Request", "for_department": None},
+    "trunk_request_sms": {"label": "New Trunk Request", "for_department": "sms"},
+    "trunk_request_voice": {"label": "New Trunk Request", "for_department": "voice"},
+    "open_tt": {"label": "Open TT", "for_department": None},
+}
+
+# request_type -> list of tool-argument names that must be present. Mirrors
+# getRequestFieldErrors() in RequestsPage.jsx (plus 'priority', required for
+# every type). Some types have further conditional requirements handled in
+# _bob_create_am_request itself (translation's old/new value pairs, SMS
+# testing's SID/content).
+BOB_REQUEST_MANDATORY = {
+    "rating_routing": ["customer_names", "customer_trunk", "destination", "rating"],
+    "testing": ["destination", "vendor_trunk_names"],
+    "translation": ["customer_name", "translation_type", "trunk_type", "trunk_name"],
+    "lcr": ["destination", "lcr_type", "lcr_change", "vendor_trunk_names"],
+    "investigation": ["customer_name", "customer_trunk"],
+    "trunk_request_sms": ["customer_names", "trunk_type", "direction"],
+    "trunk_request_voice": ["customer_names", "trunk_type", "direction"],
+    "open_tt": ["destination", "vendor_trunk_names", "open_by"],
+}
+
+BOB_MANDATORY_FIELDS_HELP = """- rating_routing (both): customer_names (>=1), customer_trunk, destination, rating
+- testing (both): destination, vendor_trunk_names (>=1); SMS also needs test_sid + test_content; Voice also needs test_type ("tool_test" or "manual_test")
+- translation (SMS only): customer_name, translation_type ("sid_change"|"content_change"|"sid_content_change"|"remove"), trunk_type ("customer"|"vendor"), trunk_name, then: sid_change/content_change need old_value+new_value; sid_content_change needs old_sid+new_sid+old_value+new_value; remove needs word_to_remove
+- lcr (Voice only): destination, lcr_type ("PRM"|"STD"|"CC"|"TDM"|"ORTP"|"ATX"), lcr_change ("add"|"drop"), vendor_trunk_names (>=1)
+- investigation (both): customer_name, customer_trunk (issue_types/investigation_destination/issue_description are optional but helpful)
+- trunk_request_sms / trunk_request_voice: customer_names (>=1), trunk_type, direction ("Customer"|"Vendor"|"Both")
+- open_tt (both): destination, vendor_trunk_names (>=1), open_by ("Teams"|"Email")
+- priority ("Low"|"Medium"|"High"|"Urgent") is required for every type"""
+
+
+async def ensure_bob_user():
+    """Seed/refresh BOB's user doc. Idempotent - safe to call on every startup."""
+    bot_doc = {
+        "id": BOB_USER_ID,
+        "username": "bob",
+        "name": "BOB",
+        "email": "bob@internal.local",
+        "phone": "",
+        "password_hash": pwd_context.hash(secrets.token_urlsafe(32)),
+        "is_bot": True,
+        "is_active": True,
+        "created_at": datetime.now(timezone.utc),
+    }
+    existing = await db.users.find_one({"id": BOB_USER_ID})
+    if not existing:
+        await db.users.insert_one(bot_doc)
+    else:
+        await db.users.update_one(
+            {"id": BOB_USER_ID},
+            {"$set": {"name": "BOB", "username": "bob", "is_bot": True, "is_active": True}}
+        )
+
+
+async def _ensure_bob_conversation(user_id: str):
+    """Every user gets exactly one pinned 1:1 conversation with BOB, created
+    lazily the first time they open their conversation list."""
+    existing = await db.conversations.find_one({
+        "participant_ids": {"$all": [user_id, BOB_USER_ID], "$size": 2},
+        "is_group": {"$ne": True}
+    })
+    if existing:
+        return
+    conv = Conversation(
+        participant_ids=[user_id, BOB_USER_ID],
+        unread_counts={user_id: 0, BOB_USER_ID: 0},
+        created_by=BOB_USER_ID,
+        pinned_by=[user_id],
+    )
+    await db.conversations.insert_one(conv.model_dump())
+    await _send_bob_message(
+        conv.id,
+        "Hi, I'm BOB \U0001F916 — ask me about any SMS/Voice ticket, enterprise, or AM request in the system. "
+        "I can also file a new AM request for you if you're an Account Manager, once you give me the required details."
+    )
+
+
+async def _send_bob_message(conversation_id: str, content: str):
+    """Insert + broadcast a message from BOB, the same way a human message
+    would be - so read receipts, unread counts and previews all just work."""
+    conv = await db.conversations.find_one({"id": conversation_id})
+    if not conv:
+        return
+    msg_obj = ChatMessage(
+        conversation_id=conversation_id,
+        sender_id=BOB_USER_ID,
+        sender_name="BOB",
+        content=content,
+    )
+    await db.chat_messages.insert_one(msg_obj.model_dump())
+    await db.conversations.update_one(
+        {"id": conversation_id},
+        {"$set": {
+            "last_message": content[:100],
+            "last_message_time": msg_obj.created_at,
+            "last_message_sender_id": BOB_USER_ID,
+            "updated_at": msg_obj.created_at,
+        }}
+    )
+    for participant_id in conv.get("participant_ids", []):
+        if participant_id != BOB_USER_ID:
+            await db.conversations.update_one(
+                {"id": conversation_id},
+                {"$inc": {f"unread_counts.{participant_id}": 1}}
+            )
+    message_payload = {
+        "id": msg_obj.id,
+        "conversation_id": conversation_id,
+        "sender_id": BOB_USER_ID,
+        "sender_name": "BOB",
+        "content": content,
+        "message_type": "text",
+        "file_url": None, "file_name": None, "file_size": None, "file_mime_type": None,
+        "read_by": [], "edited": False, "is_deleted": False, "client_id": None,
+        "reply_to": None, "is_forwarded": False, "forwarded_from": None,
+        "created_at": msg_obj.created_at.isoformat(),
+    }
+    for participant_id in conv.get("participant_ids", []):
+        await manager.send_personal_message({"type": "new_message", "message": message_payload}, participant_id)
+
+
+_SECRET_LIKE_RE = re.compile(r"(sk-[A-Za-z0-9_-]{6,}|Bearer\s+\S+|[A-Za-z0-9_-]{24,})")
+
+
+def _bob_safe_error_detail(e: Exception) -> str:
+    """A short, chat-safe summary of an LLM call failure - enough to
+    self-diagnose (wrong model id, bad/missing key, rate limit, provider
+    outage) without a backend log, and with anything key-shaped redacted in
+    case a provider ever echoes the Authorization header back in an error."""
+    text = f"{type(e).__name__}: {e}"
+    text = _SECRET_LIKE_RE.sub("[redacted]", text)
+    return text[:300]
+
+
+_bob_discovered_free_models_cache = {"models": None, "fetched_at": 0.0}
+
+
+async def _bob_discover_free_openrouter_models() -> list:
+    """Ask OpenRouter's own public model catalog which models are currently
+    free (pricing 0) and tool-calling capable, instead of relying on a
+    hardcoded list of ids that goes stale whenever OpenRouter's free catalog
+    changes (which it does, without notice). Cached for an hour; any failure
+    (offline, endpoint shape change) just yields an empty list, so callers
+    fall back to the static BOB_LLM_FALLBACK_MODELS guesses."""
+    now = time.monotonic()
+    cache = _bob_discovered_free_models_cache
+    if cache["models"] is not None and now - cache["fetched_at"] < 3600:
+        return cache["models"]
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get("https://openrouter.ai/api/v1/models")
+            resp.raise_for_status()
+            data = resp.json().get("data", [])
+        free_tool_models = []
+        for m in data:
+            model_id = m.get("id") or ""
+            pricing = m.get("pricing") or {}
+            is_free = pricing.get("prompt") == "0" and pricing.get("completion") == "0"
+            supports_tools = "tools" in (m.get("supported_parameters") or [])
+            if is_free and supports_tools and model_id:
+                free_tool_models.append(f"openrouter/{model_id}")
+        cache["models"] = free_tool_models
+        cache["fetched_at"] = now
+        return free_tool_models
+    except Exception as e:
+        logger.warning(f"BOB couldn't refresh OpenRouter's free-model catalog: {e}")
+        return cache["models"] or []
+
+
+async def _bob_candidate_models() -> list:
+    """Whichever model last worked, tried first, then the configured model,
+    then - only when actually routing through OpenRouter - its currently-free
+    tool-capable models (freshly discovered) and the static fallback
+    guesses, each only once. A direct provider (Anthropic, OpenAI, ...) never
+    falls back into these: that would silently trade a fast/paid model for a
+    slow free one on any hiccup, and could mask a real error (bad key, wrong
+    model id) behind an unrelated OpenRouter failure."""
+    using_openrouter = _bob_model_state["current"].startswith("openrouter/") or BOB_LLM_MODEL.startswith("openrouter/")
+    discovered = await _bob_discover_free_openrouter_models() if using_openrouter else []
+    fallbacks = BOB_LLM_FALLBACK_MODELS if using_openrouter else []
+    seen = set()
+    ordered = []
+    for m in [_bob_model_state["current"], BOB_LLM_MODEL] + discovered + fallbacks:
+        if m and m not in seen:
+            seen.add(m)
+            ordered.append(m)
+    return ordered
+
+
+def _is_fallback_worthy_error(e: Exception) -> bool:
+    """True for errors specific to the current model/provider being
+    unavailable right now - retired, temporarily rate-limited (a single
+    free model's backing "upstream" capacity is saturated, which is common
+    and usually doesn't affect a different free model), or briefly down -
+    worth trying the next candidate for. False for a bad/missing API key or
+    a malformed request, which would fail identically on every model and
+    should be reported as-is rather than masked by cycling through all of
+    them for no benefit."""
+    name = type(e).__name__
+    if name in ("AuthenticationError", "PermissionDeniedError", "BadRequestError"):
+        return False
+    msg = str(e).lower()
+    return (
+        name in ("NotFoundError", "RateLimitError", "ServiceUnavailableError", "InternalServerError", "Timeout")
+        or "no endpoints found" in msg
+        or "unavailable for free" in msg
+        or "model_not_found" in msg
+        or "is not a valid model" in msg
+        or "rate-limited" in msg
+        or "rate limited" in msg
+    )
+
+
+async def _bob_complete(litellm_module, **kwargs):
+    last_error = None
+    for model in await _bob_candidate_models():
+        try:
+            response = await litellm_module.acompletion(model=model, **kwargs)
+            if model != _bob_model_state["current"]:
+                logger.info(f"BOB switched to fallback model '{model}'")
+                _bob_model_state["current"] = model
+            return response
+        except Exception as e:
+            last_error = e
+            if not _is_fallback_worthy_error(e):
+                raise
+    raise last_error
+
+
+def _bob_llm_configured() -> bool:
+    return any(os.environ.get(k) for k in (
+        "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY",
+        "AZURE_API_KEY", "OPENROUTER_API_KEY", "BOB_LLM_API_KEY",
+    ))
+
+
+def _model_dump(obj):
+    return obj.model_dump() if hasattr(obj, "model_dump") else obj
+
+
+def _bob_system_prompt(current_user: dict) -> str:
+    role = current_user.get("role", "unknown")
+    dept = current_user.get("department") or {}
+    dept_name = dept.get("name") or current_user.get("am_type") or "unknown"
+    name = current_user.get("name") or current_user.get("username")
+    lines = [
+        "You are BOB, the AI assistant built into the Wii Telecom NOC ticketing system's chat.",
+        f"You are talking with {name} (role: {role}, department: {dept_name}).",
+        "Use your tools to look up real SMS/Voice tickets, enterprises (customers) and AM requests - never invent "
+        "ticket numbers, statuses, rates or enterprise data. If a tool finds nothing, say so plainly instead of "
+        "guessing.",
+        "Be conversational, concise, and friendly. If a request is ambiguous (which department, which enterprise, "
+        "which ticket, a name that matches more than one enterprise, etc.) ask a short clarifying question instead "
+        "of assuming.",
+    ]
+    if role == "am":
+        lines.append(
+            "You can also file a new AM request (Rating/Routing, Testing Vendor Trunk, Translation [SMS only], "
+            "LCR [Voice only], Investigation, New Trunk Request, Open TT) with the create_am_request tool. Collect "
+            "every mandatory field for the chosen type through conversation first, show the user a short summary, "
+            "and only call create_am_request after they confirm it. If create_am_request returns missing_fields, "
+            "ask the user for exactly those fields and try again - don't guess values. Trunk names (customer_trunk, "
+            "trunk_name, vendor_trunk_names) must be the exact trunk name as it exists in the system, not a "
+            "paraphrase - if create_am_request returns invalid_field, show the user the returned valid_options list "
+            "and have them pick one (use list_enterprises to see an enterprise's own customer/vendor trunks up "
+            "front if you're unsure), then retry with the exact string. Required fields per type:\n"
+            + BOB_MANDATORY_FIELDS_HELP
+        )
+    else:
+        lines.append("Only Account Managers can file AM requests, so don't offer to create one for this user.")
+    return "\n".join(lines)
+
+
+def _bob_tool_schemas(current_user: dict) -> list:
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "get_dashboard_stats",
+                "description": "Get overall ticket counts by status/priority for the current user's visible tickets.",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "search_tickets",
+                "description": "Search SMS and/or Voice tickets visible to the current user.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "department": {"type": "string", "enum": ["sms", "voice"], "description": "Omit to search both"},
+                        "ticket_number": {"type": "string"},
+                        "customer": {"type": "string", "description": "Enterprise name, partial match"},
+                        "status": {"type": "string", "description": "e.g. Unassigned, Assigned, Awaiting Vendor, Awaiting Client, Awaiting AM, Resolved, Unresolved"},
+                        "priority": {"type": "string", "enum": ["Low", "Medium", "High", "Urgent"]},
+                        "issue_type": {"type": "string", "description": "Partial match against issue types/other/legacy issue text"},
+                        "opened_via": {"type": "string", "description": "e.g. Monitoring, Email, Teams, AM, Telegram"},
+                    },
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_ticket_detail",
+                "description": "Get full details (root cause, action taken, notes, actions log) for one ticket by its exact ticket number.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"ticket_number": {"type": "string"}},
+                    "required": ["ticket_number"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "list_enterprises",
+                "description": "List/search enterprises (customers) in the system.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "department": {"type": "string", "enum": ["sms", "voice"], "description": "Omit to search both"},
+                        "query": {"type": "string", "description": "Partial name match"},
+                    },
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "list_am_requests",
+                "description": "List existing AM requests (Rating/Routing, Testing, Translation, LCR, Investigation, Trunk Request, Open TT).",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "status": {"type": "string", "enum": ["pending", "in_progress", "completed", "rejected"]},
+                        "department": {"type": "string", "enum": ["sms", "voice"]},
+                        "mine_only": {"type": "boolean", "description": "Default true for AMs - only their own requests"},
+                    },
+                },
+            },
+        },
+    ]
+    if current_user.get("role") == "am":
+        tools.append({
+            "type": "function",
+            "function": {
+                "name": "create_am_request",
+                "description": (
+                    "File a new AM request. Only call this once every mandatory field for the chosen request_type "
+                    "has been explicitly given/confirmed by the user - never invent or assume values."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "request_type": {"type": "string", "enum": list(BOB_REQUEST_TYPES.keys())},
+                        "priority": {"type": "string", "enum": ["Low", "Medium", "High", "Urgent"]},
+                        "customer_name": {"type": "string", "description": "Enterprise name, for single-customer types"},
+                        "customer_names": {"type": "array", "items": {"type": "string"}, "description": "Enterprise name(s), for rating_routing/trunk_request_*"},
+                        "destination": {"type": "string"},
+                        "customer_trunk": {"type": "string"},
+                        "vendor_trunk_names": {"type": "array", "items": {"type": "string"}},
+                        "rating": {"type": "string"},
+                        "translation_type": {"type": "string", "enum": ["sid_change", "content_change", "sid_content_change", "remove"]},
+                        "trunk_type": {"type": "string"},
+                        "trunk_name": {"type": "string"},
+                        "old_value": {"type": "string"},
+                        "new_value": {"type": "string"},
+                        "old_sid": {"type": "string"},
+                        "new_sid": {"type": "string"},
+                        "word_to_remove": {"type": "string"},
+                        "test_type": {"type": "string", "enum": ["tool_test", "manual_test"]},
+                        "test_sid": {"type": "string"},
+                        "test_content": {"type": "string"},
+                        "lcr_type": {"type": "string", "enum": ["PRM", "STD", "CC", "TDM", "ORTP", "ATX"]},
+                        "lcr_change": {"type": "string", "enum": ["add", "drop"]},
+                        "direction": {"type": "string", "enum": ["Customer", "Vendor", "Both"]},
+                        "with_lcr": {"type": "boolean"},
+                        "open_by": {"type": "string", "enum": ["Teams", "Email"]},
+                        "notes": {"type": "string"},
+                        "ticket_id": {"type": "string"},
+                        "issue_types": {"type": "array", "items": {"type": "string"}},
+                        "issue_other": {"type": "string"},
+                        "investigation_destination": {"type": "string"},
+                        "issue_description": {"type": "string"},
+                    },
+                    "required": ["request_type", "priority"],
+                },
+            },
+        })
+    return tools
+
+
+def _ticket_matches(t: dict, args: dict) -> bool:
+    if args.get("ticket_number") and args["ticket_number"].strip().lower() not in (t.get("ticket_number") or "").lower():
+        return False
+    if args.get("customer") and args["customer"].strip().lower() not in (t.get("customer") or "").lower():
+        return False
+    if args.get("status") and (t.get("status") or "").strip().lower() != args["status"].strip().lower():
+        return False
+    if args.get("priority") and (t.get("priority") or "").strip().lower() != args["priority"].strip().lower():
+        return False
+    if args.get("issue_type"):
+        q = args["issue_type"].strip().lower()
+        issues = [i.lower() for i in (t.get("issue_types") or [])]
+        other = (t.get("issue_other") or "").lower()
+        legacy = (t.get("issue") or "").lower()
+        if not (any(q in i for i in issues) or q in other or q in legacy):
+            return False
+    if args.get("opened_via"):
+        q = args["opened_via"].strip().lower()
+        vias = [v.lower() for v in (t.get("opened_via") or [])]
+        if not any(q in v for v in vias):
+            return False
+    return True
+
+
+def _ticket_summary(t: dict, department: str) -> dict:
+    return {
+        "department": department,
+        "ticket_number": t.get("ticket_number"),
+        "date": str(t.get("date")),
+        "priority": t.get("priority"),
+        "status": t.get("status"),
+        "customer": t.get("customer"),
+        "customer_trunk": t.get("customer_trunk"),
+        "destination": t.get("destination"),
+        "volume": t.get("volume"),
+        "issue_types": t.get("issue_types"),
+        "issue_other": t.get("issue_other"),
+        "assigned_to": t.get("assigned_to"),
+        "root_cause": t.get("root_cause"),
+        "action_taken": t.get("action_taken"),
+    }
+
+
+async def _bob_fetch_tickets(department: str, current_user: dict, limit: int) -> list:
+    """Fetch tickets for one department, tolerating an AM whose account
+    simply isn't permitted on that department (e.g. an SMS-only AM has no
+    Voice access) - that's an expected, per-department outcome when the
+    caller is searching "both" departments, not a failure of the search."""
+    fn = get_sms_tickets if department == "sms" else get_voice_tickets
+    try:
+        tickets = await fn(response=Response(), current_user=current_user, view_mode="all", trunk_filter=None, limit=limit, skip=0, if_none_match=None)
+    except HTTPException:
+        return []
+    return [_model_dump(t) for t in tickets]
+
+
+async def _bob_search_tickets(current_user: dict, args: dict) -> dict:
+    department = args.get("department")
+    depts = [department] if department in ("sms", "voice") else ["sms", "voice"]
+    matches = []
+    for d in depts:
+        for t in await _bob_fetch_tickets(d, current_user, 500):
+            if _ticket_matches(t, args):
+                matches.append(_ticket_summary(t, d))
+    return {"total_matches": len(matches), "returned": min(len(matches), 25), "tickets": matches[:25]}
+
+
+async def _bob_get_ticket_detail(current_user: dict, args: dict) -> dict:
+    ticket_number = (args.get("ticket_number") or "").strip()
+    if not ticket_number:
+        return {"error": "ticket_number is required"}
+    for d in ("sms", "voice"):
+        for t in await _bob_fetch_tickets(d, current_user, 2000):
+            if (t.get("ticket_number") or "").strip().lower() == ticket_number.lower():
+                t["department"] = d
+                for k in ("date", "updated_at", "assigned_at"):
+                    if t.get(k) is not None:
+                        t[k] = str(t[k])
+                return t
+    return {"error": f"No ticket found with number '{ticket_number}' that you have access to."}
+
+
+async def _bob_list_enterprises(current_user: dict, args: dict) -> dict:
+    department = args.get("department")
+    clients = await get_clients(response=Response(), current_user=current_user, if_none_match=None, include_all=True, department=department)
+    q = (args.get("query") or "").strip().lower()
+    out = []
+    for c in clients:
+        c = _model_dump(c)
+        if q and q not in (c.get("name") or "").lower():
+            continue
+        out.append({
+            "id": c.get("id"), "name": c.get("name"), "enterprise_type": c.get("enterprise_type"),
+            "tier": c.get("tier"), "customer_trunks": c.get("customer_trunks"), "vendor_trunks": c.get("vendor_trunks"),
+        })
+    return {"total": len(out), "enterprises": out[:40]}
+
+
+async def _bob_list_am_requests(current_user: dict, args: dict) -> dict:
+    reqs = await get_requests(
+        response=Response(), department=args.get("department"), request_type=None,
+        status=args.get("status"), show_mine_only=bool(args.get("mine_only", True)),
+        sub_tab=None, limit=30, skip=0, if_none_match=None, current_user=current_user,
+    )
+    out = []
+    for r in reqs:
+        r = _model_dump(r)
+        out.append({
+            "id": r.get("id"), "type": r.get("request_type_label"), "department": r.get("department"),
+            "priority": r.get("priority"), "status": r.get("status"), "customer": r.get("customer"),
+            "created_at": str(r.get("created_at")), "response": r.get("response"),
+        })
+    return {"total": len(out), "requests": out}
+
+
+async def _resolve_bob_customer(name: str, department: str) -> dict:
+    clients = await db.clients.find({"enterprise_type": {"$in": [department, "all"]}}, {"_id": 0}).to_list(1000)
+    name_l = name.strip().lower()
+    exact = [c for c in clients if (c.get("name") or "").strip().lower() == name_l]
+    if exact:
+        return exact[0]
+    partial = [c for c in clients if name_l in (c.get("name") or "").strip().lower()]
+    if len(partial) == 1:
+        return partial[0]
+    if len(partial) > 1:
+        raise ValueError(f"Multiple enterprises match '{name}': {', '.join(c['name'] for c in partial[:8])}. Which one did you mean?")
+    raise ValueError(f"No enterprise named '{name}' found in the {department} department.")
+
+
+def _match_known_trunk(name: str, valid_trunks: list) -> Optional[str]:
+    """Case-insensitive exact match against a known-good trunk name list,
+    returning the list's own casing (never None -> caller decides that's a
+    genuine mismatch). The trunk fields on a request are exact-match
+    dropdowns in the UI sourced from this same data, not free text - a value
+    that doesn't match one of these verbatim shows as blank when someone
+    opens the request to edit it, even though it's really stored."""
+    if not name:
+        return None
+    name_l = name.strip().lower()
+    for t in valid_trunks:
+        if (t or "").strip().lower() == name_l:
+            return t
+    return None
+
+
+async def _bob_department_vendor_trunks(current_user: dict, department: str) -> list:
+    """The same department-wide, deduplicated vendor trunk list the
+    Requests page's Vendor Trunk dropdown is populated from."""
+    data = await get_reference_trunks(section=department, current_user=current_user)
+    return data.get("vendor_trunks", [])
+
+
+async def _bob_create_am_request(current_user: dict, args: dict) -> dict:
+    if current_user.get("role") != "am":
+        return {"error": "Only Account Managers can create requests. This account isn't an AM."}
+
+    dept = current_user.get("department") or {}
+    department = dept.get("department_type") if dept else None
+    if department not in ("sms", "voice"):
+        department = current_user.get("am_type")
+    if department not in ("sms", "voice"):
+        return {"error": "Could not determine whether this user is an SMS or Voice AM. Ask an admin to fix their department."}
+
+    request_type = args.get("request_type")
+    type_info = BOB_REQUEST_TYPES.get(request_type)
+    if not type_info:
+        return {"error": f"Unknown request_type '{request_type}'. Valid values: {list(BOB_REQUEST_TYPES.keys())}"}
+    if type_info["for_department"] and type_info["for_department"] != department:
+        return {"error": f"{type_info['label']} requests are only for the {type_info['for_department']} department; this user is a {department} AM."}
+
+    missing = []
+    if not args.get("priority"):
+        missing.append("priority")
+    for field in BOB_REQUEST_MANDATORY.get(request_type, []):
+        if not args.get(field):
+            missing.append(field)
+
+    if request_type == "translation":
+        ttype = args.get("translation_type")
+        if ttype in ("sid_change", "content_change"):
+            missing += [f for f in ("old_value", "new_value") if not args.get(f)]
+        elif ttype == "sid_content_change":
+            missing += [f for f in ("old_sid", "new_sid", "old_value", "new_value") if not args.get(f)]
+        elif ttype == "remove" and not args.get("word_to_remove"):
+            missing.append("word_to_remove")
+    if request_type == "testing":
+        if department == "sms":
+            missing += [f for f in ("test_sid", "test_content") if not args.get(f)]
+        elif department == "voice" and not args.get("test_type"):
+            missing.append("test_type")
+
+    if missing:
+        return {"status": "missing_fields", "missing": sorted(set(missing))}
+
+    customer = None
+    customer_id = None
+    customer_ids = []
+    resolved_client = None
+    try:
+        if args.get("customer_names"):
+            resolved_clients = [await _resolve_bob_customer(n, department) for n in args["customer_names"]]
+            customer_ids = [c["id"] for c in resolved_clients]
+            customer = ", ".join(c["name"] for c in resolved_clients)
+            resolved_client = resolved_clients[0] if resolved_clients else None
+        elif args.get("customer_name"):
+            resolved_client = await _resolve_bob_customer(args["customer_name"], department)
+            customer, customer_id = resolved_client["name"], resolved_client["id"]
+    except ValueError as e:
+        return {"error": str(e)}
+
+    # The trunk fields below are exact-match dropdowns in the Requests UI,
+    # sourced from real enterprise/department data - not free text. A value
+    # that doesn't match one of these verbatim gets stored but shows as
+    # blank when the request is later opened to edit, so every trunk name
+    # is resolved against the actual known list (case-insensitively) rather
+    # than trusted as-is.
+    customer_trunk = args.get("customer_trunk")
+    if customer_trunk and request_type in ("investigation", "rating_routing"):
+        if not resolved_client:
+            return {"error": "customer_trunk was given but no customer/enterprise was resolved to check it against."}
+        valid = resolved_client.get("customer_trunks") or []
+        matched = _match_known_trunk(customer_trunk, valid)
+        if not matched:
+            return {
+                "status": "invalid_field", "field": "customer_trunk",
+                "message": f"'{customer_trunk}' isn't a known customer trunk for {resolved_client['name']}.",
+                "valid_options": valid[:30],
+            }
+        customer_trunk = matched
+
+    trunk_name = args.get("trunk_name")
+    if request_type == "translation" and trunk_name:
+        if not resolved_client:
+            return {"error": "trunk_name was given but no customer/enterprise was resolved to check it against."}
+        valid = (resolved_client.get("customer_trunks") or []) if args.get("trunk_type") == "customer" else (resolved_client.get("vendor_trunks") or [])
+        matched = _match_known_trunk(trunk_name, valid)
+        if not matched:
+            return {
+                "status": "invalid_field", "field": "trunk_name",
+                "message": f"'{trunk_name}' isn't a known {args.get('trunk_type')} trunk for {resolved_client['name']}.",
+                "valid_options": valid[:30],
+            }
+        trunk_name = matched
+
+    vendor_trunk_names = args.get("vendor_trunk_names") or []
+    if vendor_trunk_names:
+        valid_vendor_trunks = await _bob_department_vendor_trunks(current_user, department)
+        resolved_names = []
+        for n in vendor_trunk_names:
+            matched = _match_known_trunk(n, valid_vendor_trunks)
+            if not matched:
+                return {
+                    "status": "invalid_field", "field": "vendor_trunk_names",
+                    "message": f"'{n}' isn't a known vendor trunk in the {department} department.",
+                    "valid_options": valid_vendor_trunks[:30],
+                }
+            resolved_names.append(matched)
+        vendor_trunk_names = resolved_names
+
+    vendor_trunks = [{"trunk": t} for t in vendor_trunk_names]
+    if request_type == "testing" and department == "sms" and vendor_trunks:
+        pair = [{"sid": args.get("test_sid"), "content": args.get("test_content")}]
+        vendor_trunks = [{**vt, "sid_content_pairs": pair} for vt in vendor_trunks]
+
+    customer_trunk_configs = []
+    if request_type == "rating_routing" and customer_trunk:
+        customer_trunk_configs = [{
+            "trunk": customer_trunk,
+            "rating_pairs": [{"destination": args.get("destination"), "rate": args.get("rating")}],
+        }]
+
+    payload = AMRequestCreate(
+        request_type=request_type,
+        request_type_label=type_info["label"],
+        department=department,
+        priority=args["priority"],
+        customer=customer,
+        customer_id=customer_id,
+        customer_ids=customer_ids,
+        ticket_id=args.get("ticket_id"),
+        rating=args.get("rating"),
+        customer_trunk=customer_trunk,
+        customer_trunk_configs=customer_trunk_configs,
+        destination=args.get("destination"),
+        vendor_trunks=vendor_trunks,
+        translation_type=args.get("translation_type"),
+        trunk_type=args.get("trunk_type"),
+        trunk_name=trunk_name,
+        old_value=args.get("old_value"),
+        new_value=args.get("new_value"),
+        old_sid=args.get("old_sid"),
+        new_sid=args.get("new_sid"),
+        word_to_remove=args.get("word_to_remove"),
+        test_type=args.get("test_type"),
+        lcr_type=args.get("lcr_type"),
+        lcr_change=args.get("lcr_change"),
+        issue_types=args.get("issue_types") or [],
+        issue_other=args.get("issue_other"),
+        investigation_destination=args.get("investigation_destination"),
+        issue_description=args.get("issue_description"),
+        open_by=args.get("open_by"),
+        open_tt_notes=args.get("notes"),
+        with_lcr=args.get("with_lcr"),
+        direction=args.get("direction"),
+    )
+
+    try:
+        created = await create_request(request_data=payload, current_user=current_user)
+    except HTTPException as e:
+        return {"error": e.detail}
+
+    return {
+        "status": "created",
+        "request_id": created.id,
+        "request_type_label": created.request_type_label,
+        "department": created.department,
+        "priority": created.priority,
+        "customer": created.customer,
+    }
+
+
+async def _bob_run_tool(name: str, args: dict, current_user: dict) -> dict:
+    try:
+        if name == "get_dashboard_stats":
+            return _model_dump(await get_dashboard_stats(current_user=current_user))
+        if name == "search_tickets":
+            return await _bob_search_tickets(current_user, args)
+        if name == "get_ticket_detail":
+            return await _bob_get_ticket_detail(current_user, args)
+        if name == "list_enterprises":
+            return await _bob_list_enterprises(current_user, args)
+        if name == "list_am_requests":
+            return await _bob_list_am_requests(current_user, args)
+        if name == "create_am_request":
+            return await _bob_create_am_request(current_user, args)
+        return {"error": f"Unknown tool '{name}'"}
+    except HTTPException as e:
+        return {"error": e.detail}
+    except Exception as e:
+        logger.error(f"BOB tool '{name}' failed: {e}")
+        return {"error": "That lookup failed unexpectedly."}
+
+
+async def _bob_load_history(conversation_id: str, limit: int = 24) -> list:
+    msgs = await db.chat_messages.find(
+        {"conversation_id": conversation_id, "is_deleted": {"$ne": True}, "message_type": "text"},
+        {"_id": 0, "sender_id": 1, "content": 1}
+    ).sort("created_at", -1).limit(limit).to_list(limit)
+    msgs.reverse()
+    history = []
+    for m in msgs:
+        if not m.get("content"):
+            continue
+        role = "assistant" if m.get("sender_id") == BOB_USER_ID else "user"
+        history.append({"role": role, "content": m["content"]})
+    return history
+
+
+async def generate_bob_reply(conversation_id: str, current_user: dict) -> str:
+    if not _bob_llm_configured():
+        return (
+            "I'm not fully set up yet - no AI API key is configured for this deployment. "
+            "Ask an admin to set BOB_LLM_MODEL and a matching provider API key "
+            "(e.g. OPENAI_API_KEY) in the backend environment, then I'll be ready to chat."
+        )
+
+    import litellm
+
+    history = await _bob_load_history(conversation_id)
+    messages = [{"role": "system", "content": _bob_system_prompt(current_user)}] + history
+    tools = _bob_tool_schemas(current_user)
+    extra_kwargs = {}
+    if os.environ.get("BOB_LLM_API_KEY"):
+        extra_kwargs["api_key"] = os.environ["BOB_LLM_API_KEY"]
+
+    for _ in range(6):
+        try:
+            response = await _bob_complete(
+                litellm, messages=messages, tools=tools, tool_choice="auto",
+                temperature=0.3, **extra_kwargs,
+            )
+        except Exception as e:
+            logger.error(f"BOB LLM call failed: {e}")
+            return (
+                "I hit an error reaching the AI service just now - please try again in a moment.\n"
+                f"(detail: {_bob_safe_error_detail(e)})"
+            )
+
+        choice = response.choices[0].message
+        tool_calls = getattr(choice, "tool_calls", None)
+        if not tool_calls:
+            return choice.content or "I'm not sure how to answer that - could you rephrase?"
+
+        messages.append({
+            "role": "assistant",
+            "content": choice.content or "",
+            "tool_calls": [
+                {"id": tc.id, "type": "function", "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+                for tc in tool_calls
+            ],
+        })
+        for tc in tool_calls:
+            try:
+                args = json.loads(tc.function.arguments or "{}")
+            except json.JSONDecodeError:
+                args = {}
+            result = await _bob_run_tool(tc.function.name, args, current_user)
+            messages.append({"role": "tool", "tool_call_id": tc.id, "content": json.dumps(result, default=str)})
+
+    return "I looked into that but couldn't wrap it up in time - could you narrow down the request a bit?"
+
+
+async def _bob_keep_typing(conversation_id: str, user_id: str):
+    """The frontend auto-clears a 'typing' indicator 3s after each ping, but
+    BOB's tool-calling loop against a free/rate-limited model can easily run
+    longer than that - repings every 2s so the indicator stays up the whole
+    time BOB is actually working, instead of vanishing partway through a
+    reply that's still minutes away."""
+    while True:
+        try:
+            await manager.send_personal_message(
+                {"type": "typing", "user_id": BOB_USER_ID, "user_name": "BOB", "conversation_id": conversation_id},
+                user_id
+            )
+        except Exception:
+            pass
+        await asyncio.sleep(2)
+
+
+async def handle_bob_reply(conversation_id: str, current_user: dict):
+    """Background task kicked off by POST /chat/messages whenever the other
+    participant is BOB. Runs after the HTTP response for the human's message
+    has already gone out, so the AI's latency never blocks the sender."""
+    typing_task = asyncio.create_task(_bob_keep_typing(conversation_id, current_user["id"]))
+    try:
+        reply = await generate_bob_reply(conversation_id, current_user)
+    except Exception as e:
+        logger.error(f"BOB reply failed: {e}")
+        reply = "Sorry, I ran into an unexpected error looking into that. Please try again."
+    finally:
+        typing_task.cancel()
+    await _send_bob_message(conversation_id, reply)
 
 
 # =====================
@@ -7202,6 +8366,7 @@ async def startup_init():
     """Initialize default departments and migrate users on startup"""
     await init_default_departments()
     await migrate_users_to_departments()
+    await ensure_bob_user()
     
     # Create chat collections if they don't exist
     try:
