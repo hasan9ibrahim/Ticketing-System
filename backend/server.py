@@ -7019,19 +7019,21 @@ async def get_chat_file(file_id: str):
 # create_request() function so it gets the same validation/audit trail.
 
 BOB_USER_ID = "bob-ai-assistant"
-BOB_LLM_MODEL = os.environ.get("BOB_LLM_MODEL", "claude-haiku-4-5")
+BOB_LLM_MODEL = os.environ.get("BOB_LLM_MODEL", "openrouter/google/gemini-2.5-flash:free")
 # OpenRouter's free catalog is added to / paywalled / retired without notice
 # (its own docs recommend listing a few fallbacks rather than hardcoding one
 # model id) - these are tried in order if BOB_LLM_MODEL turns out to be gone,
 # so BOB self-heals instead of going silent until someone notices and edits
 # an env var. Only used as a fallback for a "model unavailable" style error -
 # a bad key or rate limit is reported as-is, not masked by trying every model.
+# NOTE: meta-llama/llama-3.3-70b-instruct:free is deliberately not listed -
+# confirmed paywalled/retired (OpenRouter's own 404 pointed at the paid slug).
 BOB_LLM_FALLBACK_MODELS = [
-    "openrouter/google/gemini-2.0-flash-exp:free",
+    "openrouter/google/gemini-2.5-flash:free",
+    "openrouter/nvidia/nemotron-3-super:free",
     "openrouter/qwen/qwen3-coder:free",
     "openrouter/deepseek/deepseek-chat-v3.1:free",
     "openrouter/mistralai/mistral-small-3.2-24b-instruct:free",
-    "openrouter/meta-llama/llama-3.3-70b-instruct:free",
 ]
 _bob_model_state = {"current": BOB_LLM_MODEL}
 
