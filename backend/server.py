@@ -22,6 +22,7 @@ import secrets
 import hashlib
 import asyncio
 import json
+import time
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -7177,12 +7178,51 @@ def _bob_safe_error_detail(e: Exception) -> str:
     return text[:300]
 
 
-def _bob_candidate_models() -> list:
+_bob_discovered_free_models_cache = {"models": None, "fetched_at": 0.0}
+
+
+async def _bob_discover_free_openrouter_models() -> list:
+    """Ask OpenRouter's own public model catalog which models are currently
+    free (pricing 0) and tool-calling capable, instead of relying on a
+    hardcoded list of ids that goes stale whenever OpenRouter's free catalog
+    changes (which it does, without notice). Cached for an hour; any failure
+    (offline, endpoint shape change) just yields an empty list, so callers
+    fall back to the static BOB_LLM_FALLBACK_MODELS guesses."""
+    now = time.monotonic()
+    cache = _bob_discovered_free_models_cache
+    if cache["models"] is not None and now - cache["fetched_at"] < 3600:
+        return cache["models"]
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get("https://openrouter.ai/api/v1/models")
+            resp.raise_for_status()
+            data = resp.json().get("data", [])
+        free_tool_models = []
+        for m in data:
+            model_id = m.get("id") or ""
+            pricing = m.get("pricing") or {}
+            is_free = pricing.get("prompt") == "0" and pricing.get("completion") == "0"
+            supports_tools = "tools" in (m.get("supported_parameters") or [])
+            if is_free and supports_tools and model_id:
+                free_tool_models.append(f"openrouter/{model_id}")
+        cache["models"] = free_tool_models
+        cache["fetched_at"] = now
+        return free_tool_models
+    except Exception as e:
+        logger.warning(f"BOB couldn't refresh OpenRouter's free-model catalog: {e}")
+        return cache["models"] or []
+
+
+async def _bob_candidate_models() -> list:
     """Whichever model last worked, tried first, then the configured model,
-    then the rest of the fallback list - each only once."""
+    then OpenRouter's currently-free tool-capable models (freshly
+    discovered), then the static fallback guesses as a last resort - each
+    only once."""
+    discovered = await _bob_discover_free_openrouter_models()
     seen = set()
     ordered = []
-    for m in [_bob_model_state["current"], BOB_LLM_MODEL] + BOB_LLM_FALLBACK_MODELS:
+    for m in [_bob_model_state["current"], BOB_LLM_MODEL] + discovered + BOB_LLM_FALLBACK_MODELS:
         if m and m not in seen:
             seen.add(m)
             ordered.append(m)
@@ -7206,7 +7246,7 @@ def _is_missing_model_error(e: Exception) -> bool:
 
 async def _bob_complete(litellm_module, **kwargs):
     last_error = None
-    for model in _bob_candidate_models():
+    for model in await _bob_candidate_models():
         try:
             response = await litellm_module.acompletion(model=model, **kwargs)
             if model != _bob_model_state["current"]:
