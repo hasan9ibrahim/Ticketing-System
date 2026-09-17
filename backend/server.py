@@ -7018,7 +7018,7 @@ async def get_chat_file(file_id: str):
 # create_request() function so it gets the same validation/audit trail.
 
 BOB_USER_ID = "bob-ai-assistant"
-BOB_LLM_MODEL = os.environ.get("BOB_LLM_MODEL", "gpt-4o-mini")
+BOB_LLM_MODEL = os.environ.get("BOB_LLM_MODEL", "openrouter/meta-llama/llama-3.3-70b-instruct:free")
 
 # request_type -> (display label, department this type is restricted to, or
 # None if it's available to both SMS and Voice AMs). Mirrors REQUEST_TYPES in
@@ -7153,7 +7153,7 @@ async def _send_bob_message(conversation_id: str, content: str):
 def _bob_llm_configured() -> bool:
     return any(os.environ.get(k) for k in (
         "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY",
-        "AZURE_API_KEY", "BOB_LLM_API_KEY",
+        "AZURE_API_KEY", "OPENROUTER_API_KEY", "BOB_LLM_API_KEY",
     ))
 
 
