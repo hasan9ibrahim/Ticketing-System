@@ -7308,7 +7308,11 @@ def _bob_system_prompt(current_user: dict) -> str:
             "LCR [Voice only], Investigation, New Trunk Request, Open TT) with the create_am_request tool. Collect "
             "every mandatory field for the chosen type through conversation first, show the user a short summary, "
             "and only call create_am_request after they confirm it. If create_am_request returns missing_fields, "
-            "ask the user for exactly those fields and try again - don't guess values. Required fields per type:\n"
+            "ask the user for exactly those fields and try again - don't guess values. Trunk names (customer_trunk, "
+            "trunk_name, vendor_trunk_names) must be the exact trunk name as it exists in the system, not a "
+            "paraphrase - if create_am_request returns invalid_field, show the user the returned valid_options list "
+            "and have them pick one (use list_enterprises to see an enterprise's own customer/vendor trunks up "
+            "front if you're unsure), then retry with the exact string. Required fields per type:\n"
             + BOB_MANDATORY_FIELDS_HELP
         )
     else:
@@ -7566,6 +7570,29 @@ async def _resolve_bob_customer(name: str, department: str) -> dict:
     raise ValueError(f"No enterprise named '{name}' found in the {department} department.")
 
 
+def _match_known_trunk(name: str, valid_trunks: list) -> Optional[str]:
+    """Case-insensitive exact match against a known-good trunk name list,
+    returning the list's own casing (never None -> caller decides that's a
+    genuine mismatch). The trunk fields on a request are exact-match
+    dropdowns in the UI sourced from this same data, not free text - a value
+    that doesn't match one of these verbatim shows as blank when someone
+    opens the request to edit it, even though it's really stored."""
+    if not name:
+        return None
+    name_l = name.strip().lower()
+    for t in valid_trunks:
+        if (t or "").strip().lower() == name_l:
+            return t
+    return None
+
+
+async def _bob_department_vendor_trunks(current_user: dict, department: str) -> list:
+    """The same department-wide, deduplicated vendor trunk list the
+    Requests page's Vendor Trunk dropdown is populated from."""
+    data = await get_reference_trunks(section=department, current_user=current_user)
+    return data.get("vendor_trunks", [])
+
+
 async def _bob_create_am_request(current_user: dict, args: dict) -> dict:
     if current_user.get("role") != "am":
         return {"error": "Only Account Managers can create requests. This account isn't an AM."}
@@ -7611,26 +7638,77 @@ async def _bob_create_am_request(current_user: dict, args: dict) -> dict:
     customer = None
     customer_id = None
     customer_ids = []
+    resolved_client = None
     try:
         if args.get("customer_names"):
-            resolved = [await _resolve_bob_customer(n, department) for n in args["customer_names"]]
-            customer_ids = [c["id"] for c in resolved]
-            customer = ", ".join(c["name"] for c in resolved)
+            resolved_clients = [await _resolve_bob_customer(n, department) for n in args["customer_names"]]
+            customer_ids = [c["id"] for c in resolved_clients]
+            customer = ", ".join(c["name"] for c in resolved_clients)
+            resolved_client = resolved_clients[0] if resolved_clients else None
         elif args.get("customer_name"):
-            c = await _resolve_bob_customer(args["customer_name"], department)
-            customer, customer_id = c["name"], c["id"]
+            resolved_client = await _resolve_bob_customer(args["customer_name"], department)
+            customer, customer_id = resolved_client["name"], resolved_client["id"]
     except ValueError as e:
         return {"error": str(e)}
 
-    vendor_trunks = [{"trunk": t} for t in (args.get("vendor_trunk_names") or []) if t]
+    # The trunk fields below are exact-match dropdowns in the Requests UI,
+    # sourced from real enterprise/department data - not free text. A value
+    # that doesn't match one of these verbatim gets stored but shows as
+    # blank when the request is later opened to edit, so every trunk name
+    # is resolved against the actual known list (case-insensitively) rather
+    # than trusted as-is.
+    customer_trunk = args.get("customer_trunk")
+    if customer_trunk and request_type in ("investigation", "rating_routing"):
+        if not resolved_client:
+            return {"error": "customer_trunk was given but no customer/enterprise was resolved to check it against."}
+        valid = resolved_client.get("customer_trunks") or []
+        matched = _match_known_trunk(customer_trunk, valid)
+        if not matched:
+            return {
+                "status": "invalid_field", "field": "customer_trunk",
+                "message": f"'{customer_trunk}' isn't a known customer trunk for {resolved_client['name']}.",
+                "valid_options": valid[:30],
+            }
+        customer_trunk = matched
+
+    trunk_name = args.get("trunk_name")
+    if request_type == "translation" and trunk_name:
+        if not resolved_client:
+            return {"error": "trunk_name was given but no customer/enterprise was resolved to check it against."}
+        valid = (resolved_client.get("customer_trunks") or []) if args.get("trunk_type") == "customer" else (resolved_client.get("vendor_trunks") or [])
+        matched = _match_known_trunk(trunk_name, valid)
+        if not matched:
+            return {
+                "status": "invalid_field", "field": "trunk_name",
+                "message": f"'{trunk_name}' isn't a known {args.get('trunk_type')} trunk for {resolved_client['name']}.",
+                "valid_options": valid[:30],
+            }
+        trunk_name = matched
+
+    vendor_trunk_names = args.get("vendor_trunk_names") or []
+    if vendor_trunk_names:
+        valid_vendor_trunks = await _bob_department_vendor_trunks(current_user, department)
+        resolved_names = []
+        for n in vendor_trunk_names:
+            matched = _match_known_trunk(n, valid_vendor_trunks)
+            if not matched:
+                return {
+                    "status": "invalid_field", "field": "vendor_trunk_names",
+                    "message": f"'{n}' isn't a known vendor trunk in the {department} department.",
+                    "valid_options": valid_vendor_trunks[:30],
+                }
+            resolved_names.append(matched)
+        vendor_trunk_names = resolved_names
+
+    vendor_trunks = [{"trunk": t} for t in vendor_trunk_names]
     if request_type == "testing" and department == "sms" and vendor_trunks:
         pair = [{"sid": args.get("test_sid"), "content": args.get("test_content")}]
         vendor_trunks = [{**vt, "sid_content_pairs": pair} for vt in vendor_trunks]
 
     customer_trunk_configs = []
-    if request_type == "rating_routing" and args.get("customer_trunk"):
+    if request_type == "rating_routing" and customer_trunk:
         customer_trunk_configs = [{
-            "trunk": args["customer_trunk"],
+            "trunk": customer_trunk,
             "rating_pairs": [{"destination": args.get("destination"), "rate": args.get("rating")}],
         }]
 
@@ -7644,13 +7722,13 @@ async def _bob_create_am_request(current_user: dict, args: dict) -> dict:
         customer_ids=customer_ids,
         ticket_id=args.get("ticket_id"),
         rating=args.get("rating"),
-        customer_trunk=args.get("customer_trunk"),
+        customer_trunk=customer_trunk,
         customer_trunk_configs=customer_trunk_configs,
         destination=args.get("destination"),
         vendor_trunks=vendor_trunks,
         translation_type=args.get("translation_type"),
         trunk_type=args.get("trunk_type"),
-        trunk_name=args.get("trunk_name"),
+        trunk_name=trunk_name,
         old_value=args.get("old_value"),
         new_value=args.get("new_value"),
         old_sid=args.get("old_sid"),
