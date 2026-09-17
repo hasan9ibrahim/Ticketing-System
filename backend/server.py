@@ -38,43 +38,89 @@ if not SECRET_KEY:
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_DAYS = 30
 
-# Email configuration
-SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.gmail.com")
-SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
-SMTP_USER = os.environ.get("SMTP_USER", "")
-SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
-FROM_EMAIL = os.environ.get("FROM_EMAIL", SMTP_USER)
+# Email configuration - env vars are the fallback defaults; admins can
+# override them at runtime via the /admin/smtp-settings endpoints, which
+# persist to the "smtp_config" document in db.settings.
+SMTP_SETTINGS_ID = "smtp_config"
+DEFAULT_SMTP_SETTINGS = {
+    "smtp_host": os.environ.get("SMTP_HOST", "smtp.gmail.com"),
+    "smtp_port": int(os.environ.get("SMTP_PORT", "587")),
+    "smtp_username": os.environ.get("SMTP_USER", ""),
+    "smtp_password": os.environ.get("SMTP_PASSWORD", ""),
+    "from_email": os.environ.get("FROM_EMAIL", "") or os.environ.get("SMTP_USER", ""),
+    "use_tls": True,
+}
 
-async def send_email(to_email: str, subject: str, body: str):
-    """Send an email using SMTP"""
+async def get_smtp_config() -> dict:
+    """Merge the stored admin-configured SMTP settings over the env var defaults."""
+    stored = await db.settings.find_one({"id": SMTP_SETTINGS_ID}, {"_id": 0})
+    config = dict(DEFAULT_SMTP_SETTINGS)
+    if stored:
+        for key in config:
+            value = stored.get(key)
+            if value not in (None, ""):
+                config[key] = value
+    if not config["from_email"]:
+        config["from_email"] = config["smtp_username"]
+    return config
+
+async def send_email(to_email: str, subject: str, body: str) -> bool:
+    """Send an email using the currently configured SMTP settings. Returns
+    True on success, False if SMTP isn't configured or sending failed."""
     import aiosmtplib
     from email.mime.text import MIMEText
     from email.mime.multipart import MIMEMultipart
-    
+
+    config = await get_smtp_config()
+
     # Check if SMTP is configured
-    if not SMTP_USER or not SMTP_PASSWORD or not FROM_EMAIL:
+    if not config["smtp_username"] or not config["smtp_password"] or not config["from_email"]:
         logger.warning("SMTP not configured, skipping email send")
-        return
-    
+        return False
+
     msg = MIMEMultipart()
-    msg["From"] = FROM_EMAIL
+    msg["From"] = config["from_email"]
     msg["To"] = to_email
     msg["Subject"] = subject
     msg.attach(MIMEText(body, "plain"))
-    
+
     try:
         await aiosmtplib.send(
             message=msg,
-            hostname=SMTP_HOST,
-            port=SMTP_PORT,
-            username=SMTP_USER,
-            password=SMTP_PASSWORD,
-            start_tls=True
+            hostname=config["smtp_host"],
+            port=config["smtp_port"],
+            username=config["smtp_username"],
+            password=config["smtp_password"],
+            start_tls=config["use_tls"]
         )
+        return True
     except Exception as e:
         logger.error(f"Failed to send email: {e}")
-        # Don't raise - just log the error
-        pass
+        return False
+
+def generate_otp_code() -> tuple[str, str]:
+    """Generate a 6-digit numeric OTP and its ISO expiry timestamp (10 minutes)."""
+    code = f"{secrets.randbelow(1000000):06d}"
+    expires = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
+    return code, expires
+
+def is_code_expired(expires_at) -> bool:
+    if not expires_at:
+        return True
+    expires_dt = datetime.fromisoformat(expires_at) if isinstance(expires_at, str) else expires_at
+    if expires_dt.tzinfo is None:
+        expires_dt = expires_dt.replace(tzinfo=timezone.utc)
+    return datetime.now(timezone.utc) > expires_dt
+
+def mask_email(email: str) -> str:
+    if not email or "@" not in email:
+        return email
+    local, domain = email.split("@", 1)
+    if len(local) <= 2:
+        masked_local = local[0] + "*" * (len(local) - 1)
+    else:
+        masked_local = local[0] + "*" * (len(local) - 2) + local[-1]
+    return f"{masked_local}@{domain}"
 
 # Create the main app
 app = FastAPI()
@@ -366,12 +412,33 @@ class UserUpdate(BaseModel):
     am_type: Optional[str] = None  # Deprecated
     password: Optional[str] = None  # Admin can change password
     two_factor_enabled: Optional[bool] = None  # Admin can enable/disable 2FA
-    two_factor_method: Optional[str] = None  # Admin can set 2FA method (only 'totp' supported)
+    two_factor_method: Optional[str] = None  # Admin can set 2FA method ('totp' or 'email')
     can_view_my_enterprises: Optional[bool] = None  # Admin can toggle AM's access to My Enterprises
 
 class TwoFactorSetup(BaseModel):
     """Model for setting up 2FA"""
-    method: str  # "totp" (Google Authenticator only)
+    method: str  # "totp" (Google Authenticator) or "email"
+
+class SMTPSettingsUpdate(BaseModel):
+    """Model for admin-editable SMTP configuration"""
+    smtp_host: Optional[str] = None
+    smtp_port: Optional[int] = None
+    smtp_username: Optional[str] = None
+    smtp_password: Optional[str] = None  # Only overwritten when provided
+    from_email: Optional[str] = None
+    use_tls: Optional[bool] = None
+
+class SMTPSettingsResponse(BaseModel):
+    """SMTP configuration as returned to the admin UI - password is never echoed back"""
+    smtp_host: str
+    smtp_port: int
+    smtp_username: str
+    from_email: str
+    use_tls: bool
+    smtp_password_set: bool
+
+class SMTPTestRequest(BaseModel):
+    to_email: str
 
 class TwoFactorVerify(BaseModel):
     """Model for verifying 2FA code"""
@@ -1395,7 +1462,7 @@ async def login(login_data: UserLogin):
     # Check if 2FA is enabled
     if user.get("two_factor_enabled"):
         method = user.get("two_factor_method")
-        
+
         if method == "totp":
             # Return partial login - needs TOTP
             return TwoFactorResponse(
@@ -1404,7 +1471,27 @@ async def login(login_data: UserLogin):
                 method="totp",
                 message="Please enter your 2FA code"
             )
-    
+
+        if method == "email":
+            code, expires = generate_otp_code()
+            await db.users.update_one(
+                {"id": user["id"]},
+                {"$set": {"two_factor_code": code, "two_factor_code_expires": expires}}
+            )
+            sent = await send_email(
+                user["email"],
+                "Your WiiTelecom Login Verification Code",
+                f"Your login verification code is: {code}\n\nThis code expires in 10 minutes."
+            )
+            if not sent:
+                raise HTTPException(status_code=500, detail="Failed to send verification email. Please contact your administrator.")
+            return TwoFactorResponse(
+                two_factor_required=True,
+                user_id=user["id"],
+                method="email",
+                message=f"A verification code was sent to {mask_email(user['email'])}"
+            )
+
     # No 2FA - complete login normally
     # Update last_active on login
     await db.users.update_one(
@@ -1491,11 +1578,12 @@ async def logout(current_user: dict = Depends(get_current_user)):
 
 @api_router.post("/auth/password-reset/request")
 async def request_password_reset(reset_data: dict):
-    """Request password reset - requires Google Authenticator verification"""
+    """Request password reset. Users with Google Authenticator 2FA verify with
+    their TOTP code; everyone else gets a one-time code emailed to them."""
     identifier = reset_data.get("identifier")
     if not identifier:
         raise HTTPException(status_code=400, detail="Identifier is required")
-    
+
     # Find user by username or email
     user = await db.users.find_one({
         "$or": [
@@ -1503,32 +1591,41 @@ async def request_password_reset(reset_data: dict):
             {"email": identifier}
         ]
     })
-    
+
     if not user:
         # Don't reveal if user exists
-        return {"message": "If the user exists, a verification code has been sent"}
-    
-    # Check if user has 2FA enabled with TOTP
-    if not user.get("two_factor_enabled"):
-        raise HTTPException(status_code=400, detail="User does not have 2FA enabled. Please contact admin.")
-    
-    method = user.get("two_factor_method")
-    
-    if method != "totp":
-        raise HTTPException(status_code=400, detail="Password reset requires Google Authenticator. Please contact admin.")
-    
-    # For TOTP, user will enter their current TOTP code as verification
-    return {"method": "totp", "message": "Enter your Google Authenticator code"}
+        return {"method": "email", "message": "If the user exists, a verification code has been sent"}
+
+    if user.get("two_factor_enabled") and user.get("two_factor_method") == "totp":
+        # For TOTP, user will enter their current TOTP code as verification
+        return {"method": "totp", "message": "Enter your Google Authenticator code"}
+
+    # Everyone else resets via a code emailed to their address on file
+    code, expires = generate_otp_code()
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$set": {"password_reset_code": code, "password_reset_code_expires": expires}}
+    )
+    sent = await send_email(
+        user["email"],
+        "Your WiiTelecom Password Reset Code",
+        f"Your password reset code is: {code}\n\nThis code expires in 10 minutes. If you did not request this, you can ignore this email."
+    )
+    if not sent:
+        raise HTTPException(status_code=500, detail="Failed to send password reset email. Please contact your administrator.")
+
+    return {"method": "email", "message": f"A verification code was sent to {mask_email(user['email'])}"}
 
 @api_router.post("/auth/password-reset/verify")
 async def verify_password_reset(verify_data: dict):
-    """Verify password reset code using Google Authenticator"""
+    """Verify a password reset code, either a live Google Authenticator code
+    or the emailed one-time code, depending on the user's 2FA method."""
     identifier = verify_data.get("identifier")
     code = verify_data.get("code")
-    
+
     if not identifier or not code:
         raise HTTPException(status_code=400, detail="Identifier and code are required")
-    
+
     # Find user
     user = await db.users.find_one({
         "$or": [
@@ -1536,36 +1633,41 @@ async def verify_password_reset(verify_data: dict):
             {"email": identifier}
         ]
     })
-    
+
     if not user:
         raise HTTPException(status_code=400, detail="Invalid code")
-    
-    method = user.get("two_factor_method")
-    
-    if method != "totp":
-        raise HTTPException(status_code=400, detail="Password reset requires Google Authenticator")
-    
-    # For TOTP, verify using live TOTP code
-    secret = user.get("two_factor_secret")
-    if not secret:
-        raise HTTPException(status_code=400, detail="2FA not properly configured")
-    
-    totp = pyotp.TOTP(secret)
-    if not totp.verify(code, valid_window=1):
-        raise HTTPException(status_code=400, detail="Invalid verification code")
-    
+
+    if user.get("two_factor_enabled") and user.get("two_factor_method") == "totp":
+        secret = user.get("two_factor_secret")
+        if not secret:
+            raise HTTPException(status_code=400, detail="2FA not properly configured")
+
+        totp = pyotp.TOTP(secret)
+        if not totp.verify(code, valid_window=1):
+            raise HTTPException(status_code=400, detail="Invalid verification code")
+    else:
+        stored_code = user.get("password_reset_code")
+        expires = user.get("password_reset_code_expires")
+        if not stored_code:
+            raise HTTPException(status_code=400, detail="No password reset request found. Please request a new code.")
+        if is_code_expired(expires):
+            raise HTTPException(status_code=400, detail="Verification code expired. Please request a new code.")
+        if code.strip() != stored_code:
+            raise HTTPException(status_code=400, detail="Invalid verification code")
+
     return {"message": "Code verified successfully"}
 
 @api_router.post("/auth/password-reset/confirm")
 async def confirm_password_reset(reset_data: dict):
-    """Confirm password reset with new password using Google Authenticator"""
+    """Confirm password reset with new password, verifying with either the
+    live Google Authenticator code or the emailed one-time code."""
     identifier = reset_data.get("identifier")
     code = reset_data.get("code")
     new_password = reset_data.get("new_password")
-    
+
     if not identifier or not code or not new_password:
         raise HTTPException(status_code=400, detail="All fields are required")
-    
+
     # Find user
     user = await db.users.find_one({
         "$or": [
@@ -1573,36 +1675,44 @@ async def confirm_password_reset(reset_data: dict):
             {"email": identifier}
         ]
     })
-    
+
     if not user:
         raise HTTPException(status_code=400, detail="Invalid request")
-    
-    method = user.get("two_factor_method")
-    
-    if method != "totp":
-        raise HTTPException(status_code=400, detail="Password reset requires Google Authenticator")
-    
-    # For TOTP, verify the current TOTP code
-    secret = user.get("two_factor_secret")
-    if not secret:
-        raise HTTPException(status_code=400, detail="2FA not properly configured")
-    
-    totp = pyotp.TOTP(secret)
-    if not totp.verify(code, valid_window=1):
-        raise HTTPException(status_code=400, detail="Invalid verification code")
-    
+
+    if user.get("two_factor_enabled") and user.get("two_factor_method") == "totp":
+        secret = user.get("two_factor_secret")
+        if not secret:
+            raise HTTPException(status_code=400, detail="2FA not properly configured")
+
+        totp = pyotp.TOTP(secret)
+        if not totp.verify(code, valid_window=1):
+            raise HTTPException(status_code=400, detail="Invalid verification code")
+    else:
+        stored_code = user.get("password_reset_code")
+        expires = user.get("password_reset_code_expires")
+        if not stored_code:
+            raise HTTPException(status_code=400, detail="No password reset request found. Please request a new code.")
+        if is_code_expired(expires):
+            raise HTTPException(status_code=400, detail="Verification code expired. Please request a new code.")
+        if code.strip() != stored_code:
+            raise HTTPException(status_code=400, detail="Invalid verification code")
+
     # Update password
     from passlib.context import CryptContext
     pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
     password_hash = pwd_context.hash(new_password)
-    
+
     await db.users.update_one(
         {"id": user["id"]},
         {"$set": {
             "password_hash": password_hash
         }}
     )
-    
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$unset": {"password_reset_code": "", "password_reset_code_expires": ""}}
+    )
+
     return {"message": "Password reset successfully"}
 
 @api_router.get("/auth/me", response_model=UserResponse)
@@ -1618,15 +1728,15 @@ async def setup_2fa(setup_data: TwoFactorSetup, current_user: dict = Depends(get
     """Setup 2FA for the current user"""
     print(f"[DEBUG] setup_2fa called, current_user: {current_user.get('id')}, username: {current_user.get('username')}, method: {setup_data.method}")
     method = setup_data.method
-    
-    if method not in ["totp"]:
-        raise HTTPException(status_code=400, detail="Invalid 2FA method. Use 'totp' (Google Authenticator)")
-    
+
+    if method not in ["totp", "email"]:
+        raise HTTPException(status_code=400, detail="Invalid 2FA method. Use 'totp' (Google Authenticator) or 'email'")
+
     if method == "totp":
         # Generate TOTP secret
         secret = pyotp.random_base32()
         print(f"[DEBUG] Generating TOTP secret for user {current_user['id']}: {secret}")
-        
+
         # Save secret to user (pending verification) - clear any previous email settings
         await db.users.update_one(
             {"id": current_user["id"]},
@@ -1638,7 +1748,7 @@ async def setup_2fa(setup_data: TwoFactorSetup, current_user: dict = Depends(get
                 "two_factor_code_expires": None
             }}
         )
-        
+
         # Generate QR code URL for Google Authenticator
         totp = pyotp.TOTP(secret)
         provisioning_uri = totp.provisioning_uri(
@@ -1646,13 +1756,40 @@ async def setup_2fa(setup_data: TwoFactorSetup, current_user: dict = Depends(get
             issuer_name="WiiTelecom"
         )
         print(f"[DEBUG] Generated provisioning_uri: {provisioning_uri}")
-        
+
         return {
             "secret": secret,
             "provisioning_uri": provisioning_uri,
             "message": "Scan the QR code with Google Authenticator, then verify with a code"
         }
-    
+
+    if method == "email":
+        email = current_user.get("email")
+        if not email:
+            raise HTTPException(status_code=400, detail="Your account has no email address on file. Please contact admin.")
+
+        code, expires = generate_otp_code()
+        await db.users.update_one(
+            {"id": current_user["id"]},
+            {"$set": {
+                "two_factor_method": "email",
+                "two_factor_pending": True,
+                "two_factor_code": code,
+                "two_factor_code_expires": expires,
+                "two_factor_secret": None
+            }}
+        )
+
+        sent = await send_email(
+            email,
+            "Your WiiTelecom Verification Code",
+            f"Your two-factor authentication setup code is: {code}\n\nThis code expires in 10 minutes."
+        )
+        if not sent:
+            raise HTTPException(status_code=400, detail="Failed to send verification email. Please check SMTP settings with your administrator.")
+
+        return {"message": f"Verification code sent to {mask_email(email)}"}
+
 @api_router.post("/auth/2fa/verify")
 async def verify_2fa(verify_data: TwoFactorVerify, current_user: dict = Depends(get_current_user)):
     """Verify 2FA setup with a code"""
@@ -1684,7 +1821,16 @@ async def verify_2fa(verify_data: TwoFactorVerify, current_user: dict = Depends(
         
         if not is_valid:
             raise HTTPException(status_code=400, detail="Invalid verification code")
-    
+    elif method == "email":
+        stored_code = user.get("two_factor_code")
+        expires = user.get("two_factor_code_expires")
+        if not stored_code:
+            raise HTTPException(status_code=400, detail="No pending verification code")
+        if is_code_expired(expires):
+            raise HTTPException(status_code=400, detail="Verification code expired. Please restart setup.")
+        if verify_data.code.strip() != stored_code:
+            raise HTTPException(status_code=400, detail="Invalid verification code")
+
     # Enable 2FA (keep the secret for future authentication)
     await db.users.update_one(
         {"id": current_user["id"]},
@@ -1747,7 +1893,16 @@ async def verify_2fa_login(login_data: TwoFactorLogin):
         totp = pyotp.TOTP(secret)
         if not totp.verify(login_data.code, valid_window=1):
             raise HTTPException(status_code=400, detail="Invalid 2FA code")
-    
+    elif method == "email":
+        stored_code = user.get("two_factor_code")
+        expires = user.get("two_factor_code_expires")
+        if not stored_code:
+            raise HTTPException(status_code=400, detail="No pending verification code. Please login again.")
+        if is_code_expired(expires):
+            raise HTTPException(status_code=400, detail="Verification code expired. Please login again.")
+        if login_data.code.strip() != stored_code:
+            raise HTTPException(status_code=400, detail="Invalid 2FA code")
+
     # Clear the 2FA code after successful verification
     await db.users.update_one(
         {"id": login_data.user_id},
@@ -1788,8 +1943,100 @@ async def verify_2fa_login(login_data: TwoFactorLogin):
     
     access_token = create_access_token(data={"sub": user["id"]})
     user_response = UserResponse(**user)
-    
+
     return Token(access_token=access_token, token_type="bearer", user=user_response)
+
+@api_router.post("/auth/2fa/resend")
+async def resend_2fa_code(data: dict):
+    """Resend the email 2FA login code (e.g. if it expired or wasn't received)"""
+    user_id = data.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id is required")
+
+    user = await db.users.find_one({"id": user_id})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if not user.get("two_factor_enabled") or user.get("two_factor_method") != "email":
+        raise HTTPException(status_code=400, detail="Email 2FA is not enabled for this user")
+
+    code, expires = generate_otp_code()
+    await db.users.update_one(
+        {"id": user_id},
+        {"$set": {"two_factor_code": code, "two_factor_code_expires": expires}}
+    )
+    sent = await send_email(
+        user["email"],
+        "Your WiiTelecom Login Verification Code",
+        f"Your login verification code is: {code}\n\nThis code expires in 10 minutes."
+    )
+    if not sent:
+        raise HTTPException(status_code=500, detail="Failed to resend verification email. Please contact your administrator.")
+
+    return {"message": f"A new verification code was sent to {mask_email(user['email'])}"}
+
+# ==================== SMTP / EMAIL SETTINGS (ADMIN) ====================
+
+@api_router.get("/admin/smtp-settings", response_model=SMTPSettingsResponse)
+async def get_smtp_settings(current_admin: dict = Depends(get_current_admin)):
+    """Get the current SMTP configuration - admin only. Password is never returned."""
+    config = await get_smtp_config()
+    return SMTPSettingsResponse(
+        smtp_host=config["smtp_host"],
+        smtp_port=config["smtp_port"],
+        smtp_username=config["smtp_username"],
+        from_email=config["from_email"],
+        use_tls=config["use_tls"],
+        smtp_password_set=bool(config["smtp_password"])
+    )
+
+@api_router.put("/admin/smtp-settings", response_model=SMTPSettingsResponse)
+async def update_smtp_settings(settings_data: SMTPSettingsUpdate, current_admin: dict = Depends(get_current_admin)):
+    """Update the SMTP configuration used for 2FA and password-reset emails - admin only."""
+    update_dict = {k: v for k, v in settings_data.model_dump().items() if v is not None}
+
+    if not update_dict:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    await db.settings.update_one(
+        {"id": SMTP_SETTINGS_ID},
+        {"$set": update_dict, "$setOnInsert": {"id": SMTP_SETTINGS_ID}},
+        upsert=True
+    )
+
+    # Create audit log for SMTP settings update (never log the password itself)
+    await create_audit_log(
+        user_id=current_admin["id"],
+        username=current_admin.get("username", "admin"),
+        action="update",
+        entity_type="smtp_settings",
+        entity_id=SMTP_SETTINGS_ID,
+        entity_name="SMTP Settings",
+        changes={"fields_updated": [k for k in update_dict if k != "smtp_password"] + (["smtp_password"] if "smtp_password" in update_dict else [])}
+    )
+
+    config = await get_smtp_config()
+    return SMTPSettingsResponse(
+        smtp_host=config["smtp_host"],
+        smtp_port=config["smtp_port"],
+        smtp_username=config["smtp_username"],
+        from_email=config["from_email"],
+        use_tls=config["use_tls"],
+        smtp_password_set=bool(config["smtp_password"])
+    )
+
+@api_router.post("/admin/smtp-settings/test")
+async def test_smtp_settings(test_data: SMTPTestRequest, current_admin: dict = Depends(get_current_admin)):
+    """Send a test email using the currently saved SMTP configuration - admin only."""
+    sent = await send_email(
+        test_data.to_email,
+        "WiiTelecom Ticketing System - Test Email",
+        "This is a test email confirming your SMTP configuration is working correctly."
+    )
+    if not sent:
+        raise HTTPException(status_code=400, detail="Failed to send test email. Check the SMTP settings and server logs.")
+
+    return {"message": f"Test email sent to {test_data.to_email}"}
 
 
 class NotificationPreferencesUpdate(BaseModel):
@@ -2080,6 +2327,10 @@ async def update_user(user_id: str, user_data: UserUpdate, current_admin: dict =
         pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
         update_dict["password_hash"] = pwd_context.hash(update_dict.pop("password"))
     
+    # Get the user before update for audit (also needed below to resolve the
+    # target's email address when admin force-enables email 2FA)
+    user_before = await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})
+
     # Handle 2FA setup when admin enables it
     if update_dict.get("two_factor_enabled") and update_dict.get("two_factor_method") == "totp":
         # Generate TOTP secret
@@ -2087,9 +2338,21 @@ async def update_user(user_id: str, user_data: UserUpdate, current_admin: dict =
         update_dict["two_factor_secret"] = secret
         # Mark as pending so user must verify before 2FA is active
         update_dict["two_factor_pending"] = True
-    
-    # Get the user before update for audit
-    user_before = await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})
+    elif update_dict.get("two_factor_enabled") and update_dict.get("two_factor_method") == "email":
+        target_email = update_dict.get("email") or (user_before or {}).get("email")
+        if not target_email:
+            raise HTTPException(status_code=400, detail="User has no email address on file for email 2FA")
+        code, expires = generate_otp_code()
+        update_dict["two_factor_code"] = code
+        update_dict["two_factor_code_expires"] = expires
+        update_dict["two_factor_pending"] = True
+        sent = await send_email(
+            target_email,
+            "Your WiiTelecom Verification Code",
+            f"Your two-factor authentication setup code is: {code}\n\nThis code expires in 10 minutes."
+        )
+        if not sent:
+            raise HTTPException(status_code=400, detail="Failed to send verification email. Check SMTP settings.")
     
     result = await db.users.find_one_and_update(
         {"id": user_id},
