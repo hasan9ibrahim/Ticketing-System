@@ -7150,6 +7150,19 @@ async def _send_bob_message(conversation_id: str, content: str):
         await manager.send_personal_message({"type": "new_message", "message": message_payload}, participant_id)
 
 
+_SECRET_LIKE_RE = re.compile(r"(sk-[A-Za-z0-9_-]{6,}|Bearer\s+\S+|[A-Za-z0-9_-]{24,})")
+
+
+def _bob_safe_error_detail(e: Exception) -> str:
+    """A short, chat-safe summary of an LLM call failure - enough to
+    self-diagnose (wrong model id, bad/missing key, rate limit, provider
+    outage) without a backend log, and with anything key-shaped redacted in
+    case a provider ever echoes the Authorization header back in an error."""
+    text = f"{type(e).__name__}: {e}"
+    text = _SECRET_LIKE_RE.sub("[redacted]", text)
+    return text[:300]
+
+
 def _bob_llm_configured() -> bool:
     return any(os.environ.get(k) for k in (
         "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY",
@@ -7620,7 +7633,10 @@ async def generate_bob_reply(conversation_id: str, current_user: dict) -> str:
             )
         except Exception as e:
             logger.error(f"BOB LLM call failed: {e}")
-            return "I hit an error reaching the AI service just now - please try again in a moment."
+            return (
+                "I hit an error reaching the AI service just now - please try again in a moment.\n"
+                f"(detail: {_bob_safe_error_detail(e)})"
+            )
 
         choice = response.choices[0].message
         tool_calls = getattr(choice, "tool_calls", None)
