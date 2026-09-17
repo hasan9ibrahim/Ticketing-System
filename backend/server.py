@@ -64,9 +64,12 @@ async def get_smtp_config() -> dict:
         config["from_email"] = config["smtp_username"]
     return config
 
-async def send_email(to_email: str, subject: str, body: str) -> bool:
+async def send_email(to_email: str, subject: str, body: str) -> tuple[bool, str]:
     """Send an email using the currently configured SMTP settings. Returns
-    True on success, False if SMTP isn't configured or sending failed."""
+    (True, "") on success, or (False, reason) if SMTP isn't configured or
+    sending failed - the reason is safe to show to admins (e.g. in the SMTP
+    test endpoint) but callers sending to end users should use a generic
+    message instead of relaying raw SMTP errors."""
     import aiosmtplib
     from email.mime.text import MIMEText
     from email.mime.multipart import MIMEMultipart
@@ -75,8 +78,9 @@ async def send_email(to_email: str, subject: str, body: str) -> bool:
 
     # Check if SMTP is configured
     if not config["smtp_username"] or not config["smtp_password"] or not config["from_email"]:
-        logger.warning("SMTP not configured, skipping email send")
-        return False
+        reason = "SMTP is not configured. Set the SMTP username, password, and from address in Email Settings."
+        logger.warning(reason)
+        return False, reason
 
     msg = MIMEMultipart()
     msg["From"] = config["from_email"]
@@ -93,10 +97,10 @@ async def send_email(to_email: str, subject: str, body: str) -> bool:
             password=config["smtp_password"],
             start_tls=config["use_tls"]
         )
-        return True
+        return True, ""
     except Exception as e:
         logger.error(f"Failed to send email: {e}")
-        return False
+        return False, str(e)
 
 def generate_otp_code() -> tuple[str, str]:
     """Generate a 6-digit numeric OTP and its ISO expiry timestamp (10 minutes)."""
@@ -1478,7 +1482,7 @@ async def login(login_data: UserLogin):
                 {"id": user["id"]},
                 {"$set": {"two_factor_code": code, "two_factor_code_expires": expires}}
             )
-            sent = await send_email(
+            sent, _ = await send_email(
                 user["email"],
                 "Your WiiTelecom Login Verification Code",
                 f"Your login verification code is: {code}\n\nThis code expires in 10 minutes."
@@ -1606,7 +1610,7 @@ async def request_password_reset(reset_data: dict):
         {"id": user["id"]},
         {"$set": {"password_reset_code": code, "password_reset_code_expires": expires}}
     )
-    sent = await send_email(
+    sent, _ = await send_email(
         user["email"],
         "Your WiiTelecom Password Reset Code",
         f"Your password reset code is: {code}\n\nThis code expires in 10 minutes. If you did not request this, you can ignore this email."
@@ -1780,7 +1784,7 @@ async def setup_2fa(setup_data: TwoFactorSetup, current_user: dict = Depends(get
             }}
         )
 
-        sent = await send_email(
+        sent, _ = await send_email(
             email,
             "Your WiiTelecom Verification Code",
             f"Your two-factor authentication setup code is: {code}\n\nThis code expires in 10 minutes."
@@ -1965,7 +1969,7 @@ async def resend_2fa_code(data: dict):
         {"id": user_id},
         {"$set": {"two_factor_code": code, "two_factor_code_expires": expires}}
     )
-    sent = await send_email(
+    sent, _ = await send_email(
         user["email"],
         "Your WiiTelecom Login Verification Code",
         f"Your login verification code is: {code}\n\nThis code expires in 10 minutes."
@@ -2028,13 +2032,13 @@ async def update_smtp_settings(settings_data: SMTPSettingsUpdate, current_admin:
 @api_router.post("/admin/smtp-settings/test")
 async def test_smtp_settings(test_data: SMTPTestRequest, current_admin: dict = Depends(get_current_admin)):
     """Send a test email using the currently saved SMTP configuration - admin only."""
-    sent = await send_email(
+    sent, error = await send_email(
         test_data.to_email,
         "WiiTelecom Ticketing System - Test Email",
         "This is a test email confirming your SMTP configuration is working correctly."
     )
     if not sent:
-        raise HTTPException(status_code=400, detail="Failed to send test email. Check the SMTP settings and server logs.")
+        raise HTTPException(status_code=400, detail=f"Failed to send test email: {error}")
 
     return {"message": f"Test email sent to {test_data.to_email}"}
 
@@ -2346,13 +2350,13 @@ async def update_user(user_id: str, user_data: UserUpdate, current_admin: dict =
         update_dict["two_factor_code"] = code
         update_dict["two_factor_code_expires"] = expires
         update_dict["two_factor_pending"] = True
-        sent = await send_email(
+        sent, error = await send_email(
             target_email,
             "Your WiiTelecom Verification Code",
             f"Your two-factor authentication setup code is: {code}\n\nThis code expires in 10 minutes."
         )
         if not sent:
-            raise HTTPException(status_code=400, detail="Failed to send verification email. Check SMTP settings.")
+            raise HTTPException(status_code=400, detail=f"Failed to send verification email: {error}")
     
     result = await db.users.find_one_and_update(
         {"id": user_id},
