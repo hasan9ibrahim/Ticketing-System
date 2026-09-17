@@ -90,7 +90,7 @@ async def send_email(to_email: str, subject: str, body: str) -> tuple[bool, str]
 
     try:
         await aiosmtplib.send(
-            message=msg,
+            msg,
             hostname=config["smtp_host"],
             port=config["smtp_port"],
             username=config["smtp_username"],
