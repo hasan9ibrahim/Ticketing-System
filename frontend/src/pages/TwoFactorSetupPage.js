@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Shield, ShieldCheck, ShieldOff, Smartphone, QrCode, Copy, Check } from "lucide-react";
+import { Shield, ShieldCheck, ShieldOff, Smartphone, QrCode, Copy, Check, Mail } from "lucide-react";
 import { toast } from "sonner";
 
 const BACKEND_URL = process.env.REACT_APP_API_URL;
@@ -153,7 +153,7 @@ export default function TwoFactorSetupPage() {
               2FA is Enabled
             </CardTitle>
             <CardDescription className="text-gray-500 dark:text-zinc-400">
-              Your account is protected with Google Authenticator
+              Your account is protected with {user?.two_factor_method === "email" ? "email verification codes" : "Google Authenticator"}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -173,11 +173,11 @@ export default function TwoFactorSetupPage() {
         <Card className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-800">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-gray-900 dark:text-white">
-              <QrCode className="h-5 w-5 text-emerald-500" />
-              Setup Google Authenticator
+              {method === "email" ? <Mail className="h-5 w-5 text-emerald-500" /> : <QrCode className="h-5 w-5 text-emerald-500" />}
+              {method === "email" ? "Verify Your Email" : "Setup Google Authenticator"}
             </CardTitle>
             <CardDescription className="text-gray-500 dark:text-zinc-400">
-              Scan the QR code with your Google Authenticator app
+              {method === "email" ? "Enter the verification code sent to your email address" : "Scan the QR code with your Google Authenticator app"}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -195,7 +195,7 @@ export default function TwoFactorSetupPage() {
               </div>
             )}
             
-            {secret && (
+            {secret && method === "totp" && (
               <div className="space-y-2">
                 <Label className="text-gray-500 dark:text-zinc-400">Or enter this secret manually:</Label>
                 <div className="flex items-center gap-2">
@@ -248,12 +248,13 @@ export default function TwoFactorSetupPage() {
           <CardHeader>
             <CardTitle className="text-gray-900 dark:text-white">Enable Two-Factor Authentication</CardTitle>
             <CardDescription className="text-gray-500 dark:text-zinc-400">
-              Set up Google Authenticator for two-factor authentication
+              Choose how you'd like to receive your verification codes
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div
+                onClick={() => setMethod("totp")}
                 className={`p-4 rounded-lg border-2 cursor-pointer transition-colors ${
                   method === "totp"
                     ? "border-emerald-500 bg-emerald-500/10"
@@ -264,6 +265,18 @@ export default function TwoFactorSetupPage() {
                 <div className="font-medium text-gray-900 dark:text-white">Google Authenticator</div>
                 <div className="text-sm text-gray-500 dark:text-zinc-400">Use the Google Authenticator app</div>
               </div>
+              <div
+                onClick={() => setMethod("email")}
+                className={`p-4 rounded-lg border-2 cursor-pointer transition-colors ${
+                  method === "email"
+                    ? "border-emerald-500 bg-emerald-500/10"
+                    : "border-gray-200 dark:border-zinc-700 hover:border-gray-300 dark:hover:border-zinc-600"
+                }`}
+              >
+                <Mail className={`h-8 w-8 mb-2 ${method === "email" ? "text-emerald-500" : "text-gray-500 dark:text-zinc-400"}`} />
+                <div className="font-medium text-gray-900 dark:text-white">Email</div>
+                <div className="text-sm text-gray-500 dark:text-zinc-400">Get a code sent to {user?.email || "your email"}</div>
+              </div>
             </div>
 
             <Button
@@ -272,7 +285,7 @@ export default function TwoFactorSetupPage() {
               className="w-full bg-emerald-500 text-black hover:bg-emerald-400"
             >
               <Shield className="h-4 w-4 mr-2" />
-              {settingUp ? "Setting up..." : "Set up Google Authenticator"}
+              {settingUp ? "Setting up..." : method === "email" ? "Send verification code" : "Set up Google Authenticator"}
             </Button>
           </CardContent>
         </Card>

@@ -35,6 +35,7 @@ import {
   Sun,
   Moon,
   MessageCircle,
+  Mail,
 } from "lucide-react";
 import {
   Popover,
@@ -915,6 +916,7 @@ export default function DashboardLayout({ user, setUser }) {
     { path: "/departments", label: "Departments", icon: Settings, roles: ["admin"] },
     { path: "/audit", label: "Audit Logs", icon: ClipboardList, roles: ["admin"] },
     { path: "/notifications", label: "Notifications", icon: Bell, roles: ["admin"] },
+    { path: "/smtp-settings", label: "Email Settings", icon: Mail, roles: ["admin"] },
     { path: "/two-factor-setup", label: "2FA Setup", icon: Shield, roles: ["admin", "noc", "am"] },
     { path: "/noc-schedule", label: "NOC Schedule", icon: Calendar, roles: ["admin", "noc", "am"] },
   ];

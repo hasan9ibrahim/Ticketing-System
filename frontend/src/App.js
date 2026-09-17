@@ -11,6 +11,7 @@ import UsersPage from "./pages/UsersPage";
 import MyEnterprisesPage from "./pages/MyEnterprisesPage";
 import AuditPage from "./pages/AuditPage";
 import NotificationSettingsPage from "./pages/NotificationSettingsPage";
+import SmtpSettingsPage from "./pages/SmtpSettingsPage";
 import DepartmentsPage from "./pages/DepartmentsPage";
 import ReferencesPage from "./pages/ReferencesPage";
 import RequestsPage from "./pages/RequestsPage";
@@ -124,6 +125,7 @@ function App() {
             <Route path="departments" element={user?.role === "admin" ? <DepartmentsPage /> : <Navigate to="/" />} />
             <Route path="audit" element={user?.role === "admin" ? <AuditPage /> : <Navigate to="/" />} />
             <Route path="notifications" element={user?.role === "admin" ? <NotificationSettingsPage /> : <Navigate to="/" />} />
+            <Route path="smtp-settings" element={user?.role === "admin" ? <SmtpSettingsPage /> : <Navigate to="/" />} />
             <Route path="references" element={<ReferencesPage />} />
             <Route path="requests" element={<RequestsPage />} />
             <Route path="two-factor-setup" element={<TwoFactorSetupPage />} />
