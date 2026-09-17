@@ -7236,18 +7236,27 @@ async def _bob_candidate_models() -> list:
     return ordered
 
 
-def _is_missing_model_error(e: Exception) -> bool:
-    """True for 'this model id doesn't exist / isn't free anymore' style
-    errors - worth trying the next candidate for. False for anything else
-    (bad key, rate limit, provider outage), which should be reported as-is
-    rather than masked by silently cycling through every fallback."""
+def _is_fallback_worthy_error(e: Exception) -> bool:
+    """True for errors specific to the current model/provider being
+    unavailable right now - retired, temporarily rate-limited (a single
+    free model's backing "upstream" capacity is saturated, which is common
+    and usually doesn't affect a different free model), or briefly down -
+    worth trying the next candidate for. False for a bad/missing API key or
+    a malformed request, which would fail identically on every model and
+    should be reported as-is rather than masked by cycling through all of
+    them for no benefit."""
+    name = type(e).__name__
+    if name in ("AuthenticationError", "PermissionDeniedError", "BadRequestError"):
+        return False
     msg = str(e).lower()
     return (
-        type(e).__name__ == "NotFoundError"
+        name in ("NotFoundError", "RateLimitError", "ServiceUnavailableError", "InternalServerError", "Timeout")
         or "no endpoints found" in msg
         or "unavailable for free" in msg
         or "model_not_found" in msg
         or "is not a valid model" in msg
+        or "rate-limited" in msg
+        or "rate limited" in msg
     )
 
 
@@ -7262,7 +7271,7 @@ async def _bob_complete(litellm_module, **kwargs):
             return response
         except Exception as e:
             last_error = e
-            if not _is_missing_model_error(e):
+            if not _is_fallback_worthy_error(e):
                 raise
     raise last_error
 
