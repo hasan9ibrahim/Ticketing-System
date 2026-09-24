@@ -143,3 +143,28 @@ export const CustomerTrunkRows = ({
 };
 
 export default CustomerTrunkRows;
+
+// Read-only, full-width list of a ticket's customer -> trunk pairs (used in
+// the AM details dialog). Wraps long names instead of truncating them.
+export const TicketCustomersTile = ({ ticket }) => {
+  const entries = (ticket?.customers || []).filter((c) => c && (c.customer || c.customer_trunk));
+  const rows = entries.length > 0
+    ? entries
+    : [{ customer: ticket?.customer || ticket?.enterprise, customer_trunk: ticket?.customer_trunk }];
+  return (
+    <div className="bg-gray-100/30 dark:bg-zinc-800/30 p-2 rounded">
+      <span className="text-zinc-500 text-[10px] uppercase">
+        {rows.length > 1 ? `Customers & Trunks (${rows.length})` : "Customer & Trunk"}
+      </span>
+      <div className="mt-1 space-y-1">
+        {rows.map((row, index) => (
+          <div key={index} className="flex flex-wrap items-baseline gap-x-2 text-sm break-words">
+            <span className="text-gray-900 dark:text-white font-medium break-all">{row.customer || "-"}</span>
+            <span className="text-zinc-500">→</span>
+            <span className="text-gray-700 dark:text-zinc-300 break-all">{row.customer_trunk || "-"}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};

@@ -24,7 +24,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import StatusBadge from "@/components/custom/StatusBadge";
 import PriorityIndicator from "@/components/custom/PriorityIndicator";
 import SearchableSelect from "@/components/custom/SearchableSelect";
-import CustomerTrunkRows, { getTicketCustomerRows, getFormCustomerRows, getTicketCustomerTrunksText, getTicketCustomerIds, getTicketCustomerTrunks, customerRowsPatch } from "@/components/custom/CustomerTrunkRows";
+import CustomerTrunkRows, { getTicketCustomerRows, getFormCustomerRows, getTicketCustomerTrunksText, getTicketCustomerIds, getTicketCustomerTrunks, customerRowsPatch, TicketCustomersTile } from "@/components/custom/CustomerTrunkRows";
 import { DateRangePickerWithRange } from "@/components/custom/DateRangePickerWithRange";
 import IssueTypeSelect, { SMS_ISSUE_TYPES } from "@/components/custom/IssueTypeSelect";
 import OpenedViaSelect, { OPENED_VIA_OPTIONS } from "@/components/custom/OpenedViaSelect";
@@ -2485,18 +2485,12 @@ ${selectedTicket.ticket_number}`;
 
           <ScrollArea className="max-h-[55vh] pr-2">
             <div className="space-y-2">
-              {/* Main Info - 4 columns compact (2 on narrow screens, so values
-                  like a long customer/trunk name aren't crushed to a few
-                  truncated letters) */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                <div className="bg-gray-100/30 dark:bg-zinc-800/30 p-2 rounded">
-                  <span className="text-zinc-500 text-[10px] uppercase">Customer</span>
-                  <p className="text-gray-900 dark:text-white text-sm font-medium truncate">{editingTicket?.customer || editingTicket?.enterprise || '-'}</p>
-                </div>
-                <div className="bg-gray-100/30 dark:bg-zinc-800/30 p-2 rounded">
-                  <span className="text-zinc-500 text-[10px] uppercase">Trunk</span>
-                  <p className="text-gray-900 dark:text-white text-sm font-medium truncate">{getTicketCustomerTrunksText(editingTicket) || '-'}</p>
-                </div>
+              {/* Customers & trunks get their own full-width block so long
+                  names (and several customers) wrap instead of truncating */}
+              <TicketCustomersTile ticket={editingTicket} />
+
+              {/* Main Info */}
+              <div className="grid grid-cols-2 gap-2">
                 <div className="bg-gray-100/30 dark:bg-zinc-800/30 p-2 rounded">
                   <span className="text-zinc-500 text-[10px] uppercase">Destination</span>
                   <p className="text-gray-900 dark:text-white text-sm font-medium truncate">{editingTicket?.destination || '-'}</p>
