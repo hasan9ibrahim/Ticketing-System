@@ -8,7 +8,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
 from pathlib import Path
-from pydantic import BaseModel, Field, ConfigDict, EmailStr
+from pydantic import BaseModel, Field, ConfigDict, EmailStr, model_validator
 from typing import List, Optional, Union
 import uuid
 from datetime import datetime, timezone, timedelta
@@ -550,19 +550,102 @@ async def create_ticket_modification_notification(
     await db.ticket_notifications.insert_one(doc)
 
 
+async def resolve_ticket_customers(customers, customer_id=None, customer_trunk=None) -> dict:
+    """Validate a ticket's customer/trunk pairs and derive the legacy single
+    fields from them. `customers` is a list of {customer_id, customer_trunk};
+    when empty, falls back to the single customer_id/customer_trunk pair.
+    Returns {customers, customer_id, customer, customer_trunk} where the single
+    fields mirror the first entry (customer holds every distinct name)."""
+    entries = customers or []
+    if not entries and customer_id:
+        entries = [{"customer_id": customer_id, "customer_trunk": customer_trunk or ""}]
+
+    normalized = []
+    seen = set()
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        cid = (entry.get("customer_id") or "").strip()
+        trunk = (entry.get("customer_trunk") or "").strip()
+        if not cid or (cid, trunk) in seen:
+            continue
+        seen.add((cid, trunk))
+        normalized.append({"customer_id": cid, "customer_trunk": trunk})
+
+    if not normalized:
+        raise HTTPException(status_code=400, detail="At least one customer is required")
+
+    ids = list({e["customer_id"] for e in normalized})
+    clients = await db.clients.find({"id": {"$in": ids}}, {"_id": 0, "id": 1, "name": 1}).to_list(len(ids))
+    names = {c["id"]: c["name"] for c in clients}
+    missing = [cid for cid in ids if cid not in names]
+    if missing:
+        raise HTTPException(status_code=404, detail="Customer not found")
+
+    for e in normalized:
+        e["customer"] = names[e["customer_id"]]
+    distinct_names = list(dict.fromkeys(e["customer"] for e in normalized))
+    return {
+        "customers": normalized,
+        "customer_id": normalized[0]["customer_id"],
+        "customer": ", ".join(distinct_names),
+        "customer_trunk": normalized[0]["customer_trunk"],
+    }
+
+
+async def resolve_ticket_customers_for_update(update_dict: dict, existing_ticket: dict) -> None:
+    """If an update touches the ticket's customers (list or legacy single
+    fields), re-validate them and write the derived fields into update_dict."""
+    if not any(k in update_dict for k in ("customers", "customer_id", "customer_trunk")):
+        return
+    if "customers" in update_dict:
+        entries = update_dict["customers"]
+    else:
+        # Legacy client sending only the single pair: replace the first entry,
+        # keep any additional customers already on the ticket.
+        existing = existing_ticket.get("customers") or [{
+            "customer_id": existing_ticket.get("customer_id"),
+            "customer_trunk": existing_ticket.get("customer_trunk", ""),
+        }]
+        first = {
+            "customer_id": update_dict.get("customer_id", existing[0].get("customer_id")),
+            "customer_trunk": update_dict.get("customer_trunk", existing[0].get("customer_trunk", "")),
+        }
+        entries = [first] + list(existing[1:])
+    update_dict.update(await resolve_ticket_customers(entries))
+
+
+def ticket_customer_trunks_text(ticket: dict) -> str:
+    """All customer trunks on a ticket, comma-separated (legacy single fallback)."""
+    trunks = [c.get("customer_trunk") for c in (ticket.get("customers") or []) if c.get("customer_trunk")]
+    if trunks:
+        return ", ".join(dict.fromkeys(trunks))
+    return ticket.get("customer_trunk", "") or ""
+
+
+def ticket_customer_ids(ticket: dict) -> list:
+    ids = [c.get("customer_id") for c in (ticket.get("customers") or []) if c.get("customer_id")]
+    if not ids and ticket.get("customer_id"):
+        ids = [ticket["customer_id"]]
+    return list(dict.fromkeys(ids))
+
+
 async def notify_ams_about_ticket(ticket, event_type, ticket_type="sms", created_by=None):
-    """Notify AMs about ticket events based on their notification preferences"""
-    customer_id = ticket.get("customer_id")
-    if not customer_id:
-        return
-    
-    # Get the client/enterprise to find assigned AM
-    client = await db.clients.find_one({"id": customer_id}, {"_id": 0, "assigned_am_id": 1})
-    if not client or not client.get("assigned_am_id"):
-        return
-    
-    am_id = client["assigned_am_id"]
-    
+    """Notify the AM of every customer on the ticket (a ticket can carry
+    several customers, each possibly with a different AM)."""
+    notified = set()
+    for customer_id in ticket_customer_ids(ticket):
+        client = await db.clients.find_one({"id": customer_id}, {"_id": 0, "assigned_am_id": 1})
+        am_id = client.get("assigned_am_id") if client else None
+        if not am_id or am_id in notified:
+            continue
+        notified.add(am_id)
+        await _notify_am_about_ticket(ticket, am_id, event_type, ticket_type, created_by)
+
+
+async def _notify_am_about_ticket(ticket, am_id, event_type, ticket_type="sms", created_by=None):
+    """Notify one AM about a ticket event based on their notification preferences"""
+
     # Don't notify the same user who created the action
     if created_by and am_id == created_by:
         return
@@ -639,7 +722,7 @@ async def notify_ams_about_ticket(ticket, event_type, ticket_type="sms", created
         "modified_by_username": None,
         "message": message_map.get(event_type, f"Ticket {ticket_number} updated"),
         "event_type": event_type,
-        "customer_trunk": ticket.get("customer_trunk", ""),
+        "customer_trunk": ticket_customer_trunks_text(ticket),
         "destination": ticket.get("destination", ""),
         "issue_type": ticket.get("issue_type", ""),
         "status": "Unassigned" if event_type == "created" else ticket.get("status", ""),
@@ -705,7 +788,7 @@ async def notify_noc_about_am_action(ticket, action_text, action_created_by, tic
             "event_type": "am_comment",
             "notification_title": "AM Comment",
             "action_text": action_text,
-            "customer_trunk": ticket.get("customer_trunk", ""),
+            "customer_trunk": ticket_customer_trunks_text(ticket),
             "destination": ticket.get("destination", ""),
             "issue_type": ticket.get("issue_type", ""),
             "status": ticket.get("status", ""),
@@ -771,7 +854,7 @@ async def notify_noc_about_noc_modification(ticket, modified_by_user, modified_b
         "event_type": "ticket_modification",
         "notification_title": "Ticket Modified",
         "changes": changes,
-        "customer_trunk": ticket.get("customer_trunk", ""),
+        "customer_trunk": ticket_customer_trunks_text(ticket),
         "destination": ticket.get("destination", ""),
         "issue_type": ticket.get("issue_type", ""),
         "status": ticket.get("status", ""),
@@ -1049,6 +1132,15 @@ class SMSTicket(BaseModel):
     customer_id: str
     client_or_vendor: str = "client"  # "client" or "vendor"
     customer_trunk: str = ""
+    customers: List[dict] = Field(default_factory=list)  # List of {customer_id, customer, customer_trunk}; first entry mirrors customer_id/customer_trunk
+
+    @model_validator(mode="after")
+    def _backfill_customers(self):
+        # Tickets created before multi-customer support only have the single
+        # customer_id/customer_trunk pair - expose it as a one-entry list.
+        if not self.customers and self.customer_id:
+            self.customers = [{"customer_id": self.customer_id, "customer": self.customer, "customer_trunk": self.customer_trunk}]
+        return self
     destination: Optional[str] = None
     issue_types: Optional[List[str]] = []  # Predefined issue types checklist
     issue_other: Optional[str] = None  # Custom "Other" issue text
@@ -1092,6 +1184,7 @@ class SMSTicketCreate(BaseModel):
     customer_id: str
     client_or_vendor: str = "client"
     customer_trunk: str
+    customers: List[dict] = Field(default_factory=list)  # List of {customer_id, customer_trunk}
     destination: Optional[str] = None
     issue_types: Optional[List[str]] = []
     issue_other: Optional[str] = None
@@ -1116,7 +1209,9 @@ class SMSTicketCreate(BaseModel):
 class SMSTicketUpdate(BaseModel):
     priority: Optional[str] = None
     volume: Optional[str] = None
+    customer_id: Optional[str] = None
     customer_trunk: Optional[str] = None
+    customers: Optional[List[dict]] = None  # List of {customer_id, customer_trunk}
     destination: Optional[str] = None
     issue_types: Optional[List[str]] = None
     issue_other: Optional[str] = None
@@ -1151,6 +1246,15 @@ class VoiceTicket(BaseModel):
     customer_id: str
     client_or_vendor: str = "client"
     customer_trunk: str = ""
+    customers: List[dict] = Field(default_factory=list)  # List of {customer_id, customer, customer_trunk}; first entry mirrors customer_id/customer_trunk
+
+    @model_validator(mode="after")
+    def _backfill_customers(self):
+        # Tickets created before multi-customer support only have the single
+        # customer_id/customer_trunk pair - expose it as a one-entry list.
+        if not self.customers and self.customer_id:
+            self.customers = [{"customer_id": self.customer_id, "customer": self.customer, "customer_trunk": self.customer_trunk}]
+        return self
     destination: Optional[str] = None
     ani: Optional[str] = None  # ANI/Origination for Voice tickets
     issue_types: Optional[List[str]] = []  # Predefined issue types checklist
@@ -1179,6 +1283,7 @@ class VoiceTicketCreate(BaseModel):
     customer_id: str
     client_or_vendor: str = "client"
     customer_trunk: str
+    customers: List[dict] = Field(default_factory=list)  # List of {customer_id, customer_trunk}
     destination: Optional[str] = None
     ani: Optional[str] = None  # ANI/Origination for Voice tickets
     issue_types: Optional[List[str]] = []
@@ -1201,7 +1306,9 @@ class VoiceTicketCreate(BaseModel):
 class VoiceTicketUpdate(BaseModel):
     priority: Optional[str] = None
     volume: Optional[str] = None
+    customer_id: Optional[str] = None
     customer_trunk: Optional[str] = None
+    customers: Optional[List[dict]] = None  # List of {customer_id, customer_trunk}
     destination: Optional[str] = None
     ani: Optional[str] = None  # ANI/Origination for Voice tickets
     issue_types: Optional[List[str]] = None
@@ -4401,14 +4508,12 @@ async def create_sms_ticket(ticket_data: SMSTicketCreate, current_user: dict = D
     # Validate status requirements
     validate_ticket_status(ticket_data.status, ticket_data.assigned_to)
     
-    # Get customer name
-    client = await db.clients.find_one({"id": ticket_data.customer_id}, {"_id": 0})
-    if not client:
-        raise HTTPException(status_code=404, detail="Customer not found")
-    
     ticket_dict = ticket_data.model_dump()
     ticket_dict["created_by"] = current_user["id"]
-    ticket_dict["customer"] = client["name"]
+    # Validate every customer/trunk pair and derive the legacy single fields
+    ticket_dict.update(await resolve_ticket_customers(
+        ticket_data.customers, ticket_data.customer_id, ticket_data.customer_trunk
+    ))
     
     # Generate ID and ticket number before creating object
     ticket_id = str(uuid.uuid4())
@@ -4489,7 +4594,10 @@ async def get_sms_tickets(
                     if client.get("customer_trunks"):
                         allowed_trunks.extend(client["customer_trunks"])
                 if allowed_trunks:
-                    query["customer_trunk"] = {"$in": allowed_trunks}
+                    query["$or"] = [
+                        {"customer_trunk": {"$in": allowed_trunks}},
+                        {"customers.customer_trunk": {"$in": allowed_trunks}}
+                    ]
             elif trunk_filter == "vendor_trunk" and assigned_clients:
                 # Filter by vendor_trunk from ANY of the AM's assigned enterprises
                 # NOT filtering by customer_id - show tickets where vendor_trunk belongs to any assigned enterprise
@@ -4513,9 +4621,10 @@ async def get_sms_tickets(
                     if client.get("vendor_trunks"):
                         am_vendor_trunks.extend(client["vendor_trunks"])
                 
-                or_conditions = [{"customer_id": {"$in": client_ids}}]
+                or_conditions = [{"customer_id": {"$in": client_ids}}, {"customers.customer_id": {"$in": client_ids}}]
                 if am_customer_trunks:
                     or_conditions.append({"customer_trunk": {"$in": am_customer_trunks}})
+                    or_conditions.append({"customers.customer_trunk": {"$in": am_customer_trunks}})
                 if am_vendor_trunks:
                     or_conditions.append({"vendor_trunk": {"$in": am_vendor_trunks}})
                     or_conditions.append({"vendor_trunks.trunk": {"$in": am_vendor_trunks}})
@@ -4598,6 +4707,7 @@ async def update_sms_ticket(ticket_id: str, ticket_data: SMSTicketUpdate, curren
         raise HTTPException(status_code=404, detail="Ticket not found")
     
     update_dict = {k: v for k, v in ticket_data.model_dump().items() if v is not None}
+    await resolve_ticket_customers_for_update(update_dict, existing_ticket)
     
     # Validate status requirements
     new_status = update_dict.get("status", existing_ticket.get("status"))
@@ -4751,14 +4861,12 @@ async def create_voice_ticket(ticket_data: VoiceTicketCreate, current_user: dict
     # Validate status requirements
     validate_ticket_status(ticket_data.status, ticket_data.assigned_to)
     
-    # Get customer name
-    client = await db.clients.find_one({"id": ticket_data.customer_id}, {"_id": 0})
-    if not client:
-        raise HTTPException(status_code=404, detail="Customer not found")
-    
     ticket_dict = ticket_data.model_dump()
     ticket_dict["created_by"] = current_user["id"]
-    ticket_dict["customer"] = client["name"]
+    # Validate every customer/trunk pair and derive the legacy single fields
+    ticket_dict.update(await resolve_ticket_customers(
+        ticket_data.customers, ticket_data.customer_id, ticket_data.customer_trunk
+    ))
     
     # Generate ID and ticket number before creating object
     ticket_id = str(uuid.uuid4())
@@ -4837,7 +4945,10 @@ async def get_voice_tickets(
                     if client.get("customer_trunks"):
                         allowed_trunks.extend(client["customer_trunks"])
                 if allowed_trunks:
-                    query["customer_trunk"] = {"$in": allowed_trunks}
+                    query["$or"] = [
+                        {"customer_trunk": {"$in": allowed_trunks}},
+                        {"customers.customer_trunk": {"$in": allowed_trunks}}
+                    ]
             elif trunk_filter == "vendor_trunk" and assigned_clients:
                 # Filter by vendor_trunk from ANY of the AM's assigned enterprises
                 allowed_trunks = []
@@ -4859,9 +4970,10 @@ async def get_voice_tickets(
                     if client.get("vendor_trunks"):
                         am_vendor_trunks.extend(client["vendor_trunks"])
                 
-                or_conditions = [{"customer_id": {"$in": client_ids}}]
+                or_conditions = [{"customer_id": {"$in": client_ids}}, {"customers.customer_id": {"$in": client_ids}}]
                 if am_customer_trunks:
                     or_conditions.append({"customer_trunk": {"$in": am_customer_trunks}})
+                    or_conditions.append({"customers.customer_trunk": {"$in": am_customer_trunks}})
                 if am_vendor_trunks:
                     or_conditions.append({"vendor_trunk": {"$in": am_vendor_trunks}})
                     or_conditions.append({"vendor_trunks.trunk": {"$in": am_vendor_trunks}})
@@ -4926,6 +5038,7 @@ async def update_voice_ticket(ticket_id: str, ticket_data: VoiceTicketUpdate, cu
         raise HTTPException(status_code=404, detail="Ticket not found")
     
     update_dict = {k: v for k, v in ticket_data.model_dump().items() if v is not None}
+    await resolve_ticket_customers_for_update(update_dict, existing_ticket)
     
     # Validate status requirements
     new_status = update_dict.get("status", existing_ticket.get("status"))
@@ -5786,9 +5899,10 @@ async def build_am_assigned_ticket_query(current_user: dict, enterprise_type: st
         if client.get("vendor_trunks"):
             am_vendor_trunks.extend(client["vendor_trunks"])
 
-    or_conditions = [{"customer_id": {"$in": client_ids}}]
+    or_conditions = [{"customer_id": {"$in": client_ids}}, {"customers.customer_id": {"$in": client_ids}}]
     if am_customer_trunks:
         or_conditions.append({"customer_trunk": {"$in": am_customer_trunks}})
+        or_conditions.append({"customers.customer_trunk": {"$in": am_customer_trunks}})
     if am_vendor_trunks:
         or_conditions.append({"vendor_trunk": {"$in": am_vendor_trunks}})
         or_conditions.append({"vendor_trunks.trunk": {"$in": am_vendor_trunks}})
@@ -7473,7 +7587,7 @@ def _ticket_summary(t: dict, department: str) -> dict:
         "priority": t.get("priority"),
         "status": t.get("status"),
         "customer": t.get("customer"),
-        "customer_trunk": t.get("customer_trunk"),
+        "customer_trunk": ticket_customer_trunks_text(t),
         "destination": t.get("destination"),
         "volume": t.get("volume"),
         "issue_types": t.get("issue_types"),
@@ -8419,11 +8533,13 @@ async def startup_init():
         await db.sms_tickets.create_index([("updated_at", -1)])
         await db.sms_tickets.create_index([("status", 1), ("assigned_to", 1)])
         await db.sms_tickets.create_index("customer_id")
+        await db.sms_tickets.create_index("customers.customer_id")
 
         await db.voice_tickets.create_index([("date", -1)])
         await db.voice_tickets.create_index([("updated_at", -1)])
         await db.voice_tickets.create_index([("status", 1), ("assigned_to", 1)])
         await db.voice_tickets.create_index("customer_id")
+        await db.voice_tickets.create_index("customers.customer_id")
 
         await db.am_requests.create_index([("created_at", -1)])
         await db.am_requests.create_index([("updated_at", -1)])
