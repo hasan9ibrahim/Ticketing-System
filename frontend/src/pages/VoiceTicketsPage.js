@@ -22,6 +22,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import StatusBadge from "@/components/custom/StatusBadge";
 import PriorityIndicator from "@/components/custom/PriorityIndicator";
 import SearchableSelect from "@/components/custom/SearchableSelect";
+import CustomerTrunkRows, { getTicketCustomerRows, getFormCustomerRows, getTicketCustomerTrunksText, getTicketCustomerIds, getTicketCustomerTrunks, customerRowsPatch, TicketCustomersTile } from "@/components/custom/CustomerTrunkRows";
 import { FieldError, RequiredAsterisk } from "@/components/ui/field-error";
 import { DateRangePickerWithRange } from "@/components/custom/DateRangePickerWithRange";
 import IssueTypeSelect, { VOICE_ISSUE_TYPES } from "@/components/custom/IssueTypeSelect";
@@ -353,9 +354,9 @@ export default function VoiceTicketsPage() {
       if (ticketDate < today || ticketDate >= tomorrow) return false;
       
       // Check for Customer match
-      const enterpriseMatch = ticket.customer_id === customerId;
+      const enterpriseMatch = getTicketCustomerIds(ticket).includes(customerId);
       // Check for Trunk match
-      const trunkMatch = !customerTrunk || (ticket.customer_trunk && customerTrunk.toLowerCase() === ticket.customer_trunk.toLowerCase());
+      const trunkMatch = !customerTrunk || getTicketCustomerTrunks(ticket).some(t => customerTrunk.toLowerCase() === t.toLowerCase());
       // Check for Destination match
       const destMatch = !destination || (ticket.destination && destination.toLowerCase() === ticket.destination.toLowerCase());
       // Check for Issue match (check if any issue types overlap)
@@ -404,7 +405,7 @@ export default function VoiceTicketsPage() {
     }
 
     if (enterpriseFilter !== "all") {
-      filtered = filtered.filter((ticket) => ticket.customer_id === enterpriseFilter);
+      filtered = filtered.filter((ticket) => getTicketCustomerIds(ticket).includes(enterpriseFilter));
     }
 
     if (issueTypeFilter !== "all") {
@@ -463,11 +464,11 @@ export default function VoiceTicketsPage() {
           );
         } else if (field === "enterprise") {
           filtered = filtered.filter((ticket) => 
-            values.includes(ticket.customer_id)
+            getTicketCustomerIds(ticket).some(id => values.includes(id))
           );
         } else if (field === "enterprise_trunk") {
           filtered = filtered.filter((ticket) => 
-            values.includes(ticket.customer_trunk)
+            getTicketCustomerTrunks(ticket).some(t => values.includes(t))
           );
         } else if (field === "vendor_trunk") {
           filtered = filtered.filter((ticket) => {
@@ -575,7 +576,7 @@ export default function VoiceTicketsPage() {
 
   const openCreateSheet = () => {
     setEditingTicket(null);
-    setFormData({ priority: "Medium", status: "Unassigned", opened_via: ["Monitoring"], is_lcr: "no", by_loss: false, volume: "0", customer_trunk: "", issue_types: [], issue_other: "", fas_type: "", vendor_trunks: [] });
+    setFormData({ priority: "Medium", status: "Unassigned", opened_via: ["Monitoring"], is_lcr: "no", by_loss: false, volume: "0", ...customerRowsPatch([{ customer_id: "", customer_trunk: "" }]), issue_types: [], issue_other: "", fas_type: "", vendor_trunks: [] });
     setSheetOpen(true);
   };
 
@@ -644,6 +645,7 @@ export default function VoiceTicketsPage() {
     setFormData({
       ...ticket,
       opened_via: openedVia,
+      ...customerRowsPatch(getTicketCustomerRows(ticket)),
       issue_types: ticket.issue_types || [],
       issue_other: ticket.issue_other || "",
       fas_type: ticket.fas_type || ""
@@ -683,6 +685,7 @@ export default function VoiceTicketsPage() {
       volume: !formData.volume,
       customer_id: !formData.customer_id,
       customer_trunk: !formData.customer_trunk,
+      customers: getFormCustomerRows(formData).some(r => !r.customer_id || !r.customer_trunk),
       destination: !formData.destination,
       issue_type: !hasIssueTypeValue,
       opened_via: !formData.opened_via || formData.opened_via.length === 0,
@@ -712,14 +715,14 @@ export default function VoiceTicketsPage() {
       return;
     }
 
-    // ✅ Customer required
-    if (!formData.customer_id) {
+    // ✅ Every customer row needs a customer and a trunk
+    const customerRows = getFormCustomerRows(formData);
+    if (customerRows.some(r => !r.customer_id)) {
       toast.error("Customer is required");
       return;
     }
 
-    // ✅ Customer Trunk required
-    if (!formData.customer_trunk) {
+    if (customerRows.some(r => !r.customer_trunk)) {
       toast.error("Customer Trunk is required");
       return;
     }
@@ -1047,7 +1050,7 @@ export default function VoiceTicketsPage() {
 
     const template = `Volume: ${selectedTicket.volume || ""}
 
-Customer Trunk: ${selectedTicket.customer_trunk || ""}
+Customer Trunk: ${getTicketCustomerTrunksText(selectedTicket)}
 
 Destination: ${selectedTicket.destination || ""}
 
@@ -1065,7 +1068,7 @@ LCR: ${lcrText}
 
 Root cause: ${selectedTicket.root_cause || ""}
 
-Alternative route:
+Alternative route: ${selectedTicket.action_taken || ""}
 
 
 ${selectedTicket.ticket_number}`;
@@ -1303,7 +1306,7 @@ ${selectedTicket.ticket_number}`;
                           >
                             {ticket.ticket_number}
                           </TableCell>
-                          <TableCell className="text-gray-700 dark:text-zinc-300">{ticket.customer_trunk || "-"}</TableCell>
+                          <TableCell className="text-gray-700 dark:text-zinc-300" title={ticket.customer || ""}>{getTicketCustomerTrunksText(ticket) || "-"}</TableCell>
                           <TableCell className="text-gray-700 dark:text-zinc-300">{ticket.destination || "-"}</TableCell>
                           <TableCell className="text-gray-700 dark:text-zinc-300">{ticket.ani ? ticket.ani : "Any"}</TableCell>
                           <TableCell className="text-gray-700 dark:text-zinc-300">{getIssueDisplayText(ticket)}</TableCell>
@@ -1445,44 +1448,17 @@ ${selectedTicket.ticket_number}`;
               {fieldErrors.volume && <FieldError />}
             </div>
 
-            {/* Customer */}
-            <div className="space-y-2">
-              <Label>Customer <RequiredAsterisk /></Label>
-              <SearchableSelect
-                options={enterprises.filter(e => e.enterprise_type === "voice").map(e => ({ value: e.id, label: e.name }))}
-                value={formData.customer_id}
-                onChange={(value) => {
-                  setFormData({
-                    ...formData,
-                    customer_id: value,
-                    customer_trunk: "" // Clear trunk when enterprise changes
-                  });
-                  setFieldErrors(prev => ({ ...prev, customer_id: false }));
-                }}
-                placeholder="Search customer..."
-                isRequired={true}
-                isDisabled={isAM}
-                hasError={!!fieldErrors.customer_id}
-              />
-              {fieldErrors.customer_id && <FieldError>Please select a customer</FieldError>}
-            </div>
-
-            {/* Customer Trunk */}
-            <div className="space-y-2">
-              <Label>Customer Trunk <RequiredAsterisk /></Label>
-              <Select value={formData.customer_trunk || ""} onValueChange={(value) => { setFormData({ ...formData, customer_trunk: value }); setFieldErrors(prev => ({ ...prev, customer_trunk: false })); }} required disabled={isAM || !formData.customer_id}>
-                <SelectTrigger className={`bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 ${fieldErrors.customer_trunk ? "border-red-500 focus:ring-red-500" : ""}`}><SelectValue placeholder={formData.customer_id ? "Select customer trunk" : "Select customer first"} /></SelectTrigger>
-                <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
-                  {(formData.customer_id
-                    ? enterprises.find(e => e.id === formData.customer_id)?.customer_trunks || []
-                    : customerTrunkOptions
-                  ).map((trunk) => (
-                    <SelectItem key={trunk} value={trunk}>{trunk}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {fieldErrors.customer_trunk && <FieldError>Please select a customer trunk</FieldError>}
-            </div>
+            {/* Customers & Customer Trunks (one ticket can cover several) */}
+            <CustomerTrunkRows
+              rows={getFormCustomerRows(formData)}
+              onChange={(rows) => {
+                setFormData({ ...formData, ...customerRowsPatch(rows) });
+                setFieldErrors(prev => ({ ...prev, customers: false, customer_id: false, customer_trunk: false }));
+              }}
+              enterprises={enterprises.filter(e => e.enterprise_type === "voice")}
+              isDisabled={isAM}
+              showErrors={!!fieldErrors.customers}
+            />
 
             {/* Destination */}
             <div className="space-y-2">
@@ -2145,14 +2121,12 @@ ${selectedTicket.ticket_number}`;
 
           <ScrollArea className="max-h-[55vh] pr-2">
             <div className="space-y-2">
-              {/* Main Info - 4 columns compact (2 on narrow screens, so values
-                  like a long customer/trunk name aren't crushed to a few
-                  truncated letters) */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                <div className="bg-gray-100/30 dark:bg-zinc-800/30 p-2 rounded">
-                  <span className="text-zinc-500 text-[10px] uppercase">Customer</span>
-                  <p className="text-gray-900 dark:text-white text-sm font-medium truncate">{editingTicket?.customer || editingTicket?.enterprise || '-'}</p>
-                </div>
+              {/* Customers & trunks get their own full-width block so long
+                  names (and several customers) wrap instead of truncating */}
+              <TicketCustomersTile ticket={editingTicket} />
+
+              {/* Main Info */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 <div className="bg-gray-100/30 dark:bg-zinc-800/30 p-2 rounded">
                   <span className="text-zinc-500 text-[10px] uppercase">Destination</span>
                   <p className="text-gray-900 dark:text-white text-sm font-medium truncate">{editingTicket?.destination || '-'}</p>

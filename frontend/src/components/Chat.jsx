@@ -6,6 +6,9 @@ import {
   Mail, MailOpen,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  VoiceNotePlayer, VoiceRecordingBar, VoiceNoteButton, useVoiceRecorder, isVoiceRecordingSupported,
+} from "@/components/chat/VoiceNote";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -184,6 +187,15 @@ const API = `${process.env.REACT_APP_API_URL}/api`;
 // time (a previous version did `API.replace("/api", "")`, which silently
 // breaks if the configured URL ever contains "/api" more than once).
 const FILE_ORIGIN = process.env.REACT_APP_API_URL || "";
+
+// One-line preview of a message (conversation list, reply quotes).
+function messagePreview(m) {
+  if (!m) return "";
+  if (m.message_type === "image") return "📷 Photo";
+  if (m.message_type === "file") return `📎 ${m.file_name || "File"}`;
+  if (m.message_type === "audio") return "🎤 Voice note";
+  return m.content;
+}
 
 function authHeaders() {
   return { Authorization: `Bearer ${localStorage.getItem("token")}` };
@@ -549,8 +561,7 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
 
       if (alreadyHave) return;
 
-      const preview =
-        message.message_type === "image" ? "📷 Photo" : message.message_type === "file" ? `📎 ${message.file_name || "File"}` : message.content;
+      const preview = messagePreview(message);
 
       setConversations((prev) =>
         sortConversations(
@@ -872,6 +883,7 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
       file_name: fileData?.file_name,
       file_size: fileData?.file_size,
       file_mime_type: fileData?.file_mime_type,
+      duration: fileData?.duration,
       read_by: [],
       edited: false,
       is_deleted: false,
@@ -892,7 +904,7 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
             ? {
                 ...c,
                 unread_count: 0,
-                last_message: trimmed || (messageType === "image" ? "📷 Photo" : `📎 ${fileData?.file_name || "File"}`),
+                last_message: trimmed || messagePreview({ message_type: messageType, file_name: fileData?.file_name }),
                 last_message_time: localMessage.created_at,
                 last_message_sender_id: user.id,
                 updated_at: localMessage.created_at,
@@ -913,6 +925,7 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
           file_name: fileData?.file_name,
           file_size: fileData?.file_size,
           file_mime_type: fileData?.file_mime_type,
+          duration: fileData?.duration,
           client_id: clientId,
           reply_to_id: extra.reply_to_id || undefined,
           is_forwarded: !!extra.is_forwarded,
@@ -962,6 +975,36 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
     } catch (error) {
       console.error("Error uploading file:", error);
       toast.error(error.response?.status === 413 ? "That file is too large (8MB max)." : "Could not upload the file.");
+    }
+  };
+
+  // Uploads a recorded voice note and sends it as an "audio" message.
+  const sendVoiceNote = async (conversationId, file, duration, replyToMessage) => {
+    if (!file || !conversationId) return;
+    const formData = new FormData();
+    formData.append("file", file);
+    try {
+      const response = await axios.post(`${API}/chat/upload`, formData, {
+        headers: { ...authHeaders(), "Content-Type": "multipart/form-data" },
+      });
+      const extra = replyToMessage
+        ? {
+            reply_to_id: replyToMessage.id,
+            reply_to: {
+              id: replyToMessage.id,
+              sender_id: replyToMessage.sender_id,
+              sender_name: replyToMessage.sender_name,
+              content: replyToMessage.content,
+              message_type: replyToMessage.message_type,
+              file_name: replyToMessage.file_name,
+              is_deleted: replyToMessage.is_deleted,
+            },
+          }
+        : {};
+      sendMessage(conversationId, "", "audio", { ...response.data, duration }, extra);
+    } catch (error) {
+      console.error("Error uploading voice note:", error);
+      toast.error(error.response?.status === 413 ? "That voice note is too large (8MB max)." : "Could not send the voice note.");
     }
   };
 
@@ -1030,6 +1073,7 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
           file_name: message.file_name,
           file_size: message.file_size,
           file_mime_type: message.file_mime_type,
+          duration: message.duration,
         }
       : null;
     // If this message was itself already forwarded, keep pointing at the
@@ -1154,6 +1198,7 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
         loadingOlder={entry.loadingOlder}
         onLoadOlder={() => loadOlderMessages(conversationId)}
         onSend={(text, attachments, replyToMessage) => sendComposedMessage(conversationId, text, attachments, replyToMessage)}
+        onSendVoiceNote={(file, duration, replyToMessage) => sendVoiceNote(conversationId, file, duration, replyToMessage)}
         onTyping={() => sendTyping(conversationId)}
         typingUser={typingUsers[conversationId]}
         pendingAttachments={pendingAttachmentsByConv[conversationId] || []}
@@ -1870,7 +1915,10 @@ function GroupInfoDialog({ open, onOpenChange, chat, currentUser, allUsers, onSa
                   {p.is_online && <div className="absolute -bottom-0.5 -right-0.5 w-2 h-2 bg-green-500 rounded-full border border-white dark:border-black" />}
                 </div>
                 <div>
-                  <div className="text-sm">{p.name}</div>
+                  <div className="text-sm">
+                    {p.name}
+                    {p.phone && <span className="ml-1.5 text-xs text-gray-500 dark:text-zinc-400 tabular-nums">{p.phone}</span>}
+                  </div>
                   <div className="text-[10px] text-gray-500 dark:text-zinc-400">{formatPresence(p.is_online, p.last_active)}</div>
                 </div>
               </div>
@@ -1944,6 +1992,7 @@ function ChatWindowView({
   loadingOlder,
   onLoadOlder,
   onSend,
+  onSendVoiceNote,
   onTyping,
   typingUser,
   pendingAttachments,
@@ -2070,6 +2119,21 @@ function ChatWindowView({
   }, []);
 
   const isEditing = !!editingMessageId;
+
+  const voiceRecorder = useVoiceRecorder({
+    onDone: ({ file, duration }) => {
+      onSendVoiceNote?.(file, duration, replyTo);
+      setReplyTo(null);
+    },
+    onError: (err) => {
+      toast.error(
+        err?.name === "NotAllowedError"
+          ? "Microphone access was blocked - allow it in your browser to record voice notes."
+          : "Could not access the microphone."
+      );
+    },
+  });
+  const canRecordVoice = isVoiceRecordingSupported();
 
   const handleSend = () => {
     if (isEditing) {
@@ -2402,7 +2466,14 @@ function ChatWindowView({
               )}
             </div>
             <div className="min-w-0">
-              <div className="font-medium text-sm text-gray-900 dark:text-white truncate">{chatTitle(chat)}</div>
+              <div className="flex items-baseline gap-1.5 min-w-0">
+                <span className="font-medium text-sm text-gray-900 dark:text-white truncate">{chatTitle(chat)}</span>
+                {!isGroup && chat.participant?.phone && (
+                  <span className="text-xs text-gray-500 dark:text-zinc-400 whitespace-nowrap flex-shrink-0 tabular-nums">
+                    {chat.participant.phone}
+                  </span>
+                )}
+              </div>
               <div className="text-[10px] text-gray-500 dark:text-zinc-400 truncate">
                 {isGroup ? `${memberCount} members` : formatPresence(chat.participant?.is_online, chat.participant?.last_active)}
               </div>
@@ -2487,7 +2558,7 @@ function ChatWindowView({
                         {r.sender_name} · {formatDateLabel(r.created_at)} · {formatTimeLabel(r.created_at)}
                       </div>
                       <div className="text-xs truncate text-gray-700 dark:text-zinc-300">
-                        {r.message_type === "image" ? "📷 Photo" : r.message_type === "file" ? `📎 ${r.file_name || "File"}` : r.content}
+                        {messagePreview(r)}
                       </div>
                     </button>
                   ))
@@ -2602,13 +2673,7 @@ function ChatWindowView({
                         >
                           <div className="font-medium opacity-90 truncate">{msg.reply_to.sender_name}</div>
                           <div className="truncate opacity-75">
-                            {msg.reply_to.is_deleted
-                              ? "Message deleted"
-                              : msg.reply_to.message_type === "image"
-                              ? "📷 Photo"
-                              : msg.reply_to.message_type === "file"
-                              ? `📎 ${msg.reply_to.file_name || "File"}`
-                              : msg.reply_to.content}
+                            {msg.reply_to.is_deleted ? "Message deleted" : messagePreview(msg.reply_to)}
                           </div>
                         </div>
                       )}
@@ -2622,6 +2687,10 @@ function ChatWindowView({
                             onClick={() => setLightboxUrl(`${FILE_ORIGIN}${msg.file_url}`)}
                           />
                         </div>
+                      )}
+
+                      {msg.message_type === "audio" && msg.file_url && (
+                        <VoiceNotePlayer src={`${FILE_ORIGIN}${msg.file_url}`} duration={msg.duration} isOwn={isOwn} />
                       )}
 
                       {msg.message_type === "file" && msg.file_url && (
@@ -2814,7 +2883,7 @@ function ChatWindowView({
                 <Reply className="w-3 h-3" /> Replying to {replyTo.sender_name}
               </div>
               <div className="truncate text-gray-500 dark:text-zinc-400">
-                {replyTo.message_type === "image" ? "📷 Photo" : replyTo.message_type === "file" ? `📎 ${replyTo.file_name || "File"}` : replyTo.content}
+                {messagePreview(replyTo)}
               </div>
             </div>
             <button onClick={cancelReply} className="text-gray-400 hover:text-gray-900 dark:hover:text-white flex-shrink-0" title="Cancel reply">
@@ -2848,6 +2917,13 @@ function ChatWindowView({
           </div>
         )}
 
+        {voiceRecorder.recording ? (
+          <VoiceRecordingBar
+            elapsed={voiceRecorder.elapsed}
+            onCancel={() => voiceRecorder.stop(false)}
+            onSend={() => voiceRecorder.stop(true)}
+          />
+        ) : (
         <div className="flex items-center gap-1 px-2 py-1 border-t border-black/10 dark:border-white/10 bg-white dark:bg-zinc-900">
           <Button
             variant="ghost"
@@ -2905,7 +2981,11 @@ function ChatWindowView({
               <Send className={`w-4 h-4 ${message.trim() || pendingAttachments.length > 0 ? "text-emerald-500" : "text-gray-400"}`} />
             )}
           </Button>
+          {canRecordVoice && !isEditing && !message.trim() && pendingAttachments.length === 0 && onSendVoiceNote && (
+            <VoiceNoteButton onClick={voiceRecorder.start} />
+          )}
         </div>
+        )}
       </div>
 
       {lightboxUrl && (
