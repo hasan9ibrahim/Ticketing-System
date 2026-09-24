@@ -4185,6 +4185,16 @@ async def update_request(request_id: str, request_data: dict, current_user: dict
         await db.am_requests.update_one({"id": request_id}, {"$set": update_data})
     else:
         # NOC responding to request - can be claim (set claimed_by) or response
+        existing_claimer = request_obj.get("claimed_by")
+        is_claim = bool(request_data.get("claimed_by"))
+        if existing_claimer and existing_claimer != user_id and (is_claim or user_role != "admin"):
+            # Someone else already owns this request - don't let a second NOC
+            # (whose page hadn't refreshed yet) take it over or act on it.
+            raise HTTPException(
+                status_code=409,
+                detail=f"This request was already claimed by {request_obj.get('claimed_by_username') or 'another NOC member'}"
+            )
+
         update_data = {
             "status": request_data.get("status", request_obj.get("status")),
             "response": request_data.get("response"),
@@ -4201,15 +4211,30 @@ async def update_request(request_id: str, request_data: dict, current_user: dict
         if request_data.get("test_result_images"):
             update_data["test_result_images"] = request_data["test_result_images"]
         
-        # Handle claim - set claimed_by when status changes to in_progress
-        if request_data.get("claimed_by"):
-            update_data["claimed_by"] = request_data["claimed_by"]
+        # Handle claim - set claimed_by when status changes to in_progress.
+        # The claimer is always the caller, never a client-supplied user id.
+        if is_claim:
+            update_data["claimed_by"] = user_id
             update_data["claimed_by_username"] = current_user.get("username", "Unknown")
-        elif request_obj.get("claimed_by"):
-            update_data["claimed_by"] = request_obj.get("claimed_by")
+        elif existing_claimer:
+            update_data["claimed_by"] = existing_claimer
             update_data["claimed_by_username"] = request_obj.get("claimed_by_username", "Unknown")
         
-        await db.am_requests.update_one({"id": request_id}, {"$set": update_data})
+        # Only write if the request is still unclaimed or claimed by the same
+        # user it was when we read it - makes two simultaneous claims atomic:
+        # the second one matches nothing and gets a 409 instead of stealing it.
+        update_filter = {"id": request_id}
+        if existing_claimer:
+            update_filter["claimed_by"] = existing_claimer
+        else:
+            update_filter["$or"] = [{"claimed_by": {"$exists": False}}, {"claimed_by": None}]
+        result = await db.am_requests.update_one(update_filter, {"$set": update_data})
+        if result.matched_count == 0:
+            current = await db.am_requests.find_one({"id": request_id}, {"_id": 0, "claimed_by_username": 1})
+            raise HTTPException(
+                status_code=409,
+                detail=f"This request was already claimed by {(current or {}).get('claimed_by_username') or 'another NOC member'}"
+            )
     
     # Get updated request for audit log
     updated_request = await db.am_requests.find_one({"id": request_id})

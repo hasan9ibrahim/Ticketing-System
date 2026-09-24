@@ -1639,6 +1639,8 @@ export default function RequestsPage() {
       console.error("Failed to claim request:", error);
       const errorMessage = error.response?.data?.detail || "Failed to claim request";
       toast({ title: "Error", description: errorMessage, variant: "destructive" });
+      // Someone else claimed it first - refresh so this page shows who.
+      if (error.response?.status === 409) fetchRequests(null, false);
     } finally {
       setClaimDialogOpen(false);
       setRequestToClaim(null);
