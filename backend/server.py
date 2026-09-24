@@ -6359,7 +6359,7 @@ async def websocket_data(websocket: WebSocket, token: str):
 # ==================== CHAT API ENDPOINTS ====================
 
 def build_chat_user_info(u: dict) -> dict:
-    """Shape a user doc into the {id, username, name, last_active, is_online}
+    """Shape a user doc into the {id, username, name, phone, last_active, is_online}
     form used across every chat endpoint. Online = active within 5 minutes."""
     is_online = False
     last_active = u.get("last_active")
@@ -6377,6 +6377,7 @@ def build_chat_user_info(u: dict) -> dict:
         "id": u["id"],
         "username": u["username"],
         "name": u["name"],
+        "phone": u.get("phone") or "",
         "last_active": u.get("last_active"),
         "is_online": is_online
     }
@@ -6390,7 +6391,7 @@ async def get_chat_users(current_user: dict = Depends(get_current_user)):
     try:
         users = await db.users.find(
             {"id": {"$ne": current_user["id"]}, "is_bot": {"$ne": True}},
-            {"_id": 0, "id": 1, "username": 1, "name": 1, "last_active": 1}
+            {"_id": 0, "id": 1, "username": 1, "name": 1, "last_active": 1, "phone": 1}
         ).to_list(length=500)
 
         return [build_chat_user_info(u) for u in users]
@@ -6421,7 +6422,7 @@ async def get_conversations(current_user: dict = Depends(get_current_user)):
         if other_participant_ids:
             participant_users = await db.users.find(
                 {"id": {"$in": list(other_participant_ids)}},
-                {"_id": 0, "id": 1, "username": 1, "name": 1, "last_active": 1}
+                {"_id": 0, "id": 1, "username": 1, "name": 1, "last_active": 1, "phone": 1}
             ).to_list(length=len(other_participant_ids))
             users_by_id = {u["id"]: u for u in participant_users}
 
@@ -6478,7 +6479,7 @@ async def create_or_get_conversation(
 
     other_user = await db.users.find_one(
         {"id": other_user_id},
-        {"_id": 0, "id": 1, "username": 1, "name": 1, "last_active": 1}
+        {"_id": 0, "id": 1, "username": 1, "name": 1, "last_active": 1, "phone": 1}
     )
     participants = [build_chat_user_info(other_user)] if other_user else []
 
@@ -6537,7 +6538,7 @@ async def create_group_conversation(
 
     members = await db.users.find(
         {"id": {"$in": member_ids}},
-        {"_id": 0, "id": 1, "username": 1, "name": 1, "last_active": 1}
+        {"_id": 0, "id": 1, "username": 1, "name": 1, "last_active": 1, "phone": 1}
     ).to_list(length=len(member_ids))
     members_by_id = {m["id"]: m for m in members}
 
@@ -6600,7 +6601,7 @@ async def update_group_conversation(
     member_ids = updated.get("participant_ids", [])
     members = await db.users.find(
         {"id": {"$in": member_ids}},
-        {"_id": 0, "id": 1, "username": 1, "name": 1, "last_active": 1}
+        {"_id": 0, "id": 1, "username": 1, "name": 1, "last_active": 1, "phone": 1}
     ).to_list(length=len(member_ids))
     members_by_id = {m["id"]: m for m in members}
     participants = [build_chat_user_info(members_by_id[pid]) for pid in member_ids if pid != current_user["id"] and pid in members_by_id]

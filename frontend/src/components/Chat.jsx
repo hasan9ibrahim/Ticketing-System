@@ -1870,7 +1870,10 @@ function GroupInfoDialog({ open, onOpenChange, chat, currentUser, allUsers, onSa
                   {p.is_online && <div className="absolute -bottom-0.5 -right-0.5 w-2 h-2 bg-green-500 rounded-full border border-white dark:border-black" />}
                 </div>
                 <div>
-                  <div className="text-sm">{p.name}</div>
+                  <div className="text-sm">
+                    {p.name}
+                    {p.phone && <span className="ml-1.5 text-xs text-gray-500 dark:text-zinc-400 tabular-nums">{p.phone}</span>}
+                  </div>
                   <div className="text-[10px] text-gray-500 dark:text-zinc-400">{formatPresence(p.is_online, p.last_active)}</div>
                 </div>
               </div>
@@ -2402,7 +2405,18 @@ function ChatWindowView({
               )}
             </div>
             <div className="min-w-0">
-              <div className="font-medium text-sm text-gray-900 dark:text-white truncate">{chatTitle(chat)}</div>
+              <div className="flex items-baseline gap-1.5 min-w-0">
+                <span className="font-medium text-sm text-gray-900 dark:text-white truncate">{chatTitle(chat)}</span>
+                {!isGroup && chat.participant?.phone && (
+                  <a
+                    href={`tel:${chat.participant.phone}`}
+                    className="text-xs text-gray-500 dark:text-zinc-400 hover:text-emerald-500 whitespace-nowrap flex-shrink-0 tabular-nums"
+                    title="Call"
+                  >
+                    {chat.participant.phone}
+                  </a>
+                )}
+              </div>
               <div className="text-[10px] text-gray-500 dark:text-zinc-400 truncate">
                 {isGroup ? `${memberCount} members` : formatPresence(chat.participant?.is_online, chat.participant?.last_active)}
               </div>
