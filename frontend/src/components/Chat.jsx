@@ -1398,7 +1398,11 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
 
           {/* Main Chat Widget - full screen on mobile when expanded, same reasoning
               as the per-conversation windows above (a fixed 380px box otherwise
-              overflows a phone's viewport). */}
+              overflows a phone's viewport). Hidden on mobile while a conversation
+              is open full screen: the minimized bubble would otherwise float on
+              top of that conversation's composer, covering Send / voice note.
+              The conversation's own minimize/close buttons bring it back. */}
+          {!(isMobile && minimized && openChats.some((c) => !c.minimized)) && (
           <div
             className={
               isMobile && !minimized
@@ -1491,6 +1495,7 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
               />
             )}
           </div>
+          )}
         </>
       )}
 
