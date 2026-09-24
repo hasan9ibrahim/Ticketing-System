@@ -3,7 +3,7 @@ import {
   MessageSquare, X, Send, Paperclip, Image as ImageIcon, Users, Plus,
   Check, CheckCheck, Info, LogOut, Smile, Pencil, Trash2, Loader2, Minus,
   Reply, Forward, ChevronDown, ChevronLeft, ChevronRight, Maximize2, Minimize2, Search, Pin,
-  Mail, MailOpen,
+  Mail, MailOpen, ListChecks,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -1064,9 +1064,20 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
     }
   };
 
-  // Sends a copy of an existing message into a different conversation.
-  const forwardMessageTo = (targetConversationId, message) => {
-    if (!message) return;
+  // Sends a copy of one or more existing messages (in their original order)
+  // into a different conversation.
+  const forwardMessageTo = async (targetConversationId, messageOrList) => {
+    const list = (Array.isArray(messageOrList) ? messageOrList : [messageOrList]).filter(Boolean);
+    if (list.length === 0) return;
+    setForwardMessage(null);
+    for (const message of list) {
+      // Sequential so the copies arrive in the same order as the originals.
+      await forwardOneMessage(targetConversationId, message);
+    }
+    toast.success(list.length > 1 ? `${list.length} messages forwarded` : "Message forwarded");
+  };
+
+  const forwardOneMessage = (targetConversationId, message) => {
     const fileData = message.file_url
       ? {
           file_url: message.file_url,
@@ -1079,12 +1090,10 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
     // If this message was itself already forwarded, keep pointing at the
     // true original author rather than whoever forwarded it last.
     const originalSender = message.is_forwarded && message.forwarded_from ? message.forwarded_from : message.sender_name;
-    sendMessage(targetConversationId, message.content || "", message.message_type, fileData, {
+    return sendMessage(targetConversationId, message.content || "", message.message_type, fileData, {
       is_forwarded: true,
       forwarded_from: originalSender,
     });
-    setForwardMessage(null);
-    toast.success("Message forwarded");
   };
 
   const searchConversation = async (conversationId, query) => {
@@ -1219,7 +1228,7 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
         onDeleteGroup={() => deleteGroup(conversationId)}
         onEditMessage={(messageId, content) => editMessage(conversationId, messageId, content)}
         onDeleteMessage={(messageId) => deleteMessage(conversationId, messageId)}
-        onForwardMessage={(msg) => setForwardMessage(msg)}
+        onForwardMessage={(msgOrList) => setForwardMessage(msgOrList)}
         onSearchMessages={(q) => searchConversation(conversationId, q)}
         onToggleReaction={(messageId, emoji) => toggleReaction(conversationId, messageId, emoji)}
       />
@@ -1518,6 +1527,7 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
         open={!!forwardMessage}
         onOpenChange={(open) => !open && setForwardMessage(null)}
         conversations={conversations}
+        count={Array.isArray(forwardMessage) ? forwardMessage.length : 1}
         onForward={(targetConversationId) => forwardMessageTo(targetConversationId, forwardMessage)}
       />
     </>
@@ -1757,7 +1767,7 @@ function NewGroupDialog({ open, onOpenChange, users, onCreate }) {
   );
 }
 
-function ForwardDialog({ open, onOpenChange, conversations, onForward }) {
+function ForwardDialog({ open, onOpenChange, conversations, onForward, count = 1 }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedId, setSelectedId] = useState(null);
 
@@ -1778,7 +1788,7 @@ function ForwardDialog({ open, onOpenChange, conversations, onForward }) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="bg-white dark:bg-zinc-900 border-black/10 dark:border-white/10 text-gray-900 dark:text-white">
         <DialogHeader>
-          <DialogTitle>Forward message</DialogTitle>
+          <DialogTitle>{count > 1 ? `Forward ${count} messages` : "Forward message"}</DialogTitle>
         </DialogHeader>
         <div className="space-y-2">
           <Input
@@ -2019,6 +2029,9 @@ function ChatWindowView({
   const [editingText, setEditingText] = useState("");
   const [deleteMessageId, setDeleteMessageId] = useState(null);
   const [deletingMessage, setDeletingMessage] = useState(false);
+  // Multi-select mode: null when off, otherwise the Set of selected message ids.
+  const [selectedIds, setSelectedIds] = useState(null);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const [lightboxUrl, setLightboxUrl] = useState(null);
   const [replyTo, setReplyTo] = useState(null);
@@ -2134,6 +2147,62 @@ function ChatWindowView({
     },
   });
   const canRecordVoice = isVoiceRecordingSupported();
+
+  const selecting = selectedIds !== null;
+  const isSelectable = (m) => !m.is_deleted && !m.failed;
+  const startSelecting = (m) => {
+    setReactionPickerFor(null);
+    setSelectedIds(new Set(m && isSelectable(m) ? [m.id] : []));
+  };
+  const exitSelecting = () => {
+    setSelectedIds(null);
+    setBulkDeleteOpen(false);
+  };
+  const toggleSelected = (m) => {
+    if (!isSelectable(m)) return;
+    setSelectedIds((prev) => {
+      const next = new Set(prev || []);
+      if (next.has(m.id)) next.delete(m.id);
+      else next.add(m.id);
+      return next;
+    });
+  };
+  // Selected messages in chat order (so forwards keep their order).
+  const selectedMessages = selecting ? messages.filter((m) => selectedIds.has(m.id)) : [];
+  const canDeleteSelected = selectedMessages.length > 0 && selectedMessages.every((m) => m.sender_id === user.id);
+
+  useEffect(() => {
+    if (!selecting) return;
+    const onKeyDown = (e) => {
+      if (e.key === "Escape") exitSelecting();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selecting]);
+
+  const handleForwardSelected = () => {
+    if (selectedMessages.length === 0) return;
+    onForwardMessage?.(selectedMessages);
+    exitSelecting();
+  };
+
+  const handleConfirmBulkDelete = async () => {
+    if (!canDeleteSelected) return;
+    setDeletingMessage(true);
+    let failed = 0;
+    for (const m of selectedMessages) {
+      try {
+        await onDeleteMessage?.(m.id);
+      } catch (error) {
+        console.error("Error deleting message:", error);
+        failed += 1;
+      }
+    }
+    setDeletingMessage(false);
+    if (failed) toast.error(`Failed to delete ${failed} message${failed > 1 ? "s" : ""}`);
+    exitSelecting();
+  };
 
   const handleSend = () => {
     if (isEditing) {
@@ -2609,9 +2678,31 @@ function ChatWindowView({
               <div
                 key={msg.id}
                 data-message-id={msg.id}
-                className={`group flex mb-1 items-end gap-1 ${isOwn ? "justify-end" : "justify-start"}`}
+                onClickCapture={
+                  selecting
+                    ? (e) => {
+                        // In select mode a click anywhere on the row toggles it
+                        // instead of opening links/images/players inside it.
+                        e.preventDefault();
+                        e.stopPropagation();
+                        toggleSelected(msg);
+                      }
+                    : undefined
+                }
+                className={`group flex mb-1 items-end gap-1 ${isOwn ? "justify-end" : "justify-start"} ${
+                  selecting ? `rounded px-1 ${isSelectable(msg) ? "cursor-pointer" : "opacity-60"} ${selectedIds.has(msg.id) ? "bg-emerald-500/15" : ""}` : ""
+                }`}
               >
-                {isOwn && !msg.is_deleted && !isEditingThis && (
+                {selecting && (
+                  <div
+                    className={`self-center flex-shrink-0 w-4 h-4 rounded-full border flex items-center justify-center ${isOwn ? "mr-auto" : "order-first"} ${
+                      selectedIds.has(msg.id) ? "bg-emerald-500 border-emerald-500 text-white" : "border-gray-400 dark:border-zinc-500"
+                    }`}
+                  >
+                    {selectedIds.has(msg.id) && <Check className="w-3 h-3" />}
+                  </div>
+                )}
+                {!selecting && isOwn && !msg.is_deleted && !isEditingThis && (
                   <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                     {msg.message_type === "text" && (
                       <button onClick={() => startEditingMessage(msg)} className="p-1 text-gray-400 hover:text-gray-900 dark:hover:text-white" title="Edit message">
@@ -2639,6 +2730,11 @@ function ChatWindowView({
                         />
                       </PopoverContent>
                     </Popover>
+                    {!voiceRecorder.recording && !isEditing && (
+                      <button onClick={() => startSelecting(msg)} className="p-1 text-gray-400 hover:text-gray-900 dark:hover:text-white" title="Select messages">
+                        <ListChecks className="w-3 h-3" />
+                      </button>
+                    )}
                     <button onClick={() => setDeleteMessageId(msg.id)} className="p-1 text-gray-400 hover:text-red-400" title="Delete message">
                       <Trash2 className="w-3 h-3" />
                     </button>
@@ -2798,7 +2894,7 @@ function ChatWindowView({
                     )}
                   </div>
                 </div>
-                {!isOwn && !msg.is_deleted && (
+                {!selecting && !isOwn && !msg.is_deleted && (
                   <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                     <button onClick={() => startReplyingTo(msg)} className="p-1 text-gray-400 hover:text-gray-900 dark:hover:text-white" title="Reply">
                       <Reply className="w-3 h-3" />
@@ -2806,6 +2902,11 @@ function ChatWindowView({
                     <button onClick={() => onForwardMessage?.(msg)} className="p-1 text-gray-400 hover:text-gray-900 dark:hover:text-white" title="Forward">
                       <Forward className="w-3 h-3" />
                     </button>
+                    {!voiceRecorder.recording && !isEditing && (
+                      <button onClick={() => startSelecting(msg)} className="p-1 text-gray-400 hover:text-gray-900 dark:hover:text-white" title="Select messages">
+                        <ListChecks className="w-3 h-3" />
+                      </button>
+                    )}
                     <Popover open={reactionPickerFor === msg.id} onOpenChange={(o) => setReactionPickerFor(o ? msg.id : null)}>
                       <PopoverTrigger asChild>
                         <button className="p-1 text-gray-400 hover:text-gray-900 dark:hover:text-white" title="React">
@@ -2917,7 +3018,36 @@ function ChatWindowView({
           </div>
         )}
 
-        {voiceRecorder.recording ? (
+        {selecting ? (
+          <div className="flex items-center gap-2 px-2 py-1.5 border-t border-black/10 dark:border-white/10 bg-white dark:bg-zinc-900">
+            <button onClick={exitSelecting} className="p-1 text-gray-500 hover:text-gray-900 dark:hover:text-white" title="Cancel selection (Esc)">
+              <X className="w-4 h-4" />
+            </button>
+            <span className="flex-1 text-sm text-gray-700 dark:text-zinc-300">
+              {selectedMessages.length} selected
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 px-2 text-xs"
+              onClick={handleForwardSelected}
+              disabled={selectedMessages.length === 0}
+              title="Forward selected"
+            >
+              <Forward className="w-4 h-4 mr-1" /> Forward
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 px-2 text-xs text-red-500 hover:text-red-600"
+              onClick={() => setBulkDeleteOpen(true)}
+              disabled={!canDeleteSelected}
+              title={selectedMessages.length > 0 && !canDeleteSelected ? "You can only delete your own messages" : "Delete selected"}
+            >
+              <Trash2 className="w-4 h-4 mr-1" /> Delete
+            </Button>
+          </div>
+        ) : voiceRecorder.recording ? (
           <VoiceRecordingBar
             elapsed={voiceRecorder.elapsed}
             onCancel={() => voiceRecorder.stop(false)}
@@ -3036,6 +3166,25 @@ function ChatWindowView({
               Cancel
             </Button>
             <Button onClick={handleConfirmDeleteMessage} disabled={deletingMessage} className="bg-red-600 text-white hover:bg-red-700">
+              {deletingMessage ? "Deleting..." : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={bulkDeleteOpen} onOpenChange={(open) => !deletingMessage && !open && setBulkDeleteOpen(false)}>
+        <DialogContent className="bg-white dark:bg-zinc-900 border-black/10 dark:border-white/10 text-gray-900 dark:text-white">
+          <DialogHeader>
+            <DialogTitle>
+              Delete {selectedMessages.length} message{selectedMessages.length === 1 ? "" : "s"}?
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-gray-700 dark:text-zinc-300">This can't be undone.</p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBulkDeleteOpen(false)} disabled={deletingMessage} className="border-gray-200 dark:border-zinc-700">
+              Cancel
+            </Button>
+            <Button onClick={handleConfirmBulkDelete} disabled={deletingMessage} className="bg-red-600 text-white hover:bg-red-700">
               {deletingMessage ? "Deleting..." : "Delete"}
             </Button>
           </DialogFooter>
