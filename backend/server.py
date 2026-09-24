@@ -181,11 +181,12 @@ class ChatMessage(BaseModel):
     sender_id: str
     sender_name: str
     content: str
-    message_type: str = "text"  # "text" | "image" | "file"
+    message_type: str = "text"  # "text" | "image" | "file" | "audio" (voice note)
     file_url: Optional[str] = None
     file_name: Optional[str] = None
     file_size: Optional[int] = None
     file_mime_type: Optional[str] = None
+    duration: Optional[float] = None  # seconds, for voice notes
     read_by: List[str] = Field(default_factory=list)
     edited: bool = False
     edited_at: Optional[datetime] = None
@@ -252,6 +253,7 @@ class MessageCreate(BaseModel):
     file_name: Optional[str] = None
     file_size: Optional[int] = None
     file_mime_type: Optional[str] = None
+    duration: Optional[float] = None  # seconds, for voice notes
     client_id: Optional[str] = None
     reply_to_id: Optional[str] = None  # id of the message being replied to, within the same conversation
     is_forwarded: bool = False  # true when this message is a copy forwarded from another conversation
@@ -6879,6 +6881,7 @@ async def create_message(
         file_name=data.file_name,
         file_size=data.file_size,
         file_mime_type=data.file_mime_type,
+        duration=data.duration if data.message_type == "audio" else None,
         client_id=data.client_id,
         reply_to=reply_to,
         is_forwarded=data.is_forwarded,
@@ -6890,7 +6893,7 @@ async def create_message(
         {"id": data.conversation_id},
         {
             "$set": {
-                "last_message": data.content[:100] if data.content else f"{data.message_type}: {data.file_name or 'file'}",
+                "last_message": data.content[:100] if data.content else ("🎤 Voice note" if data.message_type == "audio" else f"{data.message_type}: {data.file_name or 'file'}"),
                 "last_message_time": datetime.now(timezone.utc),
                 "last_message_sender_id": user_id,
                 "updated_at": datetime.now(timezone.utc)
@@ -6916,6 +6919,7 @@ async def create_message(
         "file_name": data.file_name,
         "file_size": data.file_size,
         "file_mime_type": data.file_mime_type,
+        "duration": msg_obj.duration,
         "read_by": [],
         "edited": False,
         "is_deleted": False,
@@ -6932,7 +6936,8 @@ async def create_message(
     for participant_id in conv.get("participant_ids", []):
         await manager.send_personal_message({"type": "new_message", "message": message_payload}, participant_id)
 
-    if not conv.get("is_group") and BOB_USER_ID in other_participant_ids:
+    # BOB can't listen to voice notes - don't have it reply to one.
+    if not conv.get("is_group") and BOB_USER_ID in other_participant_ids and data.message_type != "audio":
         asyncio.create_task(handle_bob_reply(data.conversation_id, current_user))
 
     return message_payload
