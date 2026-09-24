@@ -1068,7 +1068,7 @@ LCR: ${lcrText}
 
 Root cause: ${selectedTicket.root_cause || ""}
 
-Alternative route:
+Alternative route: ${selectedTicket.action_taken || ""}
 
 
 ${selectedTicket.ticket_number}`;
