@@ -2408,13 +2408,9 @@ function ChatWindowView({
               <div className="flex items-baseline gap-1.5 min-w-0">
                 <span className="font-medium text-sm text-gray-900 dark:text-white truncate">{chatTitle(chat)}</span>
                 {!isGroup && chat.participant?.phone && (
-                  <a
-                    href={`tel:${chat.participant.phone}`}
-                    className="text-xs text-gray-500 dark:text-zinc-400 hover:text-emerald-500 whitespace-nowrap flex-shrink-0 tabular-nums"
-                    title="Call"
-                  >
+                  <span className="text-xs text-gray-500 dark:text-zinc-400 whitespace-nowrap flex-shrink-0 tabular-nums">
                     {chat.participant.phone}
-                  </a>
+                  </span>
                 )}
               </div>
               <div className="text-[10px] text-gray-500 dark:text-zinc-400 truncate">
