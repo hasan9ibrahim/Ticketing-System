@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/button";
 import axios from "axios";
 import Chat from "@/components/Chat";
 import SystemNotifications from "@/components/SystemNotifications";
+import { useInstallPrompt } from "@/hooks/useInstallPrompt";
+import { toast } from "sonner";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -20,6 +22,7 @@ import {
   Building2,
   Users,
   LogOut,
+  Download,
   Menu,
   X,
   Hexagon,
@@ -883,6 +886,15 @@ export default function DashboardLayout({ user, setUser }) {
     }
   };
 
+  const { canInstall, showIOSHint, install } = useInstallPrompt();
+  const handleInstallApp = async () => {
+    if (canInstall) {
+      await install();
+    } else if (showIOSHint) {
+      toast.info("To install: tap the Share button in Safari, then \"Add to Home Screen\".", { duration: 8000 });
+    }
+  };
+
   const handleLogout = async () => {
     try {
       const token = localStorage.getItem("token");
@@ -1230,6 +1242,16 @@ export default function DashboardLayout({ user, setUser }) {
                   <p className="text-gray-900 dark:text-white font-medium">{user.username}</p>
                   <p className="text-zinc-500 capitalize">{user.role}</p>
                 </div>
+                {(canInstall || showIOSHint) && (
+                  <Button
+                    variant="ghost"
+                    onClick={handleInstallApp}
+                    className="w-full justify-start text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 hover:bg-gray-100 dark:hover:bg-zinc-800"
+                  >
+                    <Download className="h-5 w-5 mr-3" />
+                    Install app
+                  </Button>
+                )}
                 <Button
                   variant="ghost"
                   onClick={handleLogout}
