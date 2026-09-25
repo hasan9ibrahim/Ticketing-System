@@ -8,7 +8,7 @@
  *
  * Bump CACHE_VERSION when offline.html or its icon changes.
  */
-const CACHE_VERSION = "v1";
+const CACHE_VERSION = "v2";
 const OFFLINE_CACHE = `offline-${CACHE_VERSION}`;
 const OFFLINE_ASSETS = ["/offline.html", "/icons/icon-192.png"];
 
