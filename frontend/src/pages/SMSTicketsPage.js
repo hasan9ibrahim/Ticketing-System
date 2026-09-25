@@ -31,6 +31,7 @@ import OpenedViaSelect, { OPENED_VIA_OPTIONS } from "@/components/custom/OpenedV
 import MultiFilter from "@/components/custom/MultiFilter";
 import { useDebounce } from "@/hooks/useDebounce";
 import { fetchCached } from "@/lib/dataCache";
+import { matchesSearch, searchInputProps } from "@/lib/search";
 
 const BACKEND_URL = process.env.REACT_APP_API_URL;
 const API = `${BACKEND_URL}/api`;
@@ -360,15 +361,9 @@ export default function SMSTicketsPage() {
 
     // Text search - searches across issues
     if (debouncedSearchTerm) {
-      const term = debouncedSearchTerm.toLowerCase();
-      filtered = filtered.filter((ticket) => {
-        const issueText = getIssueDisplayText(ticket).toLowerCase();
-        return (
-          ticket.ticket_number.toLowerCase().includes(term) ||
-          ticket.customer.toLowerCase().includes(term) ||
-          issueText.includes(term)
-        );
-      });
+      filtered = filtered.filter((ticket) =>
+        matchesSearch(debouncedSearchTerm, ticket.ticket_number, ticket.customer, getTicketCustomerTrunksText(ticket), getIssueDisplayText(ticket))
+      );
     }
 
     // Priority filter
@@ -396,7 +391,7 @@ export default function SMSTicketsPage() {
 
     // Destination filter
     if (debouncedDestinationFilter) {
-      const term = debouncedDestinationFilter.toLowerCase();
+      const term = debouncedDestinationFilter.trim().toLowerCase();
       filtered = filtered.filter((ticket) => 
         ticket.destination?.toLowerCase().includes(term)
       );
@@ -435,7 +430,7 @@ export default function SMSTicketsPage() {
           // For text fields, use the first value
           const value = values[0];
           filtered = filtered.filter((ticket) => 
-            ticket.ticket_number?.toLowerCase().includes(value.toLowerCase())
+            ticket.ticket_number?.toLowerCase().includes(value.trim().toLowerCase())
           );
         } else if (field === "priority") {
           // OR logic: match any of the selected priorities
@@ -462,7 +457,7 @@ export default function SMSTicketsPage() {
           // For text fields, use the first value
           const value = values[0];
           filtered = filtered.filter((ticket) => 
-            ticket.destination?.toLowerCase().includes(value.toLowerCase())
+            ticket.destination?.toLowerCase().includes(value.trim().toLowerCase())
           );
         } else if (field === "assigned_to") {
           // OR logic for assigned_to
@@ -1233,6 +1228,7 @@ ${selectedTicket.ticket_number}`;
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-zinc-500" />
             <Input
+              {...searchInputProps}
               placeholder="Search tickets by number, enterprise, or issue..."
               data-testid="search-sms-tickets-input"
               value={searchTerm}
@@ -1882,6 +1878,7 @@ ${selectedTicket.ticket_number}`;
                     <PopoverContent className="w-80 p-0 bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700" align="start">
                       <div className="p-2 border-b border-gray-200 dark:border-zinc-700">
                         <Input
+                          {...searchInputProps}
                           placeholder="Search vendor trunks..."
                           value={vendorTrunkSearch}
                           onChange={(e) => setVendorTrunkSearch(e.target.value)}
@@ -1898,12 +1895,12 @@ ${selectedTicket.ticket_number}`;
                       }}
                     >
                         {vendorTrunkOptions
-                          .filter(trunk => trunk.toLowerCase().includes(vendorTrunkSearch.toLowerCase()))
+                          .filter(trunk => matchesSearch(vendorTrunkSearch, trunk))
                           .length === 0 ? (
                           <p className="text-sm text-zinc-500 p-2">No vendor trunks found</p>
                         ) : (
                           vendorTrunkOptions
-                            .filter(trunk => trunk.toLowerCase().includes(vendorTrunkSearch.toLowerCase()))
+                            .filter(trunk => matchesSearch(vendorTrunkSearch, trunk))
                             .map((trunk) => {
                               const isSelected = (formData.vendor_trunks || []).find(v => v.trunk === trunk);
                               return (

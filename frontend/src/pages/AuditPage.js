@@ -13,6 +13,7 @@ import MultiFilter from "@/components/custom/MultiFilter";
 import { startOfWeek, endOfWeek } from "date-fns";
 import { useDebounce } from "@/hooks/useDebounce";
 import { fetchCached } from "@/lib/dataCache";
+import { matchesSearch, searchInputProps } from "@/lib/search";
 
 const BACKEND_URL = process.env.REACT_APP_API_URL;
 const API = `${BACKEND_URL}/api`;
@@ -296,10 +297,7 @@ export default function AuditPage() {
   const filteredLogs = auditLogs.filter(log => {
     // Search filter
     if (debouncedSearchTerm) {
-      const term = debouncedSearchTerm.toLowerCase();
-      if (!log.username.toLowerCase().includes(term) &&
-          !log.entity_name.toLowerCase().includes(term) &&
-          !log.entity_type.toLowerCase().includes(term)) {
+      if (!matchesSearch(debouncedSearchTerm, log.username, log.entity_name, log.entity_type)) {
         return false;
       }
     }
@@ -382,9 +380,10 @@ export default function AuditPage() {
           {/* All filters in one row */}
           <div className="flex flex-wrap items-center gap-3">
             {/* Search */}
-            <div className="relative w-[280px]">
+            <div className="relative w-full sm:w-[280px]">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500" />
               <Input
+                {...searchInputProps}
                 placeholder="Search user, entity..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}

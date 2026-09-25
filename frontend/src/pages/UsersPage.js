@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useDebounce } from "@/hooks/useDebounce";
 import { fetchCached } from "@/lib/dataCache";
+import { matchesSearch, searchInputProps } from "@/lib/search";
 
 const BACKEND_URL = process.env.REACT_APP_API_URL;
 const API = `${BACKEND_URL}/api`;
@@ -107,7 +108,7 @@ export default function UsersPage() {
       filtered = filtered.filter(user => {
         return multiFilters.every(filter => {
           const { field, values } = filter;
-          const searchValue = values[0]?.toLowerCase() || "";
+          const searchValue = values[0]?.trim().toLowerCase() || "";
 
           if (field === "role") {
             return values.includes(user.role);
@@ -132,12 +133,8 @@ export default function UsersPage() {
       return;
     }
 
-    const term = debouncedSearchTerm.toLowerCase();
-    filtered = filtered.filter(
-      (user) =>
-        user.username.toLowerCase().includes(term) ||
-        user.email?.toLowerCase().includes(term) ||
-        user.role.toLowerCase().includes(term)
+    filtered = filtered.filter((user) =>
+      matchesSearch(debouncedSearchTerm, user.username, user.name, user.email, user.role)
     );
     setFilteredUsers(filtered);
   };
@@ -250,10 +247,11 @@ export default function UsersPage() {
       </div>
 
       {/* Search */}
-      <div className="flex gap-4">
-        <div className="relative flex-1">
+      <div className="flex flex-col sm:flex-row gap-2 sm:gap-4">
+        <div className="relative w-full sm:flex-1">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-zinc-500" />
           <Input
+            {...searchInputProps}
             placeholder="Search users by username, email, or role..."
             data-testid="search-users-input"
             value={searchTerm}

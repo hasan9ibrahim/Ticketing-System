@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { FieldError, RequiredAsterisk } from "@/components/ui/field-error";
 import { useDebounce } from "@/hooks/useDebounce";
 import { fetchCached } from "@/lib/dataCache";
+import { matchesSearch, searchInputProps } from "@/lib/search";
 
 const BACKEND_URL = process.env.REACT_APP_API_URL;
 const API = `${BACKEND_URL}/api`;
@@ -78,7 +79,7 @@ export default function DepartmentsPage() {
       return;
     }
     const filtered = departments.filter((dept) =>
-      dept.name.toLowerCase().includes(debouncedSearchTerm.toLowerCase())
+      matchesSearch(debouncedSearchTerm, dept.name, dept.description)
     );
     setFilteredDepartments(filtered);
   };
@@ -185,6 +186,7 @@ export default function DepartmentsPage() {
       <div className="relative">
         <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-zinc-500" />
         <Input
+          {...searchInputProps}
           placeholder="Search departments..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
