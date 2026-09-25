@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { ChevronDown, Check, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { matchesSearch } from "@/lib/search";
 
 export default function MultiSelect({ 
   options = [], 
@@ -17,8 +18,7 @@ export default function MultiSelect({
   const ref = useRef(null);
   
   const filteredOptions = options.filter(option => 
-    option.label?.toLowerCase().includes(search.toLowerCase()) ||
-    option.name?.toLowerCase().includes(search.toLowerCase())
+    matchesSearch(search, option.label, option.name)
   );
   
   const selectedLabels = value.map(val => {

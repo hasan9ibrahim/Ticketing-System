@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { ChevronDown, X, Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { matchesSearch } from "@/lib/search";
 
 const SMS_ISSUE_TYPES = [
   "Low DLR",
@@ -59,7 +60,7 @@ export default function IssueTypeSelect({
   }, []);
 
   const filteredIssues = ISSUE_TYPES.filter((type) =>
-    type.toLowerCase().includes(searchTerm.toLowerCase())
+    matchesSearch(searchTerm, type)
   );
 
   const handleTypeToggle = (type) => {

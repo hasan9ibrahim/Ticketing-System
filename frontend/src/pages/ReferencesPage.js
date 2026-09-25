@@ -57,6 +57,7 @@ import {
   ArrowDown,
   Save,
 } from "lucide-react";
+import { matchesSearch, searchInputProps } from "@/lib/search";
 
 const API = `${process.env.REACT_APP_API_URL || "http://localhost:8000"}/api`;
 
@@ -783,7 +784,7 @@ export default function ReferencesPage() {
   };
 
   const filteredVendorTrunks = (activeSection === "sms" ? smsVendorTrunks : voiceVendorTrunks)
-    .filter(trunk => trunk.toLowerCase().includes(debouncedVendorSearchQuery.toLowerCase()));
+    .filter(trunk => matchesSearch(debouncedVendorSearchQuery, trunk));
 
   const filterLists = (lists) => {
     let filtered = lists;
@@ -791,16 +792,14 @@ export default function ReferencesPage() {
     // Apply search query
     if (debouncedSearchQuery) {
       filtered = filtered.filter(list =>
-        list.name.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
-        list.destination.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
-        list.traffic_type.toLowerCase().includes(debouncedSearchQuery.toLowerCase())
+        matchesSearch(debouncedSearchQuery, list.name, list.destination, list.traffic_type)
       );
     }
     
     // Apply MultiFilter filters
     filters.forEach((filter) => {
       if (filter.field === "list_name" && filter.values.length > 0) {
-        const searchValue = filter.values[0].toLowerCase();
+        const searchValue = filter.values[0].trim().toLowerCase();
         filtered = filtered.filter(list => 
           list.name?.toLowerCase().includes(searchValue)
         );
@@ -811,7 +810,7 @@ export default function ReferencesPage() {
         );
       }
       if (filter.field === "destination" && filter.values.length > 0) {
-        const searchValue = filter.values[0].toLowerCase();
+        const searchValue = filter.values[0].trim().toLowerCase();
         filtered = filtered.filter(list => 
           list.destination?.toLowerCase().includes(searchValue)
         );
@@ -1168,17 +1167,18 @@ export default function ReferencesPage() {
         </div>
       </div>
 
-      <div className="mb-4 flex gap-4 items-start">
-        <div className="flex-1 relative">
+      <div className="mb-4 flex flex-col sm:flex-row gap-2 sm:gap-4 items-stretch sm:items-start">
+        <div className="w-full sm:flex-1 relative">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-zinc-500" />
           <Input
+            {...searchInputProps}
             placeholder="Search lists by name, destination, or traffic type..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-10 bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white placeholder:text-zinc-500"
           />
         </div>
-        <div className="w-[300px]">
+        <div className="w-full sm:w-[300px]">
           <MultiFilter
             filters={filters}
             onFilterChange={setFilters}
@@ -1586,6 +1586,7 @@ export default function ReferencesPage() {
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-zinc-500" />
                 <Input
+                  {...searchInputProps}
                   placeholder="Search vendor trunks..."
                   value={vendorSearchQuery}
                   onChange={(e) => setVendorSearchQuery(e.target.value)}

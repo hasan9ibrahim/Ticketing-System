@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/button";
 import axios from "axios";
 import Chat from "@/components/Chat";
 import SystemNotifications from "@/components/SystemNotifications";
+import { useInstallPrompt } from "@/hooks/useInstallPrompt";
+import { toast } from "sonner";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -20,6 +22,7 @@ import {
   Building2,
   Users,
   LogOut,
+  Download,
   Menu,
   X,
   Hexagon,
@@ -883,6 +886,15 @@ export default function DashboardLayout({ user, setUser }) {
     }
   };
 
+  const { canInstall, showIOSHint, install } = useInstallPrompt();
+  const handleInstallApp = async () => {
+    if (canInstall) {
+      await install();
+    } else if (showIOSHint) {
+      toast.info("To install: tap the Share button in Safari, then \"Add to Home Screen\".", { duration: 8000 });
+    }
+  };
+
   const handleLogout = async () => {
     try {
       const token = localStorage.getItem("token");
@@ -1137,50 +1149,76 @@ export default function DashboardLayout({ user, setUser }) {
               {filteredNavItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = item.isChatToggle ? chatExpanded : location.pathname === item.path;
-                const navButton = (
+                const handleNavClick = (e) => {
+                  // Real links (below) so middle-click / Ctrl/Cmd/Shift-click
+                  // open the page in a new tab or window like any link - only
+                  // a plain left click is handled in-app.
+                  if (!item.isChatToggle && e && (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey)) return;
+                  e?.preventDefault();
+                  if (item.isChatToggle) {
+                    setChatExpanded(true);
+                  } else {
+                    setChatExpanded(false);
+                    navigate(item.path);
+                  }
+                  // Auto-close the mobile overlay drawer after picking a
+                  // destination, so it doesn't sit on top of the new page.
+                  if (window.innerWidth < 1024) setSidebarOpen(false);
+                };
+                const navClassName = `w-full justify-start h-11 ${
+                  isActive
+                    ? "bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20"
+                    : "text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-zinc-800"
+                } transition-colors`;
+                const navContent = (
+                  <>
+                      <Icon className="h-5 w-5" />
+                      {sidebarOpen && <span className="ml-3">{item.label}</span>}
+                      {item.priorityBadge ? (
+                        <div className="ml-auto flex gap-1">
+                          {item.priorityBadge.Urgent > 0 && (
+                            <Badge className="h-5 px-1.5 text-xs bg-red-600 hover:bg-red-700 min-w-[20px] justify-center">{item.priorityBadge.Urgent}</Badge>
+                          )}
+                          {item.priorityBadge.High > 0 && (
+                            <Badge className="h-5 px-1.5 text-xs bg-orange-500 hover:bg-orange-600 min-w-[20px] justify-center">{item.priorityBadge.High}</Badge>
+                          )}
+                          {item.priorityBadge.Medium > 0 && (
+                            <Badge className="h-5 px-1.5 text-xs bg-blue-600 hover:bg-blue-700 min-w-[20px] justify-center">{item.priorityBadge.Medium}</Badge>
+                          )}
+                          {item.priorityBadge.Low > 0 && (
+                            <Badge className="h-5 px-1.5 text-xs bg-gray-500 hover:bg-gray-600 min-w-[20px] justify-center">{item.priorityBadge.Low}</Badge>
+                          )}
+                        </div>
+                      ) : item.badgeCount > 0 ? (
+                        <Badge variant="destructive" className="ml-auto h-5 px-1.5 text-xs">
+                          {item.badgeCount}
+                        </Badge>
+                      ) : null}
+                  </>
+                );
+                // Chat is an in-app panel toggle, not a page, so it has no URL
+                // to open in a new tab and stays a plain button.
+                const navButton = item.isChatToggle ? (
                   <Button
                     key={item.path}
                     variant="ghost"
                     data-testid={`nav-${item.label.toLowerCase().replace(' ', '-')}`}
-                    onClick={() => {
-                      if (item.isChatToggle) {
-                        setChatExpanded(true);
-                      } else {
-                        setChatExpanded(false);
-                        navigate(item.path);
-                      }
-                      // Auto-close the mobile overlay drawer after picking a
-                      // destination, so it doesn't sit on top of the new page.
-                      if (window.innerWidth < 1024) setSidebarOpen(false);
-                    }}
-                    className={`w-full justify-start h-11 ${
-                      isActive
-                        ? "bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20"
-                        : "text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-zinc-800"
-                    } transition-colors`}
+                    onClick={handleNavClick}
+                    className={navClassName}
                   >
-                    <Icon className="h-5 w-5" />
-                    {sidebarOpen && <span className="ml-3">{item.label}</span>}
-                    {item.priorityBadge ? (
-                      <div className="ml-auto flex gap-1">
-                        {item.priorityBadge.Urgent > 0 && (
-                          <Badge className="h-5 px-1.5 text-xs bg-red-600 hover:bg-red-700 min-w-[20px] justify-center">{item.priorityBadge.Urgent}</Badge>
-                        )}
-                        {item.priorityBadge.High > 0 && (
-                          <Badge className="h-5 px-1.5 text-xs bg-orange-500 hover:bg-orange-600 min-w-[20px] justify-center">{item.priorityBadge.High}</Badge>
-                        )}
-                        {item.priorityBadge.Medium > 0 && (
-                          <Badge className="h-5 px-1.5 text-xs bg-blue-600 hover:bg-blue-700 min-w-[20px] justify-center">{item.priorityBadge.Medium}</Badge>
-                        )}
-                        {item.priorityBadge.Low > 0 && (
-                          <Badge className="h-5 px-1.5 text-xs bg-gray-500 hover:bg-gray-600 min-w-[20px] justify-center">{item.priorityBadge.Low}</Badge>
-                        )}
-                      </div>
-                    ) : item.badgeCount > 0 ? (
-                      <Badge variant="destructive" className="ml-auto h-5 px-1.5 text-xs">
-                        {item.badgeCount}
-                      </Badge>
-                    ) : null}
+                    {navContent}
+                  </Button>
+                ) : (
+                  <Button
+                    key={item.path}
+                    asChild
+                    variant="ghost"
+                    data-testid={`nav-${item.label.toLowerCase().replace(' ', '-')}`}
+                    className={navClassName}
+                  >
+                    <a href={item.path} onClick={handleNavClick}>
+                      {navContent}
+                    </a>
                   </Button>
                 );
                 
@@ -1230,6 +1268,16 @@ export default function DashboardLayout({ user, setUser }) {
                   <p className="text-gray-900 dark:text-white font-medium">{user.username}</p>
                   <p className="text-zinc-500 capitalize">{user.role}</p>
                 </div>
+                {(canInstall || showIOSHint) && (
+                  <Button
+                    variant="ghost"
+                    onClick={handleInstallApp}
+                    className="w-full justify-start text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 hover:bg-gray-100 dark:hover:bg-zinc-800"
+                  >
+                    <Download className="h-5 w-5 mr-3" />
+                    Install app
+                  </Button>
+                )}
                 <Button
                   variant="ghost"
                   onClick={handleLogout}

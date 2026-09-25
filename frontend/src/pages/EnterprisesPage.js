@@ -15,6 +15,7 @@ import { FieldError, RequiredAsterisk } from "@/components/ui/field-error";
 import MultiFilter from "@/components/custom/MultiFilter";
 import { useDebounce } from "@/hooks/useDebounce";
 import { fetchCached, invalidateCache } from "@/lib/dataCache";
+import { matchesSearch, searchInputProps } from "@/lib/search";
 
 const BACKEND_URL = process.env.REACT_APP_API_URL;
 const API = `${BACKEND_URL}/api`;
@@ -93,17 +94,13 @@ export default function EnterprisesPage() {
     
     // Apply search term filter
     if (debouncedSearchTerm) {
-      filtered = filtered.filter(
-        (ent) =>
-          ent.name.toLowerCase().includes(debouncedSearchTerm.toLowerCase()) ||
-          ent.contact_person?.toLowerCase().includes(debouncedSearchTerm.toLowerCase())
-      );
+      filtered = filtered.filter((ent) => matchesSearch(debouncedSearchTerm, ent.name, ent.contact_person));
     }
     
     // Apply MultiFilter filters
     filters.forEach((filter) => {
       if (filter.field === "enterprise_name" && filter.values.length > 0) {
-        const searchValue = filter.values[0].toLowerCase();
+        const searchValue = filter.values[0].trim().toLowerCase();
         filtered = filtered.filter((ent) => 
           ent.name?.toLowerCase().includes(searchValue)
         );
@@ -114,7 +111,7 @@ export default function EnterprisesPage() {
         );
       }
       if (filter.field === "contact_email" && filter.values.length > 0) {
-        const searchValue = filter.values[0].toLowerCase();
+        const searchValue = filter.values[0].trim().toLowerCase();
         filtered = filtered.filter((ent) => 
           ent.contact_email?.toLowerCase().includes(searchValue)
         );
@@ -452,12 +449,12 @@ export default function EnterprisesPage() {
           )}
         </div>
       </div>
-      <div className="flex gap-4 items-start">
-        <div className="flex-1 relative">
+      <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 items-stretch sm:items-start">
+        <div className="w-full sm:flex-1 relative">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-zinc-500" />
-          <Input placeholder="Search enterprises..." data-testid="search-enterprises-input" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-10 bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white placeholder:text-zinc-500" />
+          <Input {...searchInputProps} placeholder="Search enterprises..." data-testid="search-enterprises-input" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-10 bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white placeholder:text-zinc-500" />
         </div>
-        <div className="w-[300px]">
+        <div className="w-full sm:w-[300px]">
           <MultiFilter
             filters={filters}
             onFilterChange={setFilters}

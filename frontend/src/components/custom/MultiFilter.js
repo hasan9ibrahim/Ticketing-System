@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { X, Filter, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { matchesSearch } from "@/lib/search";
 
 // Filter field definitions
 export const FILTER_FIELDS = [
@@ -323,14 +324,14 @@ export default function MultiFilter({
   // Filter fields based on search and fields prop
   const availableFields = fields ? FILTER_FIELDS.filter(f => fields.includes(f.id)) : FILTER_FIELDS;
   const filteredFields = availableFields.filter(field =>
-    field.label.toLowerCase().includes(searchValue.toLowerCase())
+    matchesSearch(searchValue, field.label)
   );
 
   // Get options for selected field
   const fieldOptions = getFieldOptions(selectedField, enterprises, users, statusOptions, issueTypeOptions, customerTrunkOptions, vendorTrunkOptions, customOptions);
   const filteredOptions = fieldOptions.filter(opt => {
     const label = opt.label || opt.value || "";
-    return typeof label === "string" && label.toLowerCase().includes(searchValue.toLowerCase());
+    return typeof label === "string" && matchesSearch(searchValue, label);
   });
 
   // Check if a value is selected in current filter

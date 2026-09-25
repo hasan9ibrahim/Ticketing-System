@@ -6,6 +6,7 @@ import {
   Mail, MailOpen, ListChecks,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { matchesSearch } from "@/lib/search";
 import {
   VoiceNotePlayer, VoiceRecordingBar, VoiceNoteButton, useVoiceRecorder, isVoiceRecordingSupported,
 } from "@/components/chat/VoiceNote";
@@ -1786,7 +1787,7 @@ function ForwardDialog({ open, onOpenChange, conversations, onForward, count = 1
   const filtered = conversations.filter((conv) => {
     if (!searchQuery) return true;
     const title = conv.is_group ? conv.name : conv.participants?.[0]?.name;
-    return title?.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchesSearch(searchQuery, title);
   });
 
   return (

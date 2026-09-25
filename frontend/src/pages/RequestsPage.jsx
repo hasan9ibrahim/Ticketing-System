@@ -21,6 +21,7 @@ import MultiFilter from "@/components/custom/MultiFilter";
 import CompactImageViewer from "@/components/custom/CompactImageViewer";
 import axios from "axios";
 import { useDebounce } from "@/hooks/useDebounce";
+import { matchesSearch, searchInputProps } from "@/lib/search";
 
 const API = `${process.env.REACT_APP_API_URL || "http://localhost:8000"}/api`;
 
@@ -1714,13 +1715,7 @@ export default function RequestsPage() {
         if (req.status !== "completed" && req.status !== "rejected") return false;
       }
       
-      if (!debouncedSearchTerm) return true;
-      const search = debouncedSearchTerm.toLowerCase();
-      return (
-        req.customer?.toLowerCase().includes(search) ||
-        req.request_type_label?.toLowerCase().includes(search) ||
-        req.id?.toLowerCase().includes(search)
-      );
+      return matchesSearch(debouncedSearchTerm, req.customer, req.request_type_label, req.id, req.request_number);
     }).filter(req => {
       // Multi-filters (OR logic within same field, AND logic between fields)
       if (multiFilters.length === 0) return true;
@@ -2104,10 +2099,11 @@ export default function RequestsPage() {
       </div>
 
       {/* Filters */}
-      <div className="flex gap-4">
-        <div className="relative flex-1 max-w-md">
+      <div className="flex flex-col sm:flex-row gap-2 sm:gap-4">
+        <div className="relative w-full sm:flex-1 sm:max-w-md">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-500 dark:text-zinc-400" />
           <Input
+            {...searchInputProps}
             placeholder="Search requests..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
