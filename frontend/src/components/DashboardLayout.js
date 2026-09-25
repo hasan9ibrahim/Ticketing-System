@@ -5,6 +5,7 @@ import axios from "axios";
 import Chat from "@/components/Chat";
 import SystemNotifications from "@/components/SystemNotifications";
 import { useInstallPrompt } from "@/hooks/useInstallPrompt";
+import { usePushNotifications, unregisterPushForLogout } from "@/hooks/usePushNotifications";
 import { toast } from "sonner";
 import {
   AlertDialog,
@@ -887,6 +888,72 @@ export default function DashboardLayout({ user, setUser }) {
   };
 
   const { canInstall, showIOSHint, install } = useInstallPrompt();
+
+  // Phone/desktop push notifications (chat, request and ticket updates).
+  const push = usePushNotifications(user?.id);
+  const showPushButton = push.needsInstall || (push.supported && push.permission !== "granted");
+  const handleEnablePush = async () => {
+    if (push.needsInstall) {
+      toast.info(
+        "On iPhone/iPad, notifications only work in the installed app: tap Share, then \"Add to Home Screen\", and open the app from your Home Screen.",
+        { duration: 10000 }
+      );
+      return;
+    }
+    if (push.permission === "denied") {
+      toast.error("Notifications are blocked for this site. Allow them in your browser or phone settings, then try again.", { duration: 10000 });
+      return;
+    }
+    try {
+      const ok = await push.enable();
+      if (ok) toast.success("Notifications enabled on this device");
+      else toast.error("Notifications were not allowed");
+    } catch (e) {
+      console.error("Enabling notifications failed:", e);
+      toast.error("Could not enable notifications on this device");
+    }
+  };
+
+  // Offer notifications once per device after login - the browser only lets
+  // us ask from a tap, hence the toast button rather than asking directly.
+  useEffect(() => {
+    if (!user?.id || !push.supported || push.permission !== "default") return;
+    let asked = false;
+    try {
+      asked = localStorage.getItem("push_prompted") === "1";
+    } catch (e) {}
+    if (asked) return;
+    const t = setTimeout(() => {
+      try {
+        localStorage.setItem("push_prompted", "1");
+      } catch (e) {}
+      toast("Get notified about new messages and request updates on this device?", {
+        duration: 15000,
+        action: { label: "Enable", onClick: handleEnablePush },
+      });
+    }, 2500);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, push.supported, push.permission]);
+
+  // A tapped notification while the app is already open: route in-app
+  // instead of reloading (chat links open the conversation window).
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) return;
+    const onMessage = (event) => {
+      if (event.data?.type !== "notification-click" || !event.data.url) return;
+      const url = new URL(event.data.url, window.location.origin);
+      const chatId = url.searchParams.get("chat");
+      if (chatId) {
+        window.dispatchEvent(new CustomEvent("open-chat-conversation", { detail: chatId }));
+      } else {
+        navigate(url.pathname + url.search);
+      }
+    };
+    navigator.serviceWorker.addEventListener("message", onMessage);
+    return () => navigator.serviceWorker.removeEventListener("message", onMessage);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const handleInstallApp = async () => {
     if (canInstall) {
       await install();
@@ -896,6 +963,9 @@ export default function DashboardLayout({ user, setUser }) {
   };
 
   const handleLogout = async () => {
+    // Stop this device getting the logged-out user's notifications (needs
+    // the token, so before it's cleared).
+    await unregisterPushForLogout();
     try {
       const token = localStorage.getItem("token");
       // Call backend logout endpoint to mark user as offline
@@ -1268,6 +1338,17 @@ export default function DashboardLayout({ user, setUser }) {
                   <p className="text-gray-900 dark:text-white font-medium">{user.username}</p>
                   <p className="text-zinc-500 capitalize">{user.role}</p>
                 </div>
+                {showPushButton && (
+                  <Button
+                    variant="ghost"
+                    onClick={handleEnablePush}
+                    disabled={push.busy}
+                    className="w-full justify-start text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 hover:bg-gray-100 dark:hover:bg-zinc-800"
+                  >
+                    <Bell className="h-5 w-5 mr-3" />
+                    {push.permission === "denied" ? "Notifications blocked" : "Enable notifications"}
+                  </Button>
+                )}
                 {(canInstall || showIOSHint) && (
                   <Button
                     variant="ghost"

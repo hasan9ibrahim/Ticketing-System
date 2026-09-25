@@ -526,6 +526,28 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
     [conversations, openConversationWindow]
   );
 
+  // Open a conversation from a tapped push notification: either while the
+  // app is open (event from DashboardLayout) or on a fresh launch via
+  // ?chat=<conversation id> in the URL.
+  useEffect(() => {
+    const onOpen = (e) => e.detail && openConversationById(e.detail);
+    window.addEventListener("open-chat-conversation", onOpen);
+    return () => window.removeEventListener("open-chat-conversation", onOpen);
+  }, [openConversationById]);
+
+  const chatParamHandledRef = useRef(false);
+  useEffect(() => {
+    if (initialLoading || chatParamHandledRef.current) return;
+    const params = new URLSearchParams(window.location.search);
+    const chatId = params.get("chat");
+    if (!chatId) return;
+    chatParamHandledRef.current = true;
+    params.delete("chat");
+    const rest = params.toString();
+    window.history.replaceState(null, "", window.location.pathname + (rest ? `?${rest}` : "") + window.location.hash);
+    openConversationById(chatId);
+  }, [initialLoading, openConversationById]);
+
   const applyIncomingMessage = useCallback(
     (message) => {
       const isOwn = message.sender_id === user?.id;

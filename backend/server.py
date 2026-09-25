@@ -22,6 +22,7 @@ import secrets
 import hashlib
 import asyncio
 import json
+import base64
 import time
 
 ROOT_DIR = Path(__file__).parent
@@ -550,6 +551,7 @@ async def create_ticket_modification_notification(
     # We'll need to fetch the ticket to get these fields
     doc['created_at'] = doc['created_at'].isoformat()
     await db.ticket_notifications.insert_one(doc)
+    push_for_notification_docs([doc], "ticket")
 
 
 async def resolve_ticket_customers(customers, customer_id=None, customer_trunk=None) -> dict:
@@ -734,6 +736,7 @@ async def _notify_am_about_ticket(ticket, am_id, event_type, ticket_type="sms", 
     }
     doc['created_at'] = doc['created_at'].isoformat()
     await db.ticket_notifications.insert_one(doc)
+    push_for_notification_docs([doc], "ticket")
 
 
 # ==================== NOC NOTIFICATIONS ====================
@@ -803,6 +806,7 @@ async def notify_noc_about_am_action(ticket, action_text, action_created_by, tic
 
     if docs:
         await db.ticket_notifications.insert_many(docs)
+        push_for_notification_docs(docs, "ticket")
 
 
 async def notify_noc_about_noc_modification(ticket, modified_by_user, modified_by_username, changes, ticket_type="sms"):
@@ -866,6 +870,7 @@ async def notify_noc_about_noc_modification(ticket, modified_by_user, modified_b
     }
     doc['created_at'] = doc['created_at'].isoformat()
     await db.ticket_notifications.insert_one(doc)
+    push_for_notification_docs([doc], "ticket")
 
 
 # ==================== ALERT NOTIFICATIONS ====================
@@ -930,6 +935,7 @@ async def create_alert_notification(
     doc = notification.model_dump()
     doc['created_at'] = doc['created_at'].isoformat()
     await db.alert_notifications.insert_one(doc)
+    push_for_notification_docs([doc], "alert")
 
 
 async def notify_users_about_alert(
@@ -1072,6 +1078,7 @@ async def notify_users_about_alert(
 
         if docs:
             await db.alert_notifications.insert_many(docs)
+            push_for_notification_docs(docs, "alert")
 
 
 class Token(BaseModel):
@@ -4334,6 +4341,7 @@ async def update_request(request_id: str, request_data: dict, current_user: dict
                     "read": False
                 }
                 await db.notifications.insert_one(notification_doc)
+                push_for_notification_docs([notification_doc], "request")
     
     # Check if request was completed or rejected - notify the AM who created it
     new_status = request_data.get("status")
@@ -4437,6 +4445,7 @@ async def update_request(request_id: str, request_data: dict, current_user: dict
                     "read": False
                 }
                 await db.notifications.insert_one(notification_doc)
+                push_for_notification_docs([notification_doc], "request")
 
                 # Live popup+sound for the AM, over the general system
                 # WebSocket (not chat's). send_personal_message is a no-op
@@ -6936,6 +6945,22 @@ async def create_message(
     for participant_id in conv.get("participant_ids", []):
         await manager.send_personal_message({"type": "new_message", "message": message_payload}, participant_id)
 
+    # Phone/desktop push to everyone else in the conversation
+    if data.message_type == "audio":
+        push_body = "🎤 Voice note"
+    elif data.message_type == "image":
+        push_body = "📷 Photo"
+    elif data.message_type == "file":
+        push_body = f"📎 {data.file_name or 'File'}"
+    else:
+        push_body = (data.content or "")[:240]
+    schedule_push(other_participant_ids, {
+        "title": f"{msg_obj.sender_name} in {conv.get('name') or 'group'}" if conv.get("is_group") else msg_obj.sender_name,
+        "body": push_body,
+        "url": f"/?chat={data.conversation_id}",
+        "tag": f"chat-{data.conversation_id}",
+    })
+
     # BOB can't listen to voice notes - don't have it reply to one.
     if not conv.get("is_group") and BOB_USER_ID in other_participant_ids and data.message_type != "audio":
         asyncio.create_task(handle_bob_reply(data.conversation_id, current_user))
@@ -7146,6 +7171,183 @@ async def get_chat_file(file_id: str):
             "Content-Disposition": f'inline; filename="{doc.get("filename", "file")}"'
         }
     )
+
+
+# ==================== WEB PUSH NOTIFICATIONS ====================
+# Phone/desktop notifications that arrive even when the app is closed or in
+# the background (the websocket only reaches open tabs). Each browser/device
+# that allows notifications registers a push subscription here; the backend
+# signs pushes with a VAPID key pair and the browser's push service delivers
+# them to the service worker (frontend/public/service-worker.js), which
+# shows the notification.
+#
+# The VAPID keys come from the VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY env vars
+# if set, otherwise they're generated once and stored in Mongo so they stay
+# the same across restarts (changing them invalidates every subscription).
+
+try:
+    from pywebpush import webpush, WebPushException
+    from py_vapid import Vapid02
+    from cryptography.hazmat.primitives import serialization as _push_serialization
+    WEBPUSH_AVAILABLE = True
+except ImportError:  # pragma: no cover - dependency missing
+    WEBPUSH_AVAILABLE = False
+    logger.warning("pywebpush not installed - push notifications disabled")
+
+VAPID_SUBJECT = os.environ.get("VAPID_SUBJECT", "mailto:noc@wiitelecom.com")
+PUSH_TTL_SECONDS = 24 * 60 * 60
+_vapid_keys_cache: Optional[dict] = None
+_push_tasks: set = set()  # strong refs so fire-and-forget sends aren't garbage collected
+
+
+def _b64url(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
+
+
+async def get_vapid_keys() -> Optional[dict]:
+    """{"public": base64url raw public key, "private": base64url DER private key}"""
+    global _vapid_keys_cache
+    if not WEBPUSH_AVAILABLE:
+        return None
+    if _vapid_keys_cache:
+        return _vapid_keys_cache
+    env_pub, env_priv = os.environ.get("VAPID_PUBLIC_KEY"), os.environ.get("VAPID_PRIVATE_KEY")
+    if env_pub and env_priv:
+        _vapid_keys_cache = {"public": env_pub.strip(), "private": env_priv.strip()}
+        return _vapid_keys_cache
+    doc = await db.app_settings.find_one({"id": "vapid_keys"}, {"_id": 0})
+    if not doc:
+        vapid = Vapid02()
+        vapid.generate_keys()
+        public = _b64url(vapid.public_key.public_bytes(
+            _push_serialization.Encoding.X962, _push_serialization.PublicFormat.UncompressedPoint))
+        private = _b64url(vapid.private_key.private_bytes(
+            _push_serialization.Encoding.DER, _push_serialization.PrivateFormat.PKCS8,
+            _push_serialization.NoEncryption()))
+        # $setOnInsert: if two workers race here, both end up with the same keys
+        await db.app_settings.update_one(
+            {"id": "vapid_keys"},
+            {"$setOnInsert": {"id": "vapid_keys", "public": public, "private": private,
+                              "created_at": datetime.now(timezone.utc).isoformat()}},
+            upsert=True,
+        )
+        doc = await db.app_settings.find_one({"id": "vapid_keys"}, {"_id": 0})
+    _vapid_keys_cache = {"public": doc["public"], "private": doc["private"]}
+    return _vapid_keys_cache
+
+
+async def send_push_to_users(user_ids, payload: dict):
+    """Deliver a push to every registered device of the given users.
+    Subscriptions the push service reports as gone (404/410) are removed."""
+    user_ids = [u for u in dict.fromkeys(user_ids or []) if u and u != BOB_USER_ID]
+    if not user_ids or not WEBPUSH_AVAILABLE:
+        return
+    keys = await get_vapid_keys()
+    if not keys:
+        return
+    subs = await db.push_subscriptions.find(
+        {"user_id": {"$in": user_ids}}, {"_id": 0, "endpoint": 1, "keys": 1}
+    ).to_list(500)
+    data = json.dumps(payload)
+    for sub in subs:
+        try:
+            # pywebpush is blocking (requests) - keep it off the event loop
+            await asyncio.to_thread(
+                webpush,
+                subscription_info={"endpoint": sub["endpoint"], "keys": sub["keys"]},
+                data=data,
+                vapid_private_key=keys["private"],
+                vapid_claims={"sub": VAPID_SUBJECT},
+                ttl=PUSH_TTL_SECONDS,
+                timeout=10,
+            )
+        except WebPushException as e:
+            status_code = getattr(e.response, "status_code", None)
+            if status_code in (404, 410):
+                await db.push_subscriptions.delete_one({"endpoint": sub["endpoint"]})
+            else:
+                logger.warning(f"Web push failed ({status_code}): {e}")
+        except Exception as e:
+            logger.warning(f"Web push error: {e}")
+
+
+def schedule_push(user_ids, payload: dict):
+    """Fire-and-forget send_push_to_users - never delays or fails the request."""
+    if not WEBPUSH_AVAILABLE or not user_ids:
+        return
+    task = asyncio.create_task(send_push_to_users(user_ids, payload))
+    _push_tasks.add(task)
+    task.add_done_callback(_push_tasks.discard)
+
+
+def push_for_notification_docs(docs, kind: str):
+    """Push the in-app notification docs just inserted (each has the recipient
+    in assigned_to and the text in message) to their recipients' devices.
+    kind: "ticket" | "alert" | "request"."""
+    for doc in docs or []:
+        recipient = doc.get("assigned_to")
+        if not recipient:
+            continue
+        if kind == "ticket":
+            ticket_type = doc.get("ticket_type") or "sms"
+            title = doc.get("notification_title") or f"{ticket_type.upper()} ticket update"
+            url = f"/{ticket_type}-tickets?ticket={doc.get('ticket_id') or ''}"
+        elif kind == "alert":
+            ticket_type = doc.get("ticket_type") or "sms"
+            title = "Alert update"
+            url = f"/references?tab=alerts&section={ticket_type}"
+        else:
+            status_label = (doc.get("status") or "updated").replace("_", " ")
+            title = f"Request {status_label}"
+            url = "/requests"
+        schedule_push([recipient], {
+            "title": title,
+            "body": (doc.get("message") or "")[:240],
+            "url": url,
+            "tag": f"{kind}-{doc.get('id') or ''}",
+        })
+
+
+class PushSubscriptionKeys(BaseModel):
+    p256dh: str
+    auth: str
+
+class PushSubscriptionData(BaseModel):
+    endpoint: str
+    keys: PushSubscriptionKeys
+
+class PushUnsubscribeData(BaseModel):
+    endpoint: str
+
+
+@api_router.get("/push/vapid-public-key")
+async def get_push_public_key(current_user: dict = Depends(get_current_user)):
+    keys = await get_vapid_keys()
+    return {"enabled": bool(keys), "public_key": keys["public"] if keys else None}
+
+
+@api_router.post("/push/subscribe")
+async def push_subscribe(data: PushSubscriptionData, current_user: dict = Depends(get_current_user)):
+    """Register (or re-assign to the current user) this device's push subscription."""
+    if not data.endpoint.startswith("https://"):
+        raise HTTPException(status_code=400, detail="Invalid push endpoint")
+    now = datetime.now(timezone.utc).isoformat()
+    await db.push_subscriptions.update_one(
+        {"endpoint": data.endpoint},
+        {"$set": {"endpoint": data.endpoint, "keys": data.keys.model_dump(),
+                  "user_id": current_user["id"], "updated_at": now},
+         "$setOnInsert": {"created_at": now}},
+        upsert=True,
+    )
+    return {"ok": True}
+
+
+@api_router.post("/push/unsubscribe")
+async def push_unsubscribe(data: PushUnsubscribeData, current_user: dict = Depends(get_current_user)):
+    """Stop pushing to this device (e.g. on logout, so a shared device doesn't
+    keep receiving the previous user's notifications)."""
+    await db.push_subscriptions.delete_one({"endpoint": data.endpoint, "user_id": current_user["id"]})
+    return {"ok": True}
 
 
 # ==================== BOB AI ASSISTANT ====================
@@ -8560,6 +8762,9 @@ async def startup_init():
     # list query's sort (and the ETag pre-check's "most recently changed"
     # lookup) required a full in-memory collection scan.
     try:
+        await db.push_subscriptions.create_index("endpoint", unique=True)
+        await db.push_subscriptions.create_index("user_id")
+
         await db.sms_tickets.create_index([("date", -1)])
         await db.sms_tickets.create_index([("updated_at", -1)])
         await db.sms_tickets.create_index([("status", 1), ("assigned_to", 1)])
