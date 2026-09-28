@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Copy, Mail, RotateCcw, Trash2, Plus, X } from "lucide-react";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -112,6 +113,9 @@ export default function VendorEmailDialog({ open, onOpenChange, ticket, ticketTy
   const [d, setD] = useState(() => fromTicket(mode, ticket));
   const [paste, setPaste] = useState("");
   const [pasteMsg, setPasteMsg] = useState({ text: "", warn: false });
+  // In-app confirmation instead of the browser's confirm() popup: { title, message, action, onConfirm }
+  const [confirmState, setConfirmState] = useState(null);
+  const askConfirm = (title, message, action, onConfirm) => setConfirmState({ title, message, action, onConfirm });
   const paperRef = useRef(null);
 
   // Load a saved draft for this ticket (or start from the ticket fields) each time the dialog opens.
@@ -184,7 +188,14 @@ export default function VendorEmailDialog({ open, onOpenChange, ticket, ticketTy
     if (mode === "sms" && !d.mccmnc.trim()) missing.push("MCC-MNC");
     if (!issueText(d.issues, d.otherIssue)) missing.push("issue");
     if (!d.rows.length) missing.push("samples");
-    if (missing.length && !window.confirm("Still missing: " + missing.join(", ") + ". Copy anyway?")) return;
+    if (missing.length) {
+      askConfirm("Some fields are empty", "Still missing: " + missing.join(", ") + ". Copy the email anyway?", "Copy anyway", doCopyEmail);
+      return;
+    }
+    doCopyEmail();
+  };
+
+  const doCopyEmail = async () => {
     const ok = await copyHTML(html, paperRef.current?.innerText || "", paperRef.current);
     if (ok) {
       if (mode === "sms") rememberOp(d.destination, d.mccmnc);
@@ -193,10 +204,11 @@ export default function VendorEmailDialog({ open, onOpenChange, ticket, ticketTy
   };
 
   const resetFromTicket = () => {
-    if (!window.confirm("Discard this draft and rebuild the email from the ticket fields?")) return;
-    setD({ ...fromTicket(mode, ticket), _key: draftKey(mode, ticket) });
-    setPaste("");
-    setPasteMsg({ text: "", warn: false });
+    askConfirm("Reset from ticket", "Discard this draft and rebuild the email from the ticket fields?", "Reset", () => {
+      setD({ ...fromTicket(mode, ticket), _key: draftKey(mode, ticket) });
+      setPaste("");
+      setPasteMsg({ text: "", warn: false });
+    });
   };
 
   const inputCls = "bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white";
@@ -307,7 +319,11 @@ export default function VendorEmailDialog({ open, onOpenChange, ticket, ticketTy
                   type="button"
                   size="sm"
                   variant="ghost"
-                  onClick={() => { if (!d.rows.length || window.confirm("Remove all samples?")) { set({ rows: [] }); setPasteMsg({ text: "", warn: false }); } }}
+                  onClick={() => {
+                    const clear = () => { set({ rows: [] }); setPasteMsg({ text: "", warn: false }); };
+                    if (!d.rows.length) clear();
+                    else askConfirm("Clear samples", `Remove all ${d.rows.length} sample${d.rows.length === 1 ? "" : "s"}?`, "Clear", clear);
+                  }}
                 >
                   <Trash2 className="h-4 w-4 mr-1" />Clear
                 </Button>
@@ -410,6 +426,24 @@ export default function VendorEmailDialog({ open, onOpenChange, ticket, ticketTy
           </div>
         </div>
       </DialogContent>
+
+      <AlertDialog open={!!confirmState} onOpenChange={(o) => { if (!o) setConfirmState(null); }}>
+        <AlertDialogContent className="bg-white dark:bg-zinc-900 border-black/10 dark:border-white/10">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-gray-900 dark:text-white">{confirmState?.title}</AlertDialogTitle>
+            <AlertDialogDescription className="text-gray-500 dark:text-zinc-400">{confirmState?.message}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-zinc-800">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => { const fn = confirmState?.onConfirm; setConfirmState(null); fn?.(); }}
+              className="bg-emerald-500 text-black hover:bg-emerald-400"
+            >
+              {confirmState?.action}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }

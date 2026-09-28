@@ -201,7 +201,8 @@ const VOICE_ORDER = ["zone", "time", "from", "to", "vendor", "duration", "status
 const VOICE_RULES = [
   ["pdd", /pdd|post[\s_-]*dial/],
   ["duration", /duration|^dur|billsec|bill[\s_-]*sec|seconds|call[\s_-]*length/],
-  ["status", /status|sip|code|cause|release|disconnect|discnt|disc[\s_.-]*code|response/],
+  // Only the disconnect code is the status - other "... Code" columns are ignored
+  ["status", /discnt|disc[\s_.-]*code|disconnect/],
   ["vendor", /vendor|interconnect|carrier|supplier|trunk|route[\s_-]*name|gateway/],
   ["to", /^to$|^to\b|b[\s_-]?num|called|dnis|dialed|dest[\s_-]*num/],
   ["from", /^from|a[\s_-]?num|^cli|caller|calling|^ani|source/],
