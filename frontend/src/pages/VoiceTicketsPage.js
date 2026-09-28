@@ -4,7 +4,7 @@ import { useSearchParams, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { Plus, Search, Phone, Calendar, Trash2, MessageSquare, X, ListChecks, Pencil, Bell, User, Copy, History } from "lucide-react";
+import { Plus, Search, Phone, Calendar, Trash2, MessageSquare, X, ListChecks, Pencil, Bell, User, Copy, History, Mail } from "lucide-react";
 import { toast } from "sonner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -28,6 +28,7 @@ import { DateRangePickerWithRange } from "@/components/custom/DateRangePickerWit
 import IssueTypeSelect, { VOICE_ISSUE_TYPES } from "@/components/custom/IssueTypeSelect";
 import OpenedViaSelect from "@/components/custom/OpenedViaSelect";
 import MultiFilter from "@/components/custom/MultiFilter";
+import VendorEmailDialog from "@/components/custom/VendorEmailDialog";
 import { addDays } from "date-fns";
 import { useDebounce } from "@/hooks/useDebounce";
 import { fetchCached } from "@/lib/dataCache";
@@ -131,6 +132,7 @@ export default function VoiceTicketsPage() {
   const [vendorTrunkSearch, setVendorTrunkSearch] = useState("");
   const [sendingAlert, setSendingAlert] = useState(false);
   const [ticketDetailsDialogOpen, setTicketDetailsDialogOpen] = useState(false);
+  const [vendorEmailOpen, setVendorEmailOpen] = useState(false);
 
   useEffect(() => {
     const userData = localStorage.getItem("user");
@@ -1825,6 +1827,18 @@ ${selectedTicket.ticket_number}`;
                   Delete
                 </Button>
               )}
+              {canModify && editingTicket && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setVendorEmailOpen(true)}
+                  className="border-sky-500/50 text-sky-500 hover:bg-sky-500/10"
+                  data-testid="vendor-email-button"
+                >
+                  <Mail className="h-4 w-4 mr-2" />
+                  Vendor Email
+                </Button>
+              )}
               {/* Create Request Button - for AM users when viewing a ticket */}
               {isAM && editingTicket && (
                 <Button
@@ -1854,6 +1868,9 @@ ${selectedTicket.ticket_number}`;
           </form>
         </SheetContent>
       </Sheet>
+
+      {/* Vendor Issue Email Builder */}
+      <VendorEmailDialog open={vendorEmailOpen} onOpenChange={setVendorEmailOpen} ticket={formData} ticketType="voice" />
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
