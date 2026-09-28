@@ -225,7 +225,7 @@ export default function VendorEmailDialog({ open, onOpenChange, ticket, ticketTy
           </DialogTitle>
         </DialogHeader>
 
-        <div className="grid gap-5 lg:grid-cols-2">
+        <div className="grid gap-5 xl:grid-cols-2">
           {/* ----- Editor ----- */}
           <div className="space-y-4 min-w-0">
             <div className={panelCls}>
@@ -402,7 +402,7 @@ export default function VendorEmailDialog({ open, onOpenChange, ticket, ticketTy
           </div>
 
           {/* ----- Preview ----- */}
-          <div className="space-y-3 min-w-0 lg:sticky lg:top-0 self-start">
+          <div className="space-y-3 min-w-0 xl:sticky xl:top-0 self-start">
             <div className="space-y-1">
               <Label className="text-xs text-zinc-500">Subject</Label>
               <div className="flex gap-2">
@@ -416,7 +416,7 @@ export default function VendorEmailDialog({ open, onOpenChange, ticket, ticketTy
               </div>
             </div>
             <div className="rounded-lg border border-gray-200 dark:border-zinc-700 bg-gray-50 dark:bg-zinc-800 p-3 overflow-x-auto">
-              <div ref={paperRef} className="bg-white text-[#222] rounded p-5 min-w-[600px]" dangerouslySetInnerHTML={{ __html: html }} />
+              <div ref={paperRef} className="bg-white text-[#222] rounded p-5 w-max min-w-full" dangerouslySetInnerHTML={{ __html: html }} />
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <Button type="button" onClick={copyEmail} className="bg-emerald-500 text-black hover:bg-emerald-400"><Copy className="h-4 w-4 mr-2" />Copy email</Button>
