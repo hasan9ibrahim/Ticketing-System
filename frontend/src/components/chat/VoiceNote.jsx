@@ -141,10 +141,10 @@ export function VoiceNoteButton({ onClick, disabled, title = "Record voice note"
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="p-1 h-8 w-8 flex items-center justify-center rounded hover:bg-gray-100 dark:hover:bg-zinc-800 disabled:opacity-50"
+      className="p-1 h-11 w-11 sm:h-8 sm:w-8 flex-shrink-0 flex items-center justify-center rounded-full sm:rounded touch-manipulation hover:bg-gray-100 dark:hover:bg-zinc-800 disabled:opacity-50"
       title={title}
     >
-      <Mic className="w-4 h-4 text-gray-500 dark:text-zinc-400" />
+      <Mic className="w-5 h-5 sm:w-4 sm:h-4 text-gray-500 dark:text-zinc-400" />
     </button>
   );
 }
