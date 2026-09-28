@@ -29,7 +29,7 @@ export const EMAIL_MODES = {
       { k: "to", label: "To" },
       { k: "vendor", label: "Vendor Interconnect" },
       { k: "duration", label: "Duration (s)" },
-      { k: "status", label: "Discnt Code" },
+      { k: "status", label: "Status Code" },
       { k: "pdd", label: "PDD" },
     ],
     opt: "pdd",
