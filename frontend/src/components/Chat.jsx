@@ -3022,7 +3022,7 @@ function ChatWindowView({
         )}
 
         {mentionQuery !== null && filteredMentionCandidates.length > 0 && (
-          <div className="max-h-40 overflow-y-auto border-t border-black/10 dark:border-white/10 bg-white dark:bg-zinc-900">
+          <div className="flex-shrink-0 max-h-40 overflow-y-auto border-t border-black/10 dark:border-white/10 bg-white dark:bg-zinc-900">
             {filteredMentionCandidates.map((p, idx) => (
               <button
                 key={p.id}
