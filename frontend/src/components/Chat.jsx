@@ -1663,7 +1663,7 @@ function ChatListView({ conversations, users, loading, error, onRetry, onSelectC
                     className={`p-1 flex-shrink-0 rounded transition-opacity ${
                       conv.unread_count > 0
                         ? "text-emerald-500 opacity-100"
-                        : "text-gray-400 opacity-0 group-hover:opacity-100 hover:text-gray-700 dark:hover:text-gray-200"
+                        : "text-gray-400 opacity-0 [@media(hover:none)]:opacity-100 group-hover:opacity-100 hover:text-gray-700 dark:hover:text-gray-200"
                     }`}
                     title={conv.unread_count > 0 ? "Mark as read" : "Mark as unread"}
                   >
@@ -1677,7 +1677,7 @@ function ChatListView({ conversations, users, loading, error, onRetry, onSelectC
                     className={`p-1 flex-shrink-0 rounded transition-opacity ${
                       conv.pinned
                         ? "text-emerald-500 opacity-100"
-                        : "text-gray-400 opacity-0 group-hover:opacity-100 hover:text-gray-700 dark:hover:text-gray-200"
+                        : "text-gray-400 opacity-0 [@media(hover:none)]:opacity-100 group-hover:opacity-100 hover:text-gray-700 dark:hover:text-gray-200"
                     }`}
                     title={conv.pinned ? "Unpin" : "Pin"}
                   >
@@ -3022,7 +3022,7 @@ function ChatWindowView({
         )}
 
         {mentionQuery !== null && filteredMentionCandidates.length > 0 && (
-          <div className="max-h-40 overflow-y-auto border-t border-black/10 dark:border-white/10 bg-white dark:bg-zinc-900">
+          <div className="flex-shrink-0 max-h-40 overflow-y-auto border-t border-black/10 dark:border-white/10 bg-white dark:bg-zinc-900">
             {filteredMentionCandidates.map((p, idx) => (
               <button
                 key={p.id}
@@ -3082,7 +3082,7 @@ function ChatWindowView({
             onSend={() => voiceRecorder.stop(true)}
           />
         ) : (
-        <div className="flex items-center gap-1 px-2 py-1 border-t border-black/10 dark:border-white/10 bg-white dark:bg-zinc-900">
+        <div className="flex items-center gap-1 px-2 pt-1 pb-[max(0.25rem,env(safe-area-inset-bottom))] border-t border-black/10 dark:border-white/10 bg-white dark:bg-zinc-900">
           <Button
             variant="ghost"
             size="sm"
@@ -3121,24 +3121,36 @@ function ChatWindowView({
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
             rows={1}
-            className={`flex-1 min-h-8 h-8 max-h-24 py-1.5 text-sm leading-5 resize-none bg-gray-200 dark:bg-zinc-700 border-gray-300 dark:border-zinc-600 text-gray-900 dark:text-white placeholder:text-gray-500 dark:placeholder:text-zinc-400 ${
+            className={`flex-1 min-h-10 h-10 sm:min-h-8 sm:h-8 max-h-24 py-2 sm:py-1.5 text-base sm:text-sm leading-6 sm:leading-5 resize-none bg-gray-200 dark:bg-zinc-700 border-gray-300 dark:border-zinc-600 text-gray-900 dark:text-white placeholder:text-gray-500 dark:placeholder:text-zinc-400 ${
               isEditing ? "ring-1 ring-emerald-400" : ""
             }`}
           />
-          <Button
-            variant="ghost"
-            size="sm"
-            className="p-1 h-8 w-8"
-            onClick={handleSend}
-            disabled={isEditing ? !editingText.trim() : !message.trim() && pendingAttachments.length === 0}
-            title={isEditing ? "Save" : "Send"}
-          >
-            {isEditing ? (
-              <Check className={`w-4 h-4 ${editingText.trim() ? "text-emerald-500" : "text-gray-400"}`} />
-            ) : (
-              <Send className={`w-4 h-4 ${message.trim() || pendingAttachments.length > 0 ? "text-emerald-500" : "text-gray-400"}`} />
-            )}
-          </Button>
+          {(() => {
+            const canSend = isEditing ? !!editingText.trim() : !!message.trim() || pendingAttachments.length > 0;
+            return (
+              <Button
+                variant="ghost"
+                size="sm"
+                // A big, filled target on phones. mousedown preventDefault keeps
+                // the textarea focused: otherwise on iPhone the tap blurs it, the
+                // keyboard drops, the bar jumps down and the tap misses the button.
+                className={`flex-shrink-0 p-0 h-11 w-11 sm:h-8 sm:w-8 rounded-full sm:rounded-md touch-manipulation ${
+                  canSend ? "bg-emerald-500 hover:bg-emerald-400 text-white sm:bg-transparent sm:hover:bg-accent" : ""
+                }`}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={handleSend}
+                disabled={!canSend}
+                title={isEditing ? "Save" : "Send"}
+                aria-label={isEditing ? "Save" : "Send"}
+              >
+                {isEditing ? (
+                  <Check className={`w-5 h-5 sm:w-4 sm:h-4 ${canSend ? "text-white sm:text-emerald-500" : "text-gray-400"}`} />
+                ) : (
+                  <Send className={`w-5 h-5 sm:w-4 sm:h-4 ${canSend ? "text-white sm:text-emerald-500" : "text-gray-400"}`} />
+                )}
+              </Button>
+            );
+          })()}
           {canRecordVoice && !isEditing && !message.trim() && pendingAttachments.length === 0 && onSendVoiceNote && (
             <VoiceNoteButton onClick={voiceRecorder.start} />
           )}
