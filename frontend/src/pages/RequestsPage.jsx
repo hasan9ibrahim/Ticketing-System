@@ -3742,7 +3742,7 @@ export default function RequestsPage() {
             {formData.request_type === "translation" && (
               <>
                 <div>
-                  <Label className="text-gray-500 dark:text-zinc-400">Enterprise <RequiredAsterisk /></Label>
+                  <Label className="text-gray-500 dark:text-zinc-400">{displayTab === "voice" ? "Carrier" : "Enterprise"} <RequiredAsterisk /></Label>
                   <SearchableSelect
                     options={enterprises.filter(e => e.enterprise_type === displayTab || e.enterprise_type === "all").map(e => ({ value: e.id, label: e.name }))}
                     value={formData.customer_id}
@@ -3936,7 +3936,7 @@ export default function RequestsPage() {
             {formData.request_type === "investigation" && (
               <>
                 <div>
-                  <Label className="text-gray-500 dark:text-zinc-400">Enterprise <RequiredAsterisk /></Label>
+                  <Label className="text-gray-500 dark:text-zinc-400">{displayTab === "voice" ? "Carrier" : "Enterprise"} <RequiredAsterisk /></Label>
                   <SearchableSelect
                     options={investigationEnterprises.filter(e => e.enterprise_type === displayTab || e.enterprise_type === "all").map(e => ({ value: e.id, label: e.name }))}
                     value={formData.customer_id}

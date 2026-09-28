@@ -58,7 +58,7 @@ export default function MyEnterprisesPage() {
       };
       
       await axios.put(`${API}/clients/${editingEnterprise.id}/contact`, contactData, { headers });
-      toast.success("Enterprise updated successfully");
+      toast.success(`${editingEnterprise.enterprise_type === "voice" ? "Carrier" : "Enterprise"} updated successfully`);
       setSheetOpen(false);
       fetchEnterprises();
     } catch (error) {

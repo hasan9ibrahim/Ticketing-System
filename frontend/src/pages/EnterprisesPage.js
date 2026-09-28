@@ -194,15 +194,15 @@ export default function EnterprisesPage() {
       if (editingEnterprise) {
         const res = await axios.put(`${API}/clients/${editingEnterprise.id}`, dataToSubmit, { headers });
         setEnterprises((prev) => prev.map((e) => (e.id === res.data.id ? res.data : e)));
-        toast.success("Enterprise updated successfully");
+        toast.success(`${entityLabel(dataToSubmit.enterprise_type)} updated successfully`);
       } else {
         const res = await axios.post(`${API}/clients`, dataToSubmit, { headers });
         setEnterprises((prev) => [res.data, ...prev]);
-        toast.success("Enterprise created successfully");
+        toast.success(`${entityLabel(dataToSubmit.enterprise_type)} created successfully`);
       }
       setSheetOpen(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || "Failed to save enterprise");
+      toast.error(error.response?.data?.detail || `Failed to save ${entityLabel(formData.enterprise_type).toLowerCase()}`);
     }
   };
 
@@ -210,11 +210,11 @@ export default function EnterprisesPage() {
     try {
       const token = localStorage.getItem("token");
       await axios.delete(`${API}/clients/${enterpriseToDelete.id}`, { headers: { Authorization: `Bearer ${token}` } });
-      toast.success("Enterprise deleted successfully");
+      toast.success(`${entityLabel(enterpriseToDelete.enterprise_type)} deleted successfully`);
       setEnterprises((prev) => prev.filter((e) => e.id !== enterpriseToDelete.id));
       setDeleteDialogOpen(false);
     } catch (error) {
-      toast.error("Failed to delete enterprise");
+      toast.error(`Failed to delete ${entityLabel(enterpriseToDelete?.enterprise_type).toLowerCase()}`);
     }
   };
 
@@ -340,18 +340,21 @@ export default function EnterprisesPage() {
     }
   };
 
+  // Voice enterprises are called carriers in the UI (data/API still say enterprise)
+  const entityLabel = (type) => (type === "voice" ? "Carrier" : "Enterprise");
+
   // Separate enterprises by type
   const smsEnterprises = filteredEnterprises.filter(ent => ent.enterprise_type === "sms");
   const voiceEnterprises = filteredEnterprises.filter(ent => ent.enterprise_type === "voice");
 
-  const renderEnterpriseTable = (enterprisesList, title, emptyMessage) => (
+  const renderEnterpriseTable = (enterprisesList, title, emptyMessage, nameHeader = "Enterprise Name") => (
     <div className="space-y-4">
       <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{title}</h2>
       <div className="bg-white/50 dark:bg-zinc-900/50 border border-black/10 dark:border-white/10 rounded-lg overflow-hidden">
         <Table>
           <TableHeader>
             <TableRow className="border-black/5 dark:border-white/5 hover:bg-transparent">
-              <TableHead className="text-gray-500 dark:text-zinc-400">Enterprise Name</TableHead>
+              <TableHead className="text-gray-500 dark:text-zinc-400">{nameHeader}</TableHead>
               <TableHead className="text-gray-500 dark:text-zinc-400">Tier</TableHead>
               <TableHead className="text-gray-500 dark:text-zinc-400">Contact Person</TableHead>
               <TableHead className="text-gray-500 dark:text-zinc-400">Email</TableHead>
@@ -469,13 +472,13 @@ export default function EnterprisesPage() {
       {renderEnterpriseTable(smsEnterprises, "SMS Enterprises", "No SMS enterprises found")}
 
       {/* Voice Enterprises Table */}
-      {renderEnterpriseTable(voiceEnterprises, "Voice Enterprises", "No Voice enterprises found")}
+      {renderEnterpriseTable(voiceEnterprises, "Voice Carriers", "No Voice carriers found", "Carrier Name")}
 
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
         <SheetContent className="bg-white dark:bg-zinc-900 border-black/10 dark:border-white/10 text-gray-900 dark:text-white sm:max-w-2xl overflow-y-auto" data-testid="enterprise-sheet">
-          <SheetHeader><SheetTitle className="text-gray-900 dark:text-white">{editingEnterprise ? "Edit Enterprise" : "Create Enterprise"}</SheetTitle></SheetHeader>
+          <SheetHeader><SheetTitle className="text-gray-900 dark:text-white">{editingEnterprise ? `Edit ${entityLabel(formData.enterprise_type)}` : `Create ${entityLabel(formData.enterprise_type)}`}</SheetTitle></SheetHeader>
           <form onSubmit={handleSubmit} className="space-y-4 mt-6">
-            <div className="space-y-2"><Label>Enterprise Name <RequiredAsterisk /></Label><Input value={formData.name || ""} onChange={(e) => { setFormData({ ...formData, name: e.target.value }); setFieldErrors((prev) => ({ ...prev, name: false })); }} className={`bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white ${fieldErrors.name ? "border-red-500 focus-visible:ring-red-500" : ""}`} data-testid="enterprise-name-input" required />{fieldErrors.name && <FieldError />}</div>
+            <div className="space-y-2"><Label>{entityLabel(formData.enterprise_type)} Name <RequiredAsterisk /></Label><Input value={formData.name || ""} onChange={(e) => { setFormData({ ...formData, name: e.target.value }); setFieldErrors((prev) => ({ ...prev, name: false })); }} className={`bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white ${fieldErrors.name ? "border-red-500 focus-visible:ring-red-500" : ""}`} data-testid="enterprise-name-input" required />{fieldErrors.name && <FieldError />}</div>
             <div className="space-y-2"><Label>SMS/Voice <RequiredAsterisk /></Label><Select value={formData.enterprise_type || ""} onValueChange={(value) => { setFormData({ ...formData, enterprise_type: value }); setFieldErrors((prev) => ({ ...prev, enterprise_type: false })); }} required><SelectTrigger className={`bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 ${fieldErrors.enterprise_type ? "border-red-500 focus:ring-red-500" : ""}`} data-testid="enterprise-type-select"><SelectValue placeholder="Select type" /></SelectTrigger><SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700"><SelectItem value="sms">SMS</SelectItem><SelectItem value="voice">Voice</SelectItem></SelectContent></Select>{fieldErrors.enterprise_type && <FieldError>Please select a type</FieldError>}</div>
             <div className="space-y-2"><Label>Tier</Label><Select value={formData.tier} onValueChange={(value) => setFormData({ ...formData, tier: value })}><SelectTrigger className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700" data-testid="tier-select"><SelectValue placeholder="Select tier" /></SelectTrigger><SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700"><SelectItem value="Tier 1">Tier 1</SelectItem><SelectItem value="Tier 2">Tier 2</SelectItem><SelectItem value="Tier 3">Tier 3</SelectItem><SelectItem value="Tier 4">Tier 4</SelectItem></SelectContent></Select></div>
             <div className="space-y-2"><Label>Contact Person</Label><Input value={formData.contact_person || ""} onChange={(e) => setFormData({ ...formData, contact_person: e.target.value })} className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white" /></div>
@@ -506,7 +509,7 @@ export default function EnterprisesPage() {
             </div>
             
             <div className="flex space-x-3 pt-4">
-              <Button type="submit" className="bg-emerald-500 text-black hover:bg-emerald-400" data-testid="save-enterprise-button">{editingEnterprise ? "Update Enterprise" : "Create Enterprise"}</Button>
+              <Button type="submit" className="bg-emerald-500 text-black hover:bg-emerald-400" data-testid="save-enterprise-button">{editingEnterprise ? `Update ${entityLabel(formData.enterprise_type)}` : `Create ${entityLabel(formData.enterprise_type)}`}</Button>
               <Button type="button" variant="outline" onClick={() => setSheetOpen(false)} className="border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-zinc-800">Cancel</Button>
             </div>
           </form>
@@ -515,7 +518,7 @@ export default function EnterprisesPage() {
 
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent className="bg-white dark:bg-zinc-900 border-black/10 dark:border-white/10">
-          <AlertDialogHeader><AlertDialogTitle className="text-gray-900 dark:text-white">Delete Enterprise</AlertDialogTitle><AlertDialogDescription className="text-gray-500 dark:text-zinc-400">Are you sure you want to delete {enterpriseToDelete?.name}? This action cannot be undone.</AlertDialogDescription></AlertDialogHeader>
+          <AlertDialogHeader><AlertDialogTitle className="text-gray-900 dark:text-white">Delete {entityLabel(enterpriseToDelete?.enterprise_type)}</AlertDialogTitle><AlertDialogDescription className="text-gray-500 dark:text-zinc-400">Are you sure you want to delete {enterpriseToDelete?.name}? This action cannot be undone.</AlertDialogDescription></AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel className="border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-zinc-800">Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleDelete} className="bg-red-500 text-gray-900 dark:text-white hover:bg-red-600">Delete</AlertDialogAction>

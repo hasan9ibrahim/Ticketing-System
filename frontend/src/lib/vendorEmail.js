@@ -201,8 +201,9 @@ const VOICE_ORDER = ["zone", "time", "from", "to", "vendor", "duration", "status
 const VOICE_RULES = [
   ["pdd", /pdd|post[\s_-]*dial/],
   ["duration", /duration|^dur|billsec|bill[\s_-]*sec|seconds|call[\s_-]*length/],
-  // Only the disconnect code is the status - other "... Code" columns are ignored
-  ["status", /discnt|disc[\s_.-]*code|disconnect/],
+  // Only Discnt Code or SIP Code is the status - other "... Code" and
+  // Disconnect Initiator style columns are ignored
+  ["status", /discnt|disc[\s_.-]*code|disconnect[\s_.-]*code|sip[\s_.-]*code/],
   ["vendor", /vendor|interconnect|carrier|supplier|trunk|route[\s_-]*name|gateway/],
   ["to", /^to$|^to\b|b[\s_-]?num|called|dnis|dialed|dest[\s_-]*num/],
   ["from", /^from|a[\s_-]?num|^cli|caller|calling|^ani|source/],
@@ -235,7 +236,16 @@ function parseVoice(text) {
   let { rows, ws } = tokenize(text);
   if (!rows.length) return { rows: [], calc: 0, labels: {} };
   const map = mapHeader(rows[0], VOICE_RULES);
-  if (map) rows = rows.slice(1);
+  if (map) {
+    // When both are present, Discnt Code wins over SIP Code
+    const di = rows[0].findIndex((c) => /discnt|disc[\s_.-]*code|disconnect[\s_.-]*code/.test(String(c).toLowerCase().trim()));
+    if (di >= 0 && map[di] !== "status") {
+      const si = map.indexOf("status");
+      if (si >= 0) map[si] = null;
+      map[di] = "status";
+    }
+    rows = rows.slice(1);
+  }
   const out = rows.map((cells) => {
     if (!map) return voicePositional(cells, ws);
     const r = blankRow("voice");

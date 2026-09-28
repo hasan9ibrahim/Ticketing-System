@@ -985,7 +985,7 @@ export default function VoiceTicketsPage() {
 
     const amId = enterprise.assigned_am_id;
     if (!amId) {
-      toast.error("No Account Manager assigned to this enterprise");
+      toast.error("No Account Manager assigned to this carrier");
       return null;
     }
 
@@ -1165,7 +1165,7 @@ ${selectedTicket.ticket_number}`;
       {/*
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Select value={enterpriseFilter} onValueChange={setEnterpriseFilter}>
-          <SelectTrigger className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white"><SelectValue placeholder="Enterprise" /></SelectTrigger>
+          <SelectTrigger className="bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 text-gray-900 dark:text-white"><SelectValue placeholder="Carrier" /></SelectTrigger>
           <SelectContent className="bg-gray-100 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700">
             <SelectItem value="all" className="text-gray-900 dark:text-white">All Customers</SelectItem>
             {enterprises.map((e) => <SelectItem key={e.id} value={e.id} className="text-gray-900 dark:text-white">{e.name}</SelectItem>)}
@@ -1896,7 +1896,7 @@ ${selectedTicket.ticket_number}`;
           <AlertDialogHeader>
             <AlertDialogTitle className="text-gray-900 dark:text-white">Same-Day Identical Ticket Found</AlertDialogTitle>
             <AlertDialogDescription className="text-gray-500 dark:text-zinc-400">
-              A ticket with the same Enterprise, Trunk, Destination, and Issue was created today: {sameDayTickets.map(t => t.ticket_number).join(', ')}. Do you still want to create this ticket?
+              A ticket with the same Carrier, Trunk, Destination, and Issue was created today: {sameDayTickets.map(t => t.ticket_number).join(', ')}. Do you still want to create this ticket?
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
