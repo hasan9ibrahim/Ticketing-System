@@ -251,10 +251,12 @@ export default function VendorEmailDialog({ open, onOpenChange, ticket, ticketTy
                     </div>
                   )}
                 </div>
-                <div className="space-y-1">
-                  <Label className="text-xs text-zinc-500">{mode === "sms" ? "MCC-MNC" : "MCC-MNC (optional)"}</Label>
-                  <Input value={d.mccmnc} onChange={(e) => set({ mccmnc: e.target.value })} className={`${inputCls} font-mono`} placeholder="602003" />
-                </div>
+                {mode === "sms" && (
+                  <div className="space-y-1">
+                    <Label className="text-xs text-zinc-500">MCC-MNC</Label>
+                    <Input value={d.mccmnc} onChange={(e) => set({ mccmnc: e.target.value })} className={`${inputCls} font-mono`} placeholder="602003" />
+                  </div>
+                )}
                 <div className="space-y-1">
                   <Label className="text-xs text-zinc-500">Greeting</Label>
                   <Input value={d.greeting} onChange={(e) => set({ greeting: e.target.value })} className={inputCls} placeholder="Dear Partner," />

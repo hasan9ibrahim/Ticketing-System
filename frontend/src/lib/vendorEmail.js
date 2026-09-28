@@ -29,7 +29,7 @@ export const EMAIL_MODES = {
       { k: "to", label: "To" },
       { k: "vendor", label: "Vendor Interconnect" },
       { k: "duration", label: "Duration (s)" },
-      { k: "status", label: "Status Code" },
+      { k: "status", label: "Discnt Code" },
       { k: "pdd", label: "PDD" },
     ],
     opt: "pdd",
@@ -201,7 +201,7 @@ const VOICE_ORDER = ["zone", "time", "from", "to", "vendor", "duration", "status
 const VOICE_RULES = [
   ["pdd", /pdd|post[\s_-]*dial/],
   ["duration", /duration|^dur|billsec|bill[\s_-]*sec|seconds|call[\s_-]*length/],
-  ["status", /status|sip|code|cause|release|disconnect|response/],
+  ["status", /status|sip|code|cause|release|disconnect|discnt|disc[\s_.-]*code|response/],
   ["vendor", /vendor|interconnect|carrier|supplier|trunk|route[\s_-]*name|gateway/],
   ["to", /^to$|^to\b|b[\s_-]?num|called|dnis|dialed|dest[\s_-]*num/],
   ["from", /^from|a[\s_-]?num|^cli|caller|calling|^ani|source/],
@@ -320,8 +320,8 @@ export function buildEmailHTML(mode, d) {
         "</tr>"
     )
     .join("");
-  const mc = d.mccmnc.trim();
-  const mccLine = mc || mode === "sms" ? `<p style="${P}"><b><u>MCC-MNC:</u></b> <b style="color:${RED};">${esc(mc || "[MCC-MNC]")}</b></p>` : "";
+  const mc = mode === "sms" ? d.mccmnc.trim() : "";
+  const mccLine = mode === "sms" ? `<p style="${P}"><b><u>MCC-MNC:</u></b> <b style="color:${RED};">${esc(mc || "[MCC-MNC]")}</b></p>` : "";
   const note = d.note.trim() ? `<p style="${P}">${esc(d.note.trim()).replace(/\n/g, "<br>")}</p>` : "";
   const closing = d.closing.trim() ? `<p style="${P}">${esc(d.closing.trim()).replace(/\n/g, "<br>")}</p>` : "";
   return (
