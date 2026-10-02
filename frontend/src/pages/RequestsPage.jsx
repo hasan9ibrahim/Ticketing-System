@@ -1736,6 +1736,13 @@ export default function RequestsPage() {
         } else if (field === "vendor_trunk") {
           const trunks = req.vendor_trunks || [];
           return values.some(v => trunks.some(t => t.trunk === v));
+        } else if (field === "ticket_number") {
+          // Text filter - match the linked ticket # or the request's own number/ID ("#" optional)
+          const value = (values[0] || "").trim().toLowerCase().replace(/^#/, "");
+          if (!value) return true;
+          return [req.ticket_id, req.request_number, req.id].some(
+            n => n && String(n).toLowerCase().replace(/^#/, "").includes(value)
+          );
         } else if (field === "destination") {
           // Text filter - match any destination stored on the request
           const value = (values[0] || "").trim().toLowerCase();
