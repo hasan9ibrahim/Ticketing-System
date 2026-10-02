@@ -573,7 +573,7 @@ export default function VoiceTicketsPage() {
 
   const openCreateSheet = () => {
     setEditingTicket(null);
-    setFormData({ priority: "Medium", status: "Unassigned", opened_via: ["Monitoring"], is_lcr: "no", by_loss: false, volume: "0", ...customerRowsPatch([{ customer_id: "", customer_trunk: "" }]), issue_types: [], issue_other: "", fas_type: "", vendor_trunks: [] });
+    setFormData({ priority: "Medium", status: "Unassigned", opened_via: ["Monitoring"], opened_by_vendor: false, is_lcr: "no", by_loss: false, volume: "0", ...customerRowsPatch([{ customer_id: "", customer_trunk: "" }]), issue_types: [], issue_other: "", fas_type: "", vendor_trunks: [] });
     setSheetOpen(true);
   };
 
@@ -1308,7 +1308,12 @@ ${selectedTicket.ticket_number}`;
                           <TableCell className="text-gray-700 dark:text-zinc-300">{ticket.ani ? ticket.ani : "Any"}</TableCell>
                           <TableCell className="text-gray-700 dark:text-zinc-300">{getIssueDisplayText(ticket)}</TableCell>
                           <TableCell className="text-gray-700 dark:text-zinc-300">{getVendorTrunkDisplayText(ticket) || "-"}</TableCell>
-                          <TableCell className="text-gray-700 dark:text-zinc-300">{getOpenedViaDisplayText(ticket) || "-"}</TableCell>
+                          <TableCell className="text-gray-700 dark:text-zinc-300">
+                            {getOpenedViaDisplayText(ticket) || "-"}
+                            {ticket.opened_by_vendor && (
+                              <div className="text-[11px] font-medium text-amber-600 dark:text-amber-400 whitespace-nowrap">Opened by Vendor</div>
+                            )}
+                          </TableCell>
                           <TableCell>
                             {ticket.status === "Resolved" ? (
                               <span
@@ -1489,6 +1494,18 @@ ${selectedTicket.ticket_number}`;
               ticketType="voice"
             />
             {fieldErrors.opened_via && <FieldError>Please select at least one option</FieldError>}
+            {/* Opened by Vendor - shows a note under Opened Via everywhere the ticket is shown */}
+            <div className="flex items-center gap-2 -mt-2">
+              <input
+                id="opened_by_vendor"
+                type="checkbox"
+                checked={formData.opened_by_vendor || false}
+                onChange={(e) => setFormData({ ...formData, opened_by_vendor: e.target.checked })}
+                disabled={isAM}
+                className="w-4 h-4 accent-amber-500"
+              />
+              <label htmlFor="opened_by_vendor" className="text-gray-900 dark:text-white text-sm cursor-pointer">Opened by Vendor</label>
+            </div>
 
             {/* Assigned To */}
             <div className="space-y-2">
@@ -2167,6 +2184,9 @@ ${selectedTicket.ticket_number}`;
                 <div className="bg-gray-100/30 dark:bg-zinc-800/30 p-2 rounded">
                   <span className="text-zinc-500 text-[10px] uppercase">Opened Via</span>
                   <p className="text-gray-900 dark:text-white text-sm font-medium truncate">{Array.isArray(editingTicket?.opened_via) ? editingTicket.opened_via.join(', ') : editingTicket?.opened_via || '-'}</p>
+                  {editingTicket?.opened_by_vendor && (
+                    <p className="text-[11px] font-medium text-amber-600 dark:text-amber-400">Opened by Vendor</p>
+                  )}
                 </div>
               </div>
 

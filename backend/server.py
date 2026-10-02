@@ -1170,6 +1170,7 @@ class SMSTicket(BaseModel):
     issue_other: Optional[str] = None  # Custom "Other" issue text
     issue: Optional[str] = None  # Legacy field - computed from issue_types + issue_other
     opened_via: List[str] = []  # Multi-select: Monitoring, Teams, Email, AM, Telegram
+    opened_by_vendor: bool = False  # Shows an "Opened by Vendor" note under Opened Via
     assigned_to: Optional[str] = None
     status: str
     # Legacy single SID/Content fields (kept for backward compatibility)
@@ -1214,6 +1215,7 @@ class SMSTicketCreate(BaseModel):
     issue_other: Optional[str] = None
     issue: Optional[str] = None  # Legacy/computed
     opened_via: List[str] = []  # Multi-select checklist
+    opened_by_vendor: bool = False
     assigned_to: Optional[str] = None
     status: str = "Unassigned"
     # Legacy single SID/Content fields (kept for backward compatibility)
@@ -1241,6 +1243,7 @@ class SMSTicketUpdate(BaseModel):
     issue_other: Optional[str] = None
     issue: Optional[str] = None
     opened_via: Optional[List[str]] = None  # Multi-select checklist
+    opened_by_vendor: Optional[bool] = None
     assigned_to: Optional[str] = None
     status: Optional[str] = None
     # Legacy single SID/Content fields (kept for backward compatibility)
@@ -1286,6 +1289,7 @@ class VoiceTicket(BaseModel):
     fas_type: Optional[str] = None  # FAS type specification for Voice tickets
     issue: Optional[str] = None  # Legacy field
     opened_via: List[str] = []  # Multi-select: Monitoring, Teams, Email, AM
+    opened_by_vendor: bool = False  # Shows an "Opened by Vendor" note under Opened Via
     assigned_to: Optional[str] = None
     status: str
     rate: Optional[str] = None
@@ -1315,6 +1319,7 @@ class VoiceTicketCreate(BaseModel):
     fas_type: Optional[str] = None
     issue: Optional[str] = None
     opened_via: List[str] = []  # Multi-select checklist
+    opened_by_vendor: bool = False
     assigned_to: Optional[str] = None
     status: str = "Unassigned"
     rate: Optional[str] = None
@@ -1340,6 +1345,7 @@ class VoiceTicketUpdate(BaseModel):
     fas_type: Optional[str] = None
     issue: Optional[str] = None
     opened_via: Optional[List[str]] = None  # Multi-select checklist
+    opened_by_vendor: Optional[bool] = None
     assigned_to: Optional[str] = None
     status: Optional[str] = None
     rate: Optional[str] = None
