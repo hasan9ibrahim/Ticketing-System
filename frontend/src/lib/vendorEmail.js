@@ -16,7 +16,7 @@ export const EMAIL_MODES = {
     opt: "delay",
     optLabel: "Include Delivery Delay column (only when at least one row has a value)",
     statuses: ["DELIVRD", "UNDELIV", "SENT", "PENDING", "EXPIRED", "REJECTD", "ENROUTE", "UNKNOWN"],
-    thStyle: "color:#8B2E2E;font-weight:normal;",
+    thStyle: "color:#FFFFFF;font-weight:normal;",
     placeholder:
       "Paste rows from the system, Excel or a CSV here and they're added automatically. Headers are optional (SRC ADDR / DST ADDR headers are recognised).\n\nYou can also type a sample on one line, then press Add samples:\n1ce50b7e-da71-4654-8afc-44ea4db259d8  2026-09-15 09:14:07  UNDELIV  Apple  201152326487  602003  45s",
   },
@@ -35,7 +35,7 @@ export const EMAIL_MODES = {
     opt: "pdd",
     optLabel: "Include PDD column (only when at least one row has a value)",
     statuses: ["200", "404", "408", "480", "486", "487", "503", "603"],
-    thStyle: "color:#1A1A1A;font-weight:bold;",
+    thStyle: "color:#FFFFFF;font-weight:bold;",
     placeholder:
       "Paste rows from the system, Excel or a CSV here and they're added automatically. Headers are optional.\n\nYou can also type a sample on one line, then press Add samples:\nFRANCE MOBILE ORANGE  2026.05.22 09:01:57  33662043170  33632000007  ChatLink_CC  12  200  4.2",
   },
