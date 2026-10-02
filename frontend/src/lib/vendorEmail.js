@@ -111,8 +111,8 @@ function mapHeader(cells, rules) {
   const used = new Set();
   const map = cells.map((c) => {
     const n = String(c).toLowerCase().trim();
-    for (const [k, re] of rules) {
-      if (!used.has(k) && re.test(n)) { used.add(k); return k; }
+    for (const [k, re, exclude] of rules) {
+      if (!used.has(k) && re.test(n) && !(exclude && exclude.test(n))) { used.add(k); return k; }
     }
     return null;
   });
@@ -135,7 +135,8 @@ const SRC_ADDR_RE = /^src\b|src[\s_.-]*addr|source[\s_.-]*addr/;
 const SMS_RULES = [
   ["done", /(done|dlr|deliver(ed|y)?|receipt|report|end)[\s_-]*(time|date|ts|at)|delivered[\s_-]*on/],
   ["delay", /delay|latency|duration|elapsed/],
-  ["id", /message[\s_-]*id|msg[\s_-]*id|sms[\s_-]*id|^id$|messageid|uuid|^ref/],
+  // Message ID is the vendor's, never the customer's
+  ["id", /message[\s_-]*id|msg[\s_-]*id|sms[\s_-]*id|^id$|messageid|uuid|^ref/, /customer|client|\bcust/],
   ["start", /start|submit|sent[\s_-]*(time|date|at)|created|send[\s_-]*time|^date|^time|timestamp|received/],
   ["status", /status|state|^dlr$|result/],
   ["sender", /sender|source|originator|^from$|^oa$|^tpoa$|^src\b|src[\s_.-]*addr/],
@@ -178,6 +179,13 @@ function parseSMS(text) {
   const labels = {};
   if (map) {
     rows = rows.slice(1);
+    // A Vendor Message ID column wins over any other ID column
+    const vi = header.findIndex((c) => /vendor|supplier/.test(String(c).toLowerCase()) && /message[\s_-]*id|msg[\s_-]*id|sms[\s_-]*id|messageid/.test(String(c).toLowerCase()));
+    if (vi >= 0 && map[vi] !== "id") {
+      const ii = map.indexOf("id");
+      if (ii >= 0) map[ii] = null;
+      map[vi] = "id";
+    }
     // Keep the partner's wording when the sender column comes in as SRC ADDR
     const si = map.indexOf("sender");
     if (si >= 0 && SRC_ADDR_RE.test(String(header[si]).toLowerCase().trim())) labels.sender = "SRC ADDR";
