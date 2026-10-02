@@ -225,7 +225,8 @@ function formatPresence(isOnline, lastActive) {
   if (!dateStr.endsWith("Z") && !dateStr.includes("+")) dateStr = dateStr + "Z";
   const date = new Date(dateStr);
   const diff = Date.now() - date.getTime();
-  if (isNaN(diff)) return "Offline";
+  // Older logouts stored a 1970 placeholder - there's no real "last seen" to show
+  if (isNaN(diff) || date.getFullYear() < 2000) return "Offline";
   const minutes = Math.floor(diff / 60000);
   if (minutes < 1) return "Active now";
   if (minutes < 60) return `Active ${minutes}m ago`;

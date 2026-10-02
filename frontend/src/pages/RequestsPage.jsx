@@ -1740,6 +1740,29 @@ export default function RequestsPage() {
         } else if (field === "vendor_trunk") {
           const trunks = req.vendor_trunks || [];
           return values.some(v => trunks.some(t => t.trunk === v));
+        } else if (field === "ticket_number") {
+          // Text filter - match the linked ticket # ("#" optional)
+          const value = (values[0] || "").trim().toLowerCase().replace(/^#/, "");
+          if (!value) return true;
+          return (req.ticket_id || "").toLowerCase().replace(/^#/, "").includes(value);
+        } else if (field === "request_id") {
+          // Text filter - match the request's own ID or number ("#" optional)
+          const value = (values[0] || "").trim().toLowerCase().replace(/^#/, "");
+          if (!value) return true;
+          return [req.id, req.request_number].some(
+            n => n && String(n).toLowerCase().replace(/^#/, "").includes(value)
+          );
+        } else if (field === "destination") {
+          // Text filter - match any destination stored on the request
+          const value = (values[0] || "").trim().toLowerCase();
+          if (!value) return true;
+          const destinations = [
+            req.destination,
+            req.translation_destination,
+            req.investigation_destination,
+            ...(req.customer_trunks || []).map(ct => ct.destination)
+          ];
+          return destinations.some(d => d && d.toLowerCase().includes(value));
         }
         return true;
       });
@@ -2133,7 +2156,7 @@ export default function RequestsPage() {
               return true;
             }).map(([key, type]) => ({ value: key, label: type.label }))
           }}
-          fields={["ticket_number", "status", "enterprise", "enterprise_trunk", "vendor_trunk", "request_type"]}
+          fields={["ticket_number", "request_id", "status", "enterprise", "enterprise_trunk", "vendor_trunk", "destination", "request_type"]}
           enterprises={activeTab === "sms" ? enterprises.filter(e => e.enterprise_type === "sms") : enterprises.filter(e => e.enterprise_type === "voice")}
           customerTrunkOptions={customerTrunkOptions}
           vendorTrunkOptions={vendorTrunkOptions}
@@ -2239,7 +2262,7 @@ export default function RequestsPage() {
                       </div>
                       <h3 className="text-gray-900 dark:text-white font-medium">{request.customer}</h3>
                       <p className="text-gray-500 dark:text-zinc-400 text-sm">
-                        Created by {request.created_by_username} on {new Date(request.created_at).toLocaleDateString()}
+                        Created by {request.created_by_username} on {new Date(request.created_at).toLocaleString()}
                         {request.claimed_by_username && <span className="block text-yellow-400">Claimed by {request.claimed_by_username}</span>}
                       </p>
                       

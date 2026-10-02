@@ -1666,10 +1666,10 @@ async def login(login_data: UserLogin):
             )
 
     # No 2FA - complete login normally
-    # Update last_active on login
+    # Update last_active on login and clear any logout marker
     await db.users.update_one(
         {"id": user["id"]},
-        {"$set": {"last_active": datetime.now(timezone.utc)}}
+        {"$set": {"last_active": datetime.now(timezone.utc)}, "$unset": {"logged_out_at": ""}}
     )
     
     # Create a session record to track online time
@@ -1710,11 +1710,14 @@ async def login(login_data: UserLogin):
 
 @api_router.post("/auth/logout")
 async def logout(current_user: dict = Depends(get_current_user)):
-    """Logout - marks user as offline by setting last_active to a very old timestamp and closes session"""
-    # Set last_active to a time far in the past so user immediately shows as offline
+    """Logout - marks user as offline and closes session"""
+    # Record the real logout time as last_active (so "last seen" is exact) and
+    # flag the logout via logged_out_at so presence checks treat the user as
+    # offline immediately - see is_user_online().
+    now = datetime.now(timezone.utc)
     await db.users.update_one(
         {"id": current_user["id"]},
-        {"$set": {"last_active": datetime(1970, 1, 1, tzinfo=timezone.utc)}}
+        {"$set": {"last_active": now, "logged_out_at": now}}
     )
     
     # Close the current session record
@@ -2111,7 +2114,7 @@ async def verify_2fa_login(login_data: TwoFactorLogin):
         {"$set": {
             "last_active": datetime.now(timezone.utc),
             "current_session_id": session_id
-        }}
+        }, "$unset": {"logged_out_at": ""}}
     )
     
     # Create audit log for 2FA login
@@ -5588,8 +5591,9 @@ async def get_online_users(current_user: dict = Depends(get_current_user)):
             "last_active": {"$gte": five_minutes_ago},
             "$or": [{"is_active": True}, {"is_active": {"$exists": False}}]
         },
-        {"_id": 0, "id": 1, "username": 1, "name": 1, "last_active": 1, "role": 1, "department_id": 1, "noc_focus": 1}
+        {"_id": 0, "id": 1, "username": 1, "name": 1, "last_active": 1, "logged_out_at": 1, "role": 1, "department_id": 1, "noc_focus": 1}
     ).to_list(100)
+    online_users = [u for u in online_users if is_user_online(u)]
     depts_by_id = await get_departments_by_id()
 
     return [
@@ -6435,22 +6439,38 @@ async def websocket_data(websocket: WebSocket, token: str):
 
 # ==================== CHAT API ENDPOINTS ====================
 
+def _as_utc(value):
+    if isinstance(value, str):
+        try:
+            value = datetime.fromisoformat(value)
+        except ValueError:
+            return None
+    if isinstance(value, datetime) and value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value if isinstance(value, datetime) else None
+
+def is_user_online(u: dict) -> bool:
+    """Online = active within 5 minutes and not logged out. Activity in the
+    first minute after a logout (in-flight polls/pings from the closing tab)
+    doesn't count; activity after that means the user is back on another
+    device or tab with a still-valid token."""
+    last_active = _as_utc(u.get("last_active"))
+    if not last_active or last_active <= datetime.now(timezone.utc) - timedelta(minutes=5):
+        return False
+    logged_out_at = _as_utc(u.get("logged_out_at"))
+    if logged_out_at and last_active - logged_out_at <= timedelta(minutes=1):
+        return False
+    return True
+
 CHAT_USER_PROJECTION = {
-    "_id": 0, "id": 1, "username": 1, "name": 1, "last_active": 1, "phone": 1,
+    "_id": 0, "id": 1, "username": 1, "name": 1, "last_active": 1, "logged_out_at": 1, "phone": 1,
     "role": 1, "department_id": 1, "noc_focus": 1,
 }
 
 def build_chat_user_info(u: dict, depts_by_id: Optional[dict] = None) -> dict:
     """Shape a user doc into the {id, username, name, phone, last_active, is_online,
-    noc_label} form used across every chat endpoint. Online = active within 5 minutes."""
-    is_online = False
-    last_active = u.get("last_active")
-    if last_active:
-        if isinstance(last_active, str):
-            last_active = datetime.fromisoformat(last_active)
-        if last_active.tzinfo is None:
-            last_active = last_active.replace(tzinfo=timezone.utc)
-        is_online = last_active > datetime.now(timezone.utc) - timedelta(minutes=5)
+    noc_label} form used across every chat endpoint."""
+    is_online = is_user_online(u)
     if u["id"] == BOB_USER_ID:
         # BOB has no session/last_active - always show it available rather
         # than as permanently "offline".
