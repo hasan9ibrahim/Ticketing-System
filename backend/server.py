@@ -1660,11 +1660,14 @@ async def login(login_data: UserLogin):
 
 @api_router.post("/auth/logout")
 async def logout(current_user: dict = Depends(get_current_user)):
-    """Logout - marks user as offline by setting last_active to a very old timestamp and closes session"""
-    # Set last_active to a time far in the past so user immediately shows as offline
+    """Logout - marks user as offline and closes session"""
+    # Backdate last_active just past the 5-minute online window so the user
+    # immediately shows as offline, while "last seen" stays close to the real
+    # logout time (previously this was set to 1970, which the chat displayed
+    # as "Last seen 1/1/1970").
     await db.users.update_one(
         {"id": current_user["id"]},
-        {"$set": {"last_active": datetime(1970, 1, 1, tzinfo=timezone.utc)}}
+        {"$set": {"last_active": datetime.now(timezone.utc) - timedelta(minutes=5, seconds=1)}}
     )
     
     # Close the current session record
