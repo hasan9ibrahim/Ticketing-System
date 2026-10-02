@@ -1737,10 +1737,15 @@ export default function RequestsPage() {
           const trunks = req.vendor_trunks || [];
           return values.some(v => trunks.some(t => t.trunk === v));
         } else if (field === "ticket_number") {
-          // Text filter - match the linked ticket # or the request's own number/ID ("#" optional)
+          // Text filter - match the linked ticket # ("#" optional)
           const value = (values[0] || "").trim().toLowerCase().replace(/^#/, "");
           if (!value) return true;
-          return [req.ticket_id, req.request_number, req.id].some(
+          return (req.ticket_id || "").toLowerCase().replace(/^#/, "").includes(value);
+        } else if (field === "request_id") {
+          // Text filter - match the request's own ID or number ("#" optional)
+          const value = (values[0] || "").trim().toLowerCase().replace(/^#/, "");
+          if (!value) return true;
+          return [req.id, req.request_number].some(
             n => n && String(n).toLowerCase().replace(/^#/, "").includes(value)
           );
         } else if (field === "destination") {
@@ -2147,7 +2152,7 @@ export default function RequestsPage() {
               return true;
             }).map(([key, type]) => ({ value: key, label: type.label }))
           }}
-          fields={["ticket_number", "status", "enterprise", "enterprise_trunk", "vendor_trunk", "destination", "request_type"]}
+          fields={["ticket_number", "request_id", "status", "enterprise", "enterprise_trunk", "vendor_trunk", "destination", "request_type"]}
           enterprises={activeTab === "sms" ? enterprises.filter(e => e.enterprise_type === "sms") : enterprises.filter(e => e.enterprise_type === "voice")}
           customerTrunkOptions={customerTrunkOptions}
           vendorTrunkOptions={vendorTrunkOptions}
