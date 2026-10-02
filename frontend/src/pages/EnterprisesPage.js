@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import axios from "axios";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,7 +22,6 @@ const API = `${BACKEND_URL}/api`;
 
 export default function EnterprisesPage() {
   const [enterprises, setEnterprises] = useState([]);
-  const [filteredEnterprises, setFilteredEnterprises] = useState([]);
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
@@ -55,7 +54,6 @@ export default function EnterprisesPage() {
   // enterprise list on every keystroke.
   const debouncedSearchTerm = useDebounce(searchTerm, 300);
 
-  useEffect(() => { filterEnterprises(); }, [debouncedSearchTerm, enterprises, filters]);
 
   const fetchData = async () => {
     try {
@@ -69,7 +67,6 @@ export default function EnterprisesPage() {
         axios.get(`${API}/auth/me`, { headers }),
       ]);
       setEnterprises(enterprisesData);
-      setFilteredEnterprises(enterprisesData);
       setUsers(usersData.filter((u) => u.role === "am"));
       setCurrentUser(userRes.data);
     } catch (error) {
@@ -89,7 +86,9 @@ export default function EnterprisesPage() {
     return () => clearInterval(interval);
   }, []);
 
-  const filterEnterprises = () => {
+  // Derived on render (not stored in state) so the 10s auto-refresh can never
+  // briefly show the full, unfiltered list before the search is re-applied.
+  const filteredEnterprises = useMemo(() => {
     let filtered = [...enterprises];
     
     // Apply search term filter
@@ -127,8 +126,8 @@ export default function EnterprisesPage() {
       }
     });
     
-    setFilteredEnterprises(filtered);
-  };
+    return filtered;
+  }, [debouncedSearchTerm, enterprises, filters]);
 
   const openCreateSheet = () => {
     setEditingEnterprise(null);
