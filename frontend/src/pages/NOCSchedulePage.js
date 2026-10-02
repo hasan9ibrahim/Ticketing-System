@@ -55,6 +55,12 @@ const SHIFT_TYPES = [
   { id: "holiday", label: "Holiday", time: "", color: "bg-gray-300 dark:bg-zinc-600", textColor: "text-gray-900 dark:text-zinc-100" },
 ];
 
+// " (SMS)" / " (Voice)" / " (SMS and Voice)" - what the NOC member is handling
+const focusSuffix = (u) => (u?.noc_label ? ` (${u.noc_label})` : "");
+
+const FocusTag = ({ user }) =>
+  user?.noc_label ? <span className="text-xs text-amber-600 dark:text-amber-400"> ({user.noc_label})</span> : null;
+
 const getShiftConfig = (shiftType) => {
   return SHIFT_TYPES.find(s => s.id === shiftType) || SHIFT_TYPES[4]; // Default to "off"
 };
@@ -461,7 +467,7 @@ export default function NOCSchedulePage() {
         <span className="text-sm text-gray-500 dark:text-zinc-400">NOC Team Members: </span>
         {nocUsers.length > 0 ? (
           <span className="text-sm text-gray-900 dark:text-white">
-            {nocUsers.map(u => u.name || u.username).join(", ")}
+            {nocUsers.map(u => (u.name || u.username) + focusSuffix(u)).join(", ")}
           </span>
         ) : (
           <span className="text-sm text-red-400">No NOC users found</span>
@@ -506,7 +512,7 @@ export default function NOCSchedulePage() {
                   <div className="space-y-1">
                     {dayShifts.map(s => (
                       <div key={s.user.id} className="text-sm text-gray-700 dark:text-zinc-300">
-                        {s.user.name || s.user.username} <span className="text-zinc-500">({s.shift.label})</span>
+                        {s.user.name || s.user.username}<FocusTag user={s.user} /> <span className="text-zinc-500">({s.shift.label})</span>
                       </div>
                     ))}
                   </div>
@@ -525,7 +531,7 @@ export default function NOCSchedulePage() {
                   <div className="space-y-1">
                     {nightShifts.map(s => (
                       <div key={s.user.id} className="text-sm text-gray-700 dark:text-zinc-300">
-                        {s.user.name || s.user.username} <span className="text-zinc-500">({s.shift.label})</span>
+                        {s.user.name || s.user.username}<FocusTag user={s.user} /> <span className="text-zinc-500">({s.shift.label})</span>
                       </div>
                     ))}
                   </div>
@@ -544,7 +550,7 @@ export default function NOCSchedulePage() {
                   <div className="space-y-1">
                     {offUsers.map(s => (
                       <div key={s.user.id} className="text-sm text-gray-700 dark:text-zinc-300">
-                        {s.user.name || s.user.username}
+                        {s.user.name || s.user.username}<FocusTag user={s.user} />
                       </div>
                     ))}
                   </div>
@@ -563,7 +569,7 @@ export default function NOCSchedulePage() {
                   <div className="space-y-1">
                     {onLeave.map(s => (
                       <div key={s.user.id} className="text-sm text-gray-700 dark:text-zinc-300">
-                        {s.user.name || s.user.username}
+                        {s.user.name || s.user.username}<FocusTag user={s.user} />
                       </div>
                     ))}
                   </div>
@@ -582,7 +588,7 @@ export default function NOCSchedulePage() {
                   <div className="space-y-1">
                     {holidays.map(s => (
                       <div key={s.user.id} className="text-sm text-gray-700 dark:text-zinc-300">
-                        {s.user.name || s.user.username}
+                        {s.user.name || s.user.username}<FocusTag user={s.user} />
                       </div>
                     ))}
                   </div>
@@ -617,6 +623,9 @@ export default function NOCSchedulePage() {
                 <div className="text-sm font-medium text-gray-900 dark:text-white truncate">
                   {nocUser.name || nocUser.username}
                 </div>
+                {nocUser.noc_label && (
+                  <div className="text-[10px] text-amber-600 dark:text-amber-400 truncate">({nocUser.noc_label})</div>
+                )}
               </div>
             ))}
           </div>

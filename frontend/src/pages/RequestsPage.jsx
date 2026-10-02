@@ -22,6 +22,7 @@ import CompactImageViewer from "@/components/custom/CompactImageViewer";
 import axios from "axios";
 import { useDebounce } from "@/hooks/useDebounce";
 import { matchesSearch, searchInputProps } from "@/lib/search";
+import { getEffectiveTicketType, matchesTicketType } from "@/lib/nocFocus";
 
 const API = `${process.env.REACT_APP_API_URL || "http://localhost:8000"}/api`;
 
@@ -122,7 +123,10 @@ export default function RequestsPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
-  const [activeTab, setActiveTab] = useState("sms");
+  // NOCs handling only SMS or only Voice stay on that tab
+  const storedUser = JSON.parse(localStorage.getItem("user") || "{}");
+  const focusType = storedUser?.role === "noc" ? getEffectiveTicketType(storedUser) : "all";
+  const [activeTab, setActiveTab] = useState(focusType === "voice" ? "voice" : "sms");
   const [requestSubTab, setRequestSubTab] = useState("active"); // "active" or "archive" for sub-tabs
   const [requests, setRequests] = useState([]);
   
@@ -344,7 +348,7 @@ export default function RequestsPage() {
       processedTicketRef.current = paramKey;
       
       // If ticket_type is provided and valid, set the active tab
-      if (ticketType && (ticketType === 'sms' || ticketType === 'voice')) {
+      if (ticketType && (ticketType === 'sms' || ticketType === 'voice') && matchesTicketType(focusType, ticketType)) {
         setActiveTab(ticketType);
       }
       
@@ -2157,12 +2161,16 @@ export default function RequestsPage() {
       {userRole !== "am" ? (
         <Tabs value={activeTab} onValueChange={(val) => { setActiveTab(val); setRequestSubTab("active"); }}>
           <TabsList className="bg-gray-100 dark:bg-zinc-800">
-            <TabsTrigger value="sms" className="data-[state=active]:bg-amber-500 data-[state=active]:text-black">
-              SMS Requests
-            </TabsTrigger>
-            <TabsTrigger value="voice" className="data-[state=active]:bg-amber-500 data-[state=active]:text-black">
-              Voice Requests
-            </TabsTrigger>
+            {focusType !== "voice" && (
+              <TabsTrigger value="sms" className="data-[state=active]:bg-amber-500 data-[state=active]:text-black">
+                SMS Requests
+              </TabsTrigger>
+            )}
+            {focusType !== "sms" && (
+              <TabsTrigger value="voice" className="data-[state=active]:bg-amber-500 data-[state=active]:text-black">
+                Voice Requests
+              </TabsTrigger>
+            )}
           </TabsList>
         </Tabs>
       ) : (

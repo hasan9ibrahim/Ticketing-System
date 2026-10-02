@@ -58,6 +58,7 @@ import {
   Save,
 } from "lucide-react";
 import { matchesSearch, searchInputProps } from "@/lib/search";
+import { getEffectiveTicketType } from "@/lib/nocFocus";
 
 const API = `${process.env.REACT_APP_API_URL || "http://localhost:8000"}/api`;
 
@@ -86,12 +87,11 @@ export default function ReferencesPage() {
   const { toast } = useToast();
   const navigate = useNavigate();
   const user = JSON.parse(localStorage.getItem("user") || "{}");
-  const departmentType = user?.department_type || "all";
+  const departmentType = getEffectiveTicketType(user);
   const [mainTab, setMainTab] = useState("references"); // "references" or "alerts"
   const [activeSection, setActiveSection] = useState(() => {
     // Ensure activeSection is always a valid value ("sms" or "voice")
-    const deptType = user?.department_type;
-    return deptType === "voice" ? "voice" : "sms";
+    return getEffectiveTicketType(user) === "voice" ? "voice" : "sms";
   });
   const [smsLists, setSmsLists] = useState([]);
   const [voiceLists, setVoiceLists] = useState([]);
@@ -299,7 +299,7 @@ export default function ReferencesPage() {
     try {
       const token = localStorage.getItem("token");
       const user = JSON.parse(localStorage.getItem("user") || "{}");
-      const deptType = user?.department_type || "all";
+      const deptType = getEffectiveTicketType(user);
       
       // Fetch SMS data - only if user has access
       if (deptType === "all" || deptType === "sms") {

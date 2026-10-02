@@ -49,9 +49,23 @@ import {
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
 import { useTheme } from "@/contexts/ThemeContext";
+import { invalidateCache } from "@/lib/dataCache";
+import {
+  NOC_FOCUS_OPTIONS,
+  NOC_FOCUS_LABELS,
+  canPickNocFocus,
+  getEffectiveTicketType,
+  matchesTicketType,
+} from "@/lib/nocFocus";
 
 export default function DashboardLayout({ user, setUser }) {
   const { theme, toggleTheme } = useTheme();
+  // SMS / Voice / Both - what a NOC member is currently handling. Everything
+  // type-specific below (pages, alerts, requests, notifications) follows it.
+  const showNocFocusPicker = canPickNocFocus(user);
+  const nocFocus = showNocFocusPicker ? (user.noc_focus || "both") : null;
+  const effectiveTicketType = getEffectiveTicketType(user);
+  const [savingNocFocus, setSavingNocFocus] = useState(false);
   // Below the `lg` breakpoint the sidebar is an overlay drawer (closed by
   // default so it doesn't push/cover the whole screen on a phone); at `lg`
   // and up it's the existing inline push/collapse sidebar (open by default).
@@ -594,7 +608,7 @@ export default function DashboardLayout({ user, setUser }) {
       }
       // Filter out dismissed notifications to prevent them reappearing after refetch
       const currentDismissed = dismissedNotificationsRef.current;
-      setAlertNotifications(notifications.filter(n => !currentDismissed[n.id]));
+      setAlertNotifications(notifications.filter(n => !currentDismissed[n.id] && matchesTicketType(effectiveTicketType, n.ticket_type)));
     } catch (error) {
       // Silently handle errors - notifications are not critical
       console.log("Alert notifications unavailable:", error.message);
@@ -650,7 +664,9 @@ export default function DashboardLayout({ user, setUser }) {
         params: { status: "pending" }
       });
       // Still filter out claimed ones client-side (claimed_by isn't a status)
-      const pending = (res.data || []).filter(r => !r.claimed_by);
+      const pending = (res.data || []).filter(
+        r => !r.claimed_by && matchesTicketType(effectiveTicketType, r.department || r.ticket_type)
+      );
       setSidebarPendingRequests(pending);
     } catch (error) {
       console.log("Sidebar requests fetch error:", error.message);
@@ -689,7 +705,7 @@ export default function DashboardLayout({ user, setUser }) {
   
   // Determine badge count based on department type
   const getAlertBadgeCount = () => {
-    const deptType = user?.department_type;
+    const deptType = effectiveTicketType;
     if (deptType === "sms") return unresolvedSmsCount;
     if (deptType === "voice") return unresolvedVoiceCount;
     return totalUnresolvedAlerts;  // "all" or undefined shows total
@@ -808,7 +824,7 @@ export default function DashboardLayout({ user, setUser }) {
       const response = await axios.get(`${API}/dashboard/unassigned-alerts`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      const fetchedAlerts = response.data || [];
+      const fetchedAlerts = (response.data || []).filter(a => matchesTicketType(effectiveTicketType, a.type));
       setAlerts(fetchedAlerts);
       
       // Filter out dismissed alerts that haven't expired yet (based on priority)
@@ -845,7 +861,9 @@ export default function DashboardLayout({ user, setUser }) {
       // Filter out notifications that have been dismissed (permanently removed by user)
       // Use ref to get current value in interval callback
       const currentDismissed = dismissedNotificationsRef.current;
-      const filteredNotifications = notifications.filter(n => !currentDismissed[n.id]);
+      const filteredNotifications = notifications.filter(
+        n => !currentDismissed[n.id] && matchesTicketType(effectiveTicketType, n.ticket_type || "sms")
+      );
       setTicketModificationNotifications(filteredNotifications);
       
       // Don't auto-show popup - just show in bell dropdown
@@ -863,7 +881,7 @@ export default function DashboardLayout({ user, setUser }) {
       const response = await axios.get(`${API}/dashboard/assigned-ticket-reminders`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      const reminders = response.data || [];
+      const reminders = (response.data || []).filter(r => matchesTicketType(effectiveTicketType, r.type));
       setAssignedReminders(reminders);
       
       const now = Date.now();
@@ -985,6 +1003,45 @@ export default function DashboardLayout({ user, setUser }) {
     }
   };
 
+  const handleNocFocusChange = async (focus) => {
+    if (focus === nocFocus || savingNocFocus) return;
+    setSavingNocFocus(true);
+    try {
+      const token = localStorage.getItem("token");
+      await axios.put(`${API}/users/me/noc-focus`, { noc_focus: focus }, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const updatedUser = { ...user, noc_focus: focus };
+      localStorage.setItem("user", JSON.stringify(updatedUser));
+      // The cached user list carries everyone's (SMS)/(Voice) label
+      invalidateCache("users");
+      setUser(updatedUser);
+      // Leave a ticket page for the type that's now hidden
+      if (
+        (focus === "sms" && location.pathname.startsWith("/voice-tickets")) ||
+        (focus === "voice" && location.pathname.startsWith("/sms-tickets"))
+      ) {
+        navigate(focus === "sms" ? "/sms-tickets" : "/voice-tickets");
+      }
+      toast.success(`Now handling ${NOC_FOCUS_LABELS[focus]}`);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Failed to change SMS / Voice focus");
+    } finally {
+      setSavingNocFocus(false);
+    }
+  };
+
+  // Opening a hidden ticket page by URL (bookmark, old link) - send them to
+  // the one they're handling instead.
+  useEffect(() => {
+    if (effectiveTicketType === "sms" && location.pathname.startsWith("/voice-tickets")) {
+      navigate("/sms-tickets", { replace: true });
+    } else if (effectiveTicketType === "voice" && location.pathname.startsWith("/sms-tickets")) {
+      navigate("/voice-tickets", { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveTicketType, location.pathname]);
+
   const navItems = [
     { path: "/", label: "Dashboard", icon: LayoutDashboard, roles: ["admin", "am", "noc"] },
     { path: "__chat__", label: "Chat", icon: MessageCircle, roles: ["admin", "am", "noc"], isChatToggle: true },
@@ -1006,10 +1063,9 @@ export default function DashboardLayout({ user, setUser }) {
   const filteredNavItems = navItems.filter((item) => {
     if (!item.roles.includes(user.role)) return false;
     
-    // Check department_type if available (new system)
-    if (user.department_type && user.department_type !== "all") {
-      // If user has a specific ticket type restriction, only show matching pages
-      if (item.ticketType && item.ticketType !== user.department_type) {
+    // Department type or the NOC's SMS/Voice focus limits the ticket pages shown
+    if (effectiveTicketType !== "all") {
+      if (item.ticketType && item.ticketType !== effectiveTicketType) {
         return false;
       }
     }
@@ -1337,6 +1393,11 @@ export default function DashboardLayout({ user, setUser }) {
                 <div className="text-sm">
                   <p className="text-gray-900 dark:text-white font-medium">{user.username}</p>
                   <p className="text-zinc-500 capitalize">{user.role}</p>
+                  {user.role === "noc" && (
+                    <p className="text-xs text-amber-600 dark:text-amber-400">
+                      Handling {NOC_FOCUS_LABELS[effectiveTicketType === "all" ? "both" : effectiveTicketType]}
+                    </p>
+                  )}
                 </div>
                 {showPushButton && (
                   <Button
@@ -1435,6 +1496,39 @@ export default function DashboardLayout({ user, setUser }) {
             >
               <X className="h-5 w-5" />
             </Button>
+          )}
+          {/* NOC SMS / Voice / Both switch */}
+          {showNocFocusPicker && (
+            <div
+              role="tablist"
+              aria-label="Ticket type you're handling"
+              className="flex items-center gap-1 p-1 rounded-lg bg-gray-100 dark:bg-zinc-800"
+              data-testid="noc-focus-switch"
+            >
+              {NOC_FOCUS_OPTIONS.map((opt) => {
+                const active = nocFocus === opt.value;
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    disabled={savingNocFocus}
+                    onClick={() => handleNocFocusChange(opt.value)}
+                    className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-sm font-medium transition-colors disabled:opacity-60 ${
+                      active
+                        ? "bg-emerald-500 text-black shadow-sm"
+                        : "text-gray-600 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white hover:bg-white dark:hover:bg-zinc-700"
+                    }`}
+                    data-testid={`noc-focus-${opt.value}`}
+                  >
+                    {opt.value === "sms" && <MessageSquare className="h-4 w-4" />}
+                    {opt.value === "voice" && <Phone className="h-4 w-4" />}
+                    <span className={opt.value === "both" ? "" : "hidden sm:inline"}>{opt.label}</span>
+                  </button>
+                );
+              })}
+            </div>
           )}
           {/* Spacer to push items to the right */}
           <div className="flex-1" />
@@ -1676,7 +1770,8 @@ export default function DashboardLayout({ user, setUser }) {
         </header>
         
         <div className="relative z-10 flex-1 overflow-auto">
-          <Outlet />
+          {/* Keyed so pages re-read the SMS / Voice focus when it changes */}
+          <Outlet key={effectiveTicketType} />
         </div>
 
         {/* Chat Component - mounted inside <main> (not as a sibling of the
