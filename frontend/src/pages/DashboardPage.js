@@ -9,6 +9,7 @@ import PriorityIndicator from "@/components/custom/PriorityIndicator";
 import { DateRangePickerWithRange } from "@/components/custom/DateRangePickerWithRange";
 import { Button } from "@/components/ui/button";
 import { addDays } from "date-fns";
+import { getEffectiveTicketType, matchesTicketType } from "@/lib/nocFocus";
 
 const BACKEND_URL = process.env.REACT_APP_API_URL;
 const API = `${BACKEND_URL}/api`;
@@ -28,13 +29,16 @@ export default function DashboardPage() {
   // compatibility with accounts that predate the department system.
   const amType = currentUser?.department_type || currentUser?.am_type;
 
+  // NOCs only see the ticket type they're handling (SMS / Voice / Both)
+  const nocFocusType = currentUser?.role === 'noc' ? getEffectiveTicketType(currentUser) : 'all';
+
   // Determine what stats to show based on user role
   const showSmsStats = !currentUser ||
-    (currentUser.role !== 'am') ||
-    (amType === 'sms');
+    (currentUser.role !== 'am' && nocFocusType !== 'voice') ||
+    (currentUser.role === 'am' && amType === 'sms');
   const showVoiceStats = !currentUser ||
-    (currentUser.role !== 'am') ||
-    (amType === 'voice');
+    (currentUser.role !== 'am' && nocFocusType !== 'sms') ||
+    (currentUser.role === 'am' && amType === 'voice');
 
   // Get user display type for filtering
   const userType = currentUser?.role === 'am' ? amType : (currentUser?.role || 'unknown');
@@ -197,6 +201,9 @@ export default function DashboardPage() {
                   {user.name && (
                     <span className="text-xs text-zinc-500">({user.name})</span>
                   )}
+                  {user.noc_label && (
+                    <span className="text-xs font-medium text-amber-600 dark:text-amber-400">({user.noc_label})</span>
+                  )}
                 </div>
               ))}
             </div>
@@ -335,7 +342,7 @@ export default function DashboardPage() {
               {stats.recent_tickets
                 .filter(ticket => {
                   if (!currentUser) return true; // Show all if no user
-                  if (currentUser.role !== 'am') return true; // NOC/Admin see all
+                  if (currentUser.role !== 'am') return matchesTicketType(nocFocusType, ticket.type); // NOC by focus, Admin all
                   if (amType === 'sms') return ticket.type === 'SMS';
                   if (amType === 'voice') return ticket.type === 'Voice';
                   return true;

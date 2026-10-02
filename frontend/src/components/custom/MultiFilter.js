@@ -20,6 +20,7 @@ export const FILTER_FIELDS = [
   // Request-specific fields
   { id: "ticket_type", label: "Ticket Type", type: "select", options: ["sms", "voice"] },
   { id: "request_type", label: "Request Type", type: "select", options: ["testing", "rating_routing", "block", "unblock"] },
+  { id: "request_id", label: "Request ID", type: "text", placeholder: "Enter request ID..." },
   // User management fields
   { id: "name", label: "Name", type: "text", placeholder: "Enter name..." },
   { id: "username", label: "Username", type: "text", placeholder: "Enter username..." },

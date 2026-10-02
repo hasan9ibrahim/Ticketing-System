@@ -87,8 +87,21 @@ function App() {
           }
         }
 
+        // The NOC SMS / Voice / Both pick is saved server-side - pick up a
+        // change made on another device.
+        let nocFocus = currentUser.noc_focus;
+        try {
+          const me = await axios.get(`${API}/auth/me`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          nocFocus = me.data?.noc_focus || nocFocus;
+        } catch (e) {
+          // Keep the stored value
+        }
+
         const updatedUser = {
           ...currentUser,
+          noc_focus: nocFocus,
           department_id: response.data.id,
           department_type: response.data.department_type,
           department: response.data,  // Include full department object with permissions

@@ -178,6 +178,14 @@ function parseSMS(text) {
   const labels = {};
   if (map) {
     rows = rows.slice(1);
+    // A Vendor Message ID column wins over any other ID column (e.g. Customer
+    // Message ID); without one, whichever ID column there is gets used
+    const vi = header.findIndex((c) => /vendor|supplier/.test(String(c).toLowerCase()) && /message[\s_-]*id|msg[\s_-]*id|sms[\s_-]*id|messageid/.test(String(c).toLowerCase()));
+    if (vi >= 0 && map[vi] !== "id") {
+      const ii = map.indexOf("id");
+      if (ii >= 0) map[ii] = null;
+      map[vi] = "id";
+    }
     // Keep the partner's wording when the sender column comes in as SRC ADDR
     const si = map.indexOf("sender");
     if (si >= 0 && SRC_ADDR_RE.test(String(header[si]).toLowerCase().trim())) labels.sender = "SRC ADDR";

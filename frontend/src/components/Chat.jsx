@@ -225,7 +225,8 @@ function formatPresence(isOnline, lastActive) {
   if (!dateStr.endsWith("Z") && !dateStr.includes("+")) dateStr = dateStr + "Z";
   const date = new Date(dateStr);
   const diff = Date.now() - date.getTime();
-  if (isNaN(diff)) return "Offline";
+  // Older logouts stored a 1970 placeholder - there's no real "last seen" to show
+  if (isNaN(diff) || date.getFullYear() < 2000) return "Offline";
   const minutes = Math.floor(diff / 60000);
   if (minutes < 1) return "Active now";
   if (minutes < 60) return `Active ${minutes}m ago`;
@@ -241,6 +242,16 @@ function formatPresence(isOnline, lastActive) {
 function chatTitle(chat) {
   if (chat.is_group) return chat.name || "Group";
   return chat.participant?.name || chat.participant?.username || "Unknown";
+}
+
+// "(SMS)" / "(Voice)" / "(SMS and Voice)" next to a NOC member's name.
+function FocusTag({ user, className = "" }) {
+  if (!user?.noc_label) return null;
+  return (
+    <span className={`text-[10px] font-normal text-amber-600 dark:text-amber-400 whitespace-nowrap flex-shrink-0 ${className}`}>
+      ({user.noc_label})
+    </span>
+  );
 }
 
 function withTz(dateStr) {
@@ -1389,6 +1400,7 @@ export default function Chat({ user, openChats, setOpenChats, activeChat, setAct
                     <div className="flex items-center gap-2 min-w-0 flex-1">
                       <span className="font-medium truncate text-sm flex items-center gap-1 mr-6">
                         {chatTitle(chat)}
+                        {!chat.is_group && <FocusTag user={chat.participant} />}
                         {chat.unreadCount > 0 && (
                           <Badge className="bg-red-500 text-white text-xs min-w-[18px] h-[18px] flex items-center justify-center p-0">
                             {chat.unreadCount > 99 ? "99+" : chat.unreadCount}
@@ -1640,7 +1652,10 @@ function ChatListView({ conversations, users, loading, error, onRetry, onSelectC
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between">
-                      <div className="font-medium truncate text-gray-900 dark:text-white">{title}</div>
+                      <div className="flex items-baseline gap-1 min-w-0">
+                        <div className="font-medium truncate text-gray-900 dark:text-white">{title}</div>
+                        {!conv.is_group && <FocusTag user={participant} />}
+                      </div>
                       <div className="text-xs text-zinc-500">{formatRelativeTime(conv.last_message_time)}</div>
                     </div>
                     <div className="flex items-center justify-between">
@@ -1709,7 +1724,10 @@ function ChatListView({ conversations, users, loading, error, onRetry, onSelectC
                       {u.is_online && <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 rounded-full border-2 border-white dark:border-black" />}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="font-medium truncate text-gray-900 dark:text-white">{u.name}</div>
+                      <div className="flex items-baseline gap-1 min-w-0">
+                        <div className="font-medium truncate text-gray-900 dark:text-white">{u.name}</div>
+                        <FocusTag user={u} />
+                      </div>
                       <div className="text-xs text-gray-500 truncate">{formatPresence(u.is_online, u.last_active)}</div>
                     </div>
                   </div>
@@ -1955,6 +1973,7 @@ function GroupInfoDialog({ open, onOpenChange, chat, currentUser, allUsers, onSa
                 <div>
                   <div className="text-sm">
                     {p.name}
+                    <FocusTag user={p} className="ml-1" />
                     {p.phone && <span className="ml-1.5 text-xs text-gray-500 dark:text-zinc-400 tabular-nums">{p.phone}</span>}
                   </div>
                   <div className="text-[10px] text-gray-500 dark:text-zinc-400">{formatPresence(p.is_online, p.last_active)}</div>
@@ -2565,6 +2584,7 @@ function ChatWindowView({
             <div className="min-w-0">
               <div className="flex items-baseline gap-1.5 min-w-0">
                 <span className="font-medium text-sm text-gray-900 dark:text-white truncate">{chatTitle(chat)}</span>
+                {!isGroup && <FocusTag user={chat.participant} />}
                 {!isGroup && chat.participant?.phone && (
                   <span className="text-xs text-gray-500 dark:text-zinc-400 whitespace-nowrap flex-shrink-0 tabular-nums">
                     {chat.participant.phone}
@@ -2773,7 +2793,12 @@ function ChatWindowView({
                     isEditingThis ? "ring-2 ring-emerald-400 ring-offset-1 ring-offset-white dark:ring-offset-black" : ""
                   }`}
                 >
-                  {isGroup && !isOwn && <div className="text-[10px] font-medium text-emerald-500 mb-0.5">{msg.sender_name}</div>}
+                  {isGroup && !isOwn && (
+                    <div className="text-[10px] font-medium text-emerald-500 mb-0.5">
+                      {msg.sender_name}
+                      <FocusTag user={chat.participants?.find((p) => p.id === msg.sender_id)} className="ml-1" />
+                    </div>
+                  )}
 
                   {msg.is_deleted ? (
                     <div className="italic text-xs opacity-70">This message was deleted</div>

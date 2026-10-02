@@ -78,7 +78,7 @@ function fromTicket(mode, ticket) {
     closing: "Kindly check and update us ASAP.",
     rows: [],
     labels: defaultLabels(mode),
-    showOpt: true,
+    showOpt: false,
   };
 }
 

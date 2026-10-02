@@ -163,6 +163,8 @@ class User(BaseModel):
     notify_on_noc_ticket_modification: bool = True  # Notify when another NOC modifies assigned ticket
     # AM specific permission - whether AM can access My Enterprises page
     can_view_my_enterprises: bool = True  # Admin can toggle this for each AM
+    # NOC working focus picked from the top bar: "sms", "voice" or "both"
+    noc_focus: str = "both"
 
 # ==================== CHAT MODELS ====================
 # Rebuilt from scratch - see the chat endpoints and /ws/chat handler further
@@ -267,6 +269,7 @@ class ChatUser(BaseModel):
     name: str
     last_active: Optional[datetime] = None
     is_online: bool = False
+    noc_label: Optional[str] = None  # "SMS" / "Voice" / "SMS and Voice" for NOC users
 
 class Department(BaseModel):
     """Department model with configurable permissions"""
@@ -410,6 +413,11 @@ class UserResponse(BaseModel):
     two_factor_enabled: Optional[bool] = False
     two_factor_method: Optional[str] = None  # "totp" or "email"
     can_view_my_enterprises: Optional[bool] = True  # AM specific permission
+    noc_focus: Optional[str] = "both"  # NOC working focus: "sms", "voice" or "both"
+    noc_label: Optional[str] = None  # "SMS" / "Voice" / "SMS and Voice" for NOC users
+
+class NocFocusUpdate(BaseModel):
+    noc_focus: str  # "sms", "voice" or "both"
 
 class UserUpdate(BaseModel):
     """Model for updating user - only allows updating certain fields"""
@@ -754,7 +762,7 @@ async def notify_noc_about_am_action(ticket, action_text, action_created_by, tic
     # Get all NOC users using department_id
     noc_users = await db.users.find(
         {"department_id": noc_dept_id},
-        {"_id": 0, "id": 1, "username": 1, "name": 1, "notify_on_am_action": 1}
+        {"_id": 0, "id": 1, "username": 1, "name": 1, "notify_on_am_action": 1, "noc_focus": 1}
     ).to_list(100)
     
     if not noc_users:
@@ -773,6 +781,9 @@ async def notify_noc_about_am_action(ticket, action_text, action_created_by, tic
     for noc_user in noc_users:
         # Check if NOC wants to be notified for AM actions (default True)
         if not noc_user.get("notify_on_am_action", True):
+            continue
+        # Skip NOCs currently handling only the other ticket type
+        if not noc_focus_covers(noc_user, ticket_type):
             continue
 
         noc_id = noc_user.get("id")
@@ -1024,7 +1035,7 @@ async def notify_users_about_alert(
             # Get all NOC users using department_id
             noc_users = await db.users.find(
                 {"department_id": noc_dept_id},
-                {"_id": 0, "id": 1, "username": 1, "name": 1}
+                {"_id": 0, "id": 1, "username": 1, "name": 1, "noc_focus": 1}
             ).to_list(100)
         
         # Get creator info and role in a single lookup (was fetched twice before:
@@ -1045,6 +1056,10 @@ async def notify_users_about_alert(
 
             # Don't notify the NOC user who created the alert
             if created_by and noc_id == created_by:
+                continue
+
+            # Skip NOCs currently handling only the other ticket type
+            if not noc_focus_covers(noc_user, ticket_type):
                 continue
 
             # Build NOC-specific message
@@ -1155,6 +1170,7 @@ class SMSTicket(BaseModel):
     issue_other: Optional[str] = None  # Custom "Other" issue text
     issue: Optional[str] = None  # Legacy field - computed from issue_types + issue_other
     opened_via: List[str] = []  # Multi-select: Monitoring, Teams, Email, AM, Telegram
+    opened_by_vendor: bool = False  # Shows an "Opened by Vendor" note under Opened Via
     assigned_to: Optional[str] = None
     status: str
     # Legacy single SID/Content fields (kept for backward compatibility)
@@ -1199,6 +1215,7 @@ class SMSTicketCreate(BaseModel):
     issue_other: Optional[str] = None
     issue: Optional[str] = None  # Legacy/computed
     opened_via: List[str] = []  # Multi-select checklist
+    opened_by_vendor: bool = False
     assigned_to: Optional[str] = None
     status: str = "Unassigned"
     # Legacy single SID/Content fields (kept for backward compatibility)
@@ -1226,6 +1243,7 @@ class SMSTicketUpdate(BaseModel):
     issue_other: Optional[str] = None
     issue: Optional[str] = None
     opened_via: Optional[List[str]] = None  # Multi-select checklist
+    opened_by_vendor: Optional[bool] = None
     assigned_to: Optional[str] = None
     status: Optional[str] = None
     # Legacy single SID/Content fields (kept for backward compatibility)
@@ -1271,6 +1289,7 @@ class VoiceTicket(BaseModel):
     fas_type: Optional[str] = None  # FAS type specification for Voice tickets
     issue: Optional[str] = None  # Legacy field
     opened_via: List[str] = []  # Multi-select: Monitoring, Teams, Email, AM
+    opened_by_vendor: bool = False  # Shows an "Opened by Vendor" note under Opened Via
     assigned_to: Optional[str] = None
     status: str
     rate: Optional[str] = None
@@ -1300,6 +1319,7 @@ class VoiceTicketCreate(BaseModel):
     fas_type: Optional[str] = None
     issue: Optional[str] = None
     opened_via: List[str] = []  # Multi-select checklist
+    opened_by_vendor: bool = False
     assigned_to: Optional[str] = None
     status: str = "Unassigned"
     rate: Optional[str] = None
@@ -1325,6 +1345,7 @@ class VoiceTicketUpdate(BaseModel):
     fas_type: Optional[str] = None
     issue: Optional[str] = None
     opened_via: Optional[List[str]] = None  # Multi-select checklist
+    opened_by_vendor: Optional[bool] = None
     assigned_to: Optional[str] = None
     status: Optional[str] = None
     rate: Optional[str] = None
@@ -1457,6 +1478,41 @@ def get_user_ticket_type(dept: Optional[dict]) -> str:
     if not dept:
         return "all"
     return dept.get("department_type", "all")
+
+NOC_FOCUS_VALUES = ("sms", "voice", "both")
+NOC_FOCUS_LABELS = {"sms": "SMS", "voice": "Voice", "both": "SMS and Voice"}
+
+def get_noc_focus(user: dict, dept: Optional[dict]) -> Optional[str]:
+    """The ticket type a NOC user is currently handling ("sms", "voice" or
+    "both"), or None for non-NOC users. A department limited to one type
+    always wins over the user's own pick from the top bar."""
+    role = user.get("role")
+    if role not in ("admin", "am", "noc"):
+        role = get_user_role_from_department(dept)
+    if role != "noc":
+        return None
+    dept_type = (dept or {}).get("department_type", "all")
+    if dept_type in ("sms", "voice"):
+        return dept_type
+    focus = user.get("noc_focus")
+    return focus if focus in NOC_FOCUS_VALUES else "both"
+
+def get_noc_label(user: dict, dept: Optional[dict]) -> Optional[str]:
+    focus = get_noc_focus(user, dept)
+    return NOC_FOCUS_LABELS.get(focus) if focus else None
+
+def noc_focus_covers(user: dict, ticket_type: Optional[str]) -> bool:
+    """Whether a NOC user's focus includes this ticket type (used to skip
+    broadcast notifications for the type they aren't handling)."""
+    focus = user.get("noc_focus")
+    return focus not in ("sms", "voice") or not ticket_type or focus == ticket_type
+
+async def get_departments_by_id() -> dict:
+    depts = await db.departments.find({}, {"_id": 0}).to_list(200)
+    return {d["id"]: d for d in depts if d.get("id")}
+
+def with_noc_label(user: dict, depts_by_id: dict) -> dict:
+    return {**user, "noc_label": get_noc_label(user, depts_by_id.get(user.get("department_id")))}
 
 async def get_current_admin(current_user: dict = Depends(get_current_user)):
     """Check if user is admin based on department permissions"""
@@ -1616,10 +1672,10 @@ async def login(login_data: UserLogin):
             )
 
     # No 2FA - complete login normally
-    # Update last_active on login
+    # Update last_active on login and clear any logout marker
     await db.users.update_one(
         {"id": user["id"]},
-        {"$set": {"last_active": datetime.now(timezone.utc)}}
+        {"$set": {"last_active": datetime.now(timezone.utc)}, "$unset": {"logged_out_at": ""}}
     )
     
     # Create a session record to track online time
@@ -1660,11 +1716,14 @@ async def login(login_data: UserLogin):
 
 @api_router.post("/auth/logout")
 async def logout(current_user: dict = Depends(get_current_user)):
-    """Logout - marks user as offline by setting last_active to a very old timestamp and closes session"""
-    # Set last_active to a time far in the past so user immediately shows as offline
+    """Logout - marks user as offline and closes session"""
+    # Record the real logout time as last_active (so "last seen" is exact) and
+    # flag the logout via logged_out_at so presence checks treat the user as
+    # offline immediately - see is_user_online().
+    now = datetime.now(timezone.utc)
     await db.users.update_one(
         {"id": current_user["id"]},
-        {"$set": {"last_active": datetime(1970, 1, 1, tzinfo=timezone.utc)}}
+        {"$set": {"last_active": now, "logged_out_at": now}}
     )
     
     # Close the current session record
@@ -1842,7 +1901,20 @@ async def confirm_password_reset(reset_data: dict):
 async def get_me(current_user: dict = Depends(get_current_user)):
     if isinstance(current_user['created_at'], str):
         current_user['created_at'] = datetime.fromisoformat(current_user['created_at'])
-    return UserResponse(**current_user)
+    return UserResponse(**current_user, noc_label=get_noc_label(current_user, current_user.get("department")))
+
+@api_router.put("/users/me/noc-focus")
+async def update_my_noc_focus(data: NocFocusUpdate, current_user: dict = Depends(get_current_user)):
+    """Set which ticket type (SMS, Voice or both) a NOC user is handling.
+    Only changes what they see/are notified about, not their permissions."""
+    if data.noc_focus not in NOC_FOCUS_VALUES:
+        raise HTTPException(status_code=400, detail="noc_focus must be 'sms', 'voice' or 'both'")
+    dept = await get_user_department(current_user)
+    if get_noc_focus(current_user, dept) is None:
+        raise HTTPException(status_code=403, detail="Only NOC users can change their focus")
+    await db.users.update_one({"id": current_user["id"]}, {"$set": {"noc_focus": data.noc_focus}})
+    updated = {**current_user, "noc_focus": data.noc_focus}
+    return {"noc_focus": data.noc_focus, "noc_label": get_noc_label(updated, dept)}
 
 # ==================== 2FA AUTHENTICATION ====================
 
@@ -2048,7 +2120,7 @@ async def verify_2fa_login(login_data: TwoFactorLogin):
         {"$set": {
             "last_active": datetime.now(timezone.utc),
             "current_session_id": session_id
-        }}
+        }, "$unset": {"logged_out_at": ""}}
     )
     
     # Create audit log for 2FA login
@@ -2431,10 +2503,11 @@ async def get_users(current_user: dict = Depends(get_current_user)):
     # Exclude password_hash at query level for efficiency. BOB (is_bot) isn't
     # a manageable account, so it's left out of user administration.
     users = await db.users.find({"is_bot": {"$ne": True}}, {"_id": 0, "password_hash": 0}).to_list(1000)
+    depts_by_id = await get_departments_by_id()
     for user in users:
         if isinstance(user.get('created_at'), str):
             user['created_at'] = datetime.fromisoformat(user['created_at'])
-    return [UserResponse(**user) for user in users]
+    return [UserResponse(**with_noc_label(user, depts_by_id)) for user in users]
 
 @api_router.put("/users/{user_id}", response_model=UserResponse)
 async def update_user(user_id: str, user_data: UserUpdate, current_admin: dict = Depends(get_current_admin)):
@@ -5524,8 +5597,10 @@ async def get_online_users(current_user: dict = Depends(get_current_user)):
             "last_active": {"$gte": five_minutes_ago},
             "$or": [{"is_active": True}, {"is_active": {"$exists": False}}]
         },
-        {"_id": 0, "id": 1, "username": 1, "name": 1, "last_active": 1}
+        {"_id": 0, "id": 1, "username": 1, "name": 1, "last_active": 1, "logged_out_at": 1, "role": 1, "department_id": 1, "noc_focus": 1}
     ).to_list(100)
+    online_users = [u for u in online_users if is_user_online(u)]
+    depts_by_id = await get_departments_by_id()
 
     return [
         ChatUser(
@@ -5533,7 +5608,8 @@ async def get_online_users(current_user: dict = Depends(get_current_user)):
             username=u["username"],
             name=u.get("name") or u["username"],
             last_active=u.get("last_active"),
-            is_online=True
+            is_online=True,
+            noc_label=get_noc_label(u, depts_by_id.get(u.get("department_id")))
         )
         for u in online_users
     ]
@@ -6369,17 +6445,38 @@ async def websocket_data(websocket: WebSocket, token: str):
 
 # ==================== CHAT API ENDPOINTS ====================
 
-def build_chat_user_info(u: dict) -> dict:
-    """Shape a user doc into the {id, username, name, phone, last_active, is_online}
-    form used across every chat endpoint. Online = active within 5 minutes."""
-    is_online = False
-    last_active = u.get("last_active")
-    if last_active:
-        if isinstance(last_active, str):
-            last_active = datetime.fromisoformat(last_active)
-        if last_active.tzinfo is None:
-            last_active = last_active.replace(tzinfo=timezone.utc)
-        is_online = last_active > datetime.now(timezone.utc) - timedelta(minutes=5)
+def _as_utc(value):
+    if isinstance(value, str):
+        try:
+            value = datetime.fromisoformat(value)
+        except ValueError:
+            return None
+    if isinstance(value, datetime) and value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value if isinstance(value, datetime) else None
+
+def is_user_online(u: dict) -> bool:
+    """Online = active within 5 minutes and not logged out. Activity in the
+    first minute after a logout (in-flight polls/pings from the closing tab)
+    doesn't count; activity after that means the user is back on another
+    device or tab with a still-valid token."""
+    last_active = _as_utc(u.get("last_active"))
+    if not last_active or last_active <= datetime.now(timezone.utc) - timedelta(minutes=5):
+        return False
+    logged_out_at = _as_utc(u.get("logged_out_at"))
+    if logged_out_at and last_active - logged_out_at <= timedelta(minutes=1):
+        return False
+    return True
+
+CHAT_USER_PROJECTION = {
+    "_id": 0, "id": 1, "username": 1, "name": 1, "last_active": 1, "logged_out_at": 1, "phone": 1,
+    "role": 1, "department_id": 1, "noc_focus": 1,
+}
+
+def build_chat_user_info(u: dict, depts_by_id: Optional[dict] = None) -> dict:
+    """Shape a user doc into the {id, username, name, phone, last_active, is_online,
+    noc_label} form used across every chat endpoint."""
+    is_online = is_user_online(u)
     if u["id"] == BOB_USER_ID:
         # BOB has no session/last_active - always show it available rather
         # than as permanently "offline".
@@ -6390,7 +6487,8 @@ def build_chat_user_info(u: dict) -> dict:
         "name": u["name"],
         "phone": u.get("phone") or "",
         "last_active": u.get("last_active"),
-        "is_online": is_online
+        "is_online": is_online,
+        "noc_label": get_noc_label(u, (depts_by_id or {}).get(u.get("department_id"))),
     }
 
 @api_router.get("/chat/users")
@@ -6402,10 +6500,11 @@ async def get_chat_users(current_user: dict = Depends(get_current_user)):
     try:
         users = await db.users.find(
             {"id": {"$ne": current_user["id"]}, "is_bot": {"$ne": True}},
-            {"_id": 0, "id": 1, "username": 1, "name": 1, "last_active": 1, "phone": 1}
+            CHAT_USER_PROJECTION
         ).to_list(length=500)
 
-        return [build_chat_user_info(u) for u in users]
+        depts_by_id = await get_departments_by_id()
+        return [build_chat_user_info(u, depts_by_id) for u in users]
     except Exception as e:
         logger.error(f"Error in get_chat_users: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -6430,10 +6529,11 @@ async def get_conversations(current_user: dict = Depends(get_current_user)):
                     other_participant_ids.add(pid)
 
         users_by_id = {}
+        depts_by_id = await get_departments_by_id()
         if other_participant_ids:
             participant_users = await db.users.find(
                 {"id": {"$in": list(other_participant_ids)}},
-                {"_id": 0, "id": 1, "username": 1, "name": 1, "last_active": 1, "phone": 1}
+                CHAT_USER_PROJECTION
             ).to_list(length=len(other_participant_ids))
             users_by_id = {u["id"]: u for u in participant_users}
 
@@ -6445,7 +6545,7 @@ async def get_conversations(current_user: dict = Depends(get_current_user)):
                 if pid != user_id:
                     puser = users_by_id.get(pid)
                     if puser:
-                        participants.append(build_chat_user_info(puser))
+                        participants.append(build_chat_user_info(puser, depts_by_id))
 
             # Get unread count for current user
             unread_count = conv.get("unread_counts", {}).get(user_id, 0)
@@ -6490,9 +6590,9 @@ async def create_or_get_conversation(
 
     other_user = await db.users.find_one(
         {"id": other_user_id},
-        {"_id": 0, "id": 1, "username": 1, "name": 1, "last_active": 1, "phone": 1}
+        CHAT_USER_PROJECTION
     )
-    participants = [build_chat_user_info(other_user)] if other_user else []
+    participants = [build_chat_user_info(other_user, await get_departments_by_id())] if other_user else []
 
     if existing:
         return {
@@ -6549,7 +6649,7 @@ async def create_group_conversation(
 
     members = await db.users.find(
         {"id": {"$in": member_ids}},
-        {"_id": 0, "id": 1, "username": 1, "name": 1, "last_active": 1, "phone": 1}
+        CHAT_USER_PROJECTION
     ).to_list(length=len(member_ids))
     members_by_id = {m["id"]: m for m in members}
 
@@ -6562,7 +6662,8 @@ async def create_group_conversation(
     )
     await db.conversations.insert_one(conv.model_dump())
 
-    participants = [build_chat_user_info(members_by_id[pid]) for pid in member_ids if pid != admin_id and pid in members_by_id]
+    depts_by_id = await get_departments_by_id()
+    participants = [build_chat_user_info(members_by_id[pid], depts_by_id) for pid in member_ids if pid != admin_id and pid in members_by_id]
 
     return {
         "id": conv.id,
@@ -6612,10 +6713,11 @@ async def update_group_conversation(
     member_ids = updated.get("participant_ids", [])
     members = await db.users.find(
         {"id": {"$in": member_ids}},
-        {"_id": 0, "id": 1, "username": 1, "name": 1, "last_active": 1, "phone": 1}
+        CHAT_USER_PROJECTION
     ).to_list(length=len(member_ids))
     members_by_id = {m["id"]: m for m in members}
-    participants = [build_chat_user_info(members_by_id[pid]) for pid in member_ids if pid != current_user["id"] and pid in members_by_id]
+    depts_by_id = await get_departments_by_id()
+    participants = [build_chat_user_info(members_by_id[pid], depts_by_id) for pid in member_ids if pid != current_user["id"] and pid in members_by_id]
 
     # Let every member's open chat window pick up the rename/membership change live
     await manager.broadcast_to_conversation({
